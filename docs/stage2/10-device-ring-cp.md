@@ -128,8 +128,10 @@ public:
 |---|---|---|
 | 0x00~0x0F | RING_WPTR(0x00)、RING_RPTR(0x01)、RING_SIZE(0x02)、DOORBELL(0x04)、FENCE_MON(0x08) | ring 指针、doorbell、fence 监视 |
 | 0x10~0x1F | CP_CTRL(0x10)、INT_STATUS(0x14)、CTX_STATE(0x18) | CP 控制、中断、上下文状态 |
-| 0x20~0x2F | ERROR_CODE(0x20)、DEBUG0(0x24)、HW_STATS_BASE(0x28) | 错误码、调试、性能计数 |
+| 0x20~0x2F | ERROR_CODE(0x20)、ERROR_PKT_TYPE(0x21)、ERROR_DWORD_OFFSET(0x22)、DEBUG0(0x24)、HW_STATS_BASE(0x28) | 错误定位、调试、性能计数 |
 | 0x30~0x3F | DEV_RING_ID(0x30)、CMD_VERSION(0x38) | 设备/ring ID、命令流版本回显 |
+| 0x40~0x4F | stateId 0~7 LO/HI 基址 | 当前上下文状态基址 |
+| 0x80~0xDF | PSO 暂存区 | SHADER_PSO 状态副本（第 6 章） |
 | 0xE0 | RT_WIDTH(0xE0) | RT 宽度（完整 32 bit） |
 | 0xE1 | RT_HEIGHT(0xE1) | RT 高度（完整 32 bit） |
 | 0xE2~0xEF | — | 多上下文 / 多队列 / SE / 并行统计预留 |

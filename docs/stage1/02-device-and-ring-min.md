@@ -112,7 +112,8 @@ u64    LastSubmittedFence();          // 诊断用，不参与判据
 | 0x20 | `ERROR_CODE` | RO | 最近一次 `Result` 数值 |
 | 0x21 | `ERROR_PKT_TYPE` | RO | 出错包类型 |
 | 0x22 | `ERROR_DWORD_OFFSET` | RO | 出错 dword 偏移 |
-| 0x30 | `RT_SIZE` | RW | 宽低 16 bit、高高 16 bit（由 `CLEAR` 锁存，本章只写入） |
+| 0xE0 | `RT_WIDTH` | RW | RT 宽度（完整 32 bit，由 `CLEAR` 锁存） |
+| 0xE1 | `RT_HEIGHT` | RW | RT 高度（完整 32 bit，由 `CLEAR` 锁存） |
 | 0x38 | `STREAM_VERSION_ECHO` | RO | 最近接受的命令流版本（仅回显） |
 
 约束：
