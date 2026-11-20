@@ -118,7 +118,7 @@ public:
 | 环填充 | 包不得跨环尾；空间不足时在环尾写 `NOP`(0x07,count=1) 填充后再续包 |
 | 包表 | `STREAM_HEADER` 与版本/引擎/标志、`FENCE`(0x01)、`SET_STATE_BASE`(0x02)、`DRAW`(0x03)、`COPY_MEM`(0x05)、`SHADER_PSO`(0x06)、`NOP`(0x07)、`CLEAR`(0x08)——初章派发表的最小集合 |
 
-### 3.4 MMIO 分段（`../design/command-mmio.md` §4，本章落地 0x00~0x1F、0x20~0x2F、0x30、0xF0）
+### 3.4 MMIO 分段（`../design/command-mmio.md` §4，本章落地 0x00~0x1F、0x20~0x2F、0x30、0x38、0xE0~0xE1、0xF0）
 
 本节 MMIO 偏移一律为 **dword 索引**（stateId n → `0x40+2n`，`0x50~0x7F` 保留，Q-31）。
 
@@ -130,6 +130,9 @@ public:
 | 0x10~0x1F | CP_CTRL(0x10)、INT_STATUS(0x14)、CTX_STATE(0x18) | CP 控制、中断、上下文状态 |
 | 0x20~0x2F | ERROR_CODE(0x20)、DEBUG0(0x24)、HW_STATS_BASE(0x28) | 错误码、调试、性能计数 |
 | 0x30~0x3F | DEV_RING_ID(0x30)、CMD_VERSION(0x38) | 设备/ring ID、命令流版本回显 |
+| 0xE0 | RT_WIDTH(0xE0) | RT 宽度（完整 32 bit） |
+| 0xE1 | RT_HEIGHT(0xE1) | RT 高度（完整 32 bit） |
+| 0xE2~0xEF | — | 多上下文 / 多队列 / SE / 并行统计预留 |
 | 0xF0~0xFF | RESET_CTRL(0xF0) | 系统保留 / 紧急复位（特权） |
 
 `CMD_VERSION`(0x38) 只回显 `STREAM_HEADER` 版本；判定以包为准。
@@ -273,3 +276,9 @@ FENCE 包载荷 {u64 value} → CP 写 FENCE_MON(0x08) → 触发中断(INT_STAT
 - `DISPATCH` 包的载荷布局（grid/block/paramBufVA）在第 20/37（原 35.5） 章定案；本章只登记类型号 0x04，具体字段后续追加，不反向修改包头。
 - `IEngine::Stats` 的软观测口径（占用率是否加权重）在第 25/31 章按 FIFO 级细化；本章只保证可输出与单调性。
 - `WaitFence` 在本章为"同步完成后值断言"；第 32 章引入真异步提交后是否保留同步便捷层，待第 32 章场景 S12 定案。
+
+---
+
+## 2026-11-21 评审同步说明
+
+本章 MMIO 表为唯一硬件寄存器映射落地点，必须按 `review-sync-20261121.md` §2.2 同步：RT_WIDTH/HEIGHT=0xE0/0xE1，DEV_RING_ID=0x30；PSO 与保留偏移按 canonical table。CP ADVANCE 推进 head/read pointer；第 2 章是子集视图。

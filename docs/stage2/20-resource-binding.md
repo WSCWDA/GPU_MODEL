@@ -295,3 +295,9 @@ DRAW/DISPATCH → 引擎按 stateId 5 基址读描述符
 - `BIND_DESCRIPTOR_TABLE`（`EXTENDED` 0x0F `SubOp=0x0001`）/`SET_KERNEL_ARGS`（`SubOp=0x0002`）沿用 §3.4 的取号方案：**不占顶层包号**，走 `EXTENDED` 子操作码（`../design/bit-budget.md` §2.3、`../design/command-mmio.md` §2）。SubOp 号先在 `../roadmap.md` §7.3 登记（`B-nnn`，先对照 bit-budget 审计）再使用，不写死。
 - 资源状态机的"完整跟踪 + 验证"（像真实 API）本期只做"状态随提交推进"不做违规检测，是否补检测待 35.2（Vulkan UMD validation）时评估，涉及 `--validate` 项。
 - Bindless 二期的"描述符堆 GPU 更新 + 无 CPU 写"是否纳入，留 T35.1（HLI）能力面决定；一期只做 CPU 侧 Write。
+
+---
+
+## 2026-11-21 评审同步说明
+
+本章的 BARRIER 载荷必须使用 `review-sync-20261121.md` §2.3 的 3-dword统一信封；描述符/PSO 入口冲突按 §3 P1-06 收口，旧编码不得作为并行 ABI 保留。

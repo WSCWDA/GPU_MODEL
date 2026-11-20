@@ -48,7 +48,7 @@
 |---|---|---|---|---|
 | `0x0001` | `BIND_DESCRIPTOR_TABLE` | 绑定描述符表基址 | 20 | B-032 |
 | `0x0002` | `SET_KERNEL_ARGS` | 预写 kernel 参数区（paramBufVa/size/paramVgprBase） | 20 契约、37 收口、39 落地 | B-033 |
-| `0x0010` | `DISPATCH_INDIRECT` | 间接派发 workgroup（参数从 GPU 内存读一次） | 33、37、41 | B-034 |
+| `0x0010` | `DISPATCH_INDIRECT` | 从 GPU 内存读取 28-byte/16-byte-aligned `{grid[3], block[3], reserved0}` | 33、41 | B-034 |
 | `0x0011` | `DRAW_INDIRECT` | 间接绘制 | 33 | B-0nn |
 | `0x0012` | `DMA_COPY` | DMA 引擎块拷贝 | 33 | B-035 |
 | 其余 | 保留 | 先登记再取号 | — | — |
@@ -73,20 +73,15 @@
 
 ### 2.3 `BARRIER`（0x0E）二进制载荷（dword 索引）
 
-> 唯一来源 `architecture-design.md` §3.13 S-03 与 `docs/design/sync-primitives.md` §2 规则 3：与第 20 章资源屏障、第 32 章队列屏障共用同一编码；作用对象为**整引擎级**（不做 per-resource 位图，ADR-031）；未知位必须 0（与 D-09 同口径）。
+固定为 3 dword，所有资源、执行依赖、队列所有权转换共用此信封：
 
-| dword | 位域 | 取值 |
+| dword | 字段 | 编码 |
 |---|---|---|
-| 0 | `scope` [1:0] | `0`=Workgroup（组内 barrier 走 LDS 栅栏，不经此包）、`1`=Device；其余非法 `InvalidPacket` |
-| 0 | `access` [6:2] | `0`=READ、`1`=WRITE、`2`=RW、`3`=TRANSFER、`4`=ATTACHMENT（粗粒度集合） |
-| 0 | `reserved` [31:7] | 必须 0 |
+| 0 | `kind` [7:0]、`scope` [15:8]、`memOrder` [23:16]、`accessMask` [31:24] | kind: resource=0 / execution=1 / ownership=2；其余枚举以 sync-primitives.md 为准 |
+| 1 | `srcStageMask` | 来源阶段位图 |
+| 2 | `dstStageMask` | 目标阶段位图 |
 
-扩展规则：
-
-- 新增包类型必须先在本表登记（`roadmap.md` §7.3 登记表为权威登记位置）；
-- 错误不走 0xFF（类型域只有 4 bit），统一走 MMIO 错误码 + `GD_LOG`；
-- `PKT_TYPE` 顶层号仅剩 `0x0F`；新增命令的取号/扩容方案先定案，不修改包头布局（见 `bit-budget.md` §2、`roadmap.md` §7.4，ADR-043/045 已裁定：优先载荷 `SubOp`/`EXTENDED` 转义/`INDIRECT` IB）；
-- CP 内部处理 `FENCE/SET_STATE_BASE/CLEAR/NOP`；`COPY_MEM` → Copy 引擎；`DRAW` → 3D；`DISPATCH` → Compute（`roadmap.md` §2.7）。
+未知枚举、保留位或非法组合返回 `InvalidPacket`。Workgroup 执行屏障在 ISA/LDS 同步点实现，不通过该 CP 包模拟；此包仅表达资源、设备、队列可见依赖。20/30/32/41 章不得另定义载荷布局。
 
 ## 3. stateId 基址索引
 
@@ -110,17 +105,19 @@
 | 0x00~0x0F | ring 读写指针、doorbell、fence 监视 |
 | 0x10~0x1F | CP 控制、中断状态、上下文状态 |
 | 0x20~0x2F | 错误码、调试、性能计数 |
-| 0x30~0x3F | 设备/ring ID、RT 尺寸锁存、命令流版本回显、引擎标志 |
+| 0x30~0x3F | 设备/ring ID、命令流版本回显、引擎标志 |
 | 0x40~0x4F | `stateId` 0~7 的 LO/HI 基址（stateId n → `0x40+2n`，各 2 dword） |
 | 0x50~0x7F | 保留（`stateId` 扩展备用，Q-31） |
 | 0x80~0xDF | PSO 暂存区（`SHADER_PSO` 工作副本） |
-| 0xE0~0xEF | 多上下文 / 多队列 / SE / 并行统计 |
+| 0xE0 | RT_WIDTH（32 bit） |
+| 0xE1 | RT_HEIGHT（32 bit） |
+| 0xE2~0xEF | 多上下文 / 多队列 / SE / 并行统计 |
 | 0xF0~0xFF | 系统保留（boot、紧急中断） |
 
 规则：
 
 - **MMIO 偏移一律为 dword 索引**，`stateId` n → `0x40+2n`，`0x50~0x7F` 保留（Q-31）。
-- RT 尺寸由 `CLEAR` 锁存到 0x30 段（宽低 16 bit、高高 16 bit），`DRAW` 不携带尺寸。
+- RT 尺寸由 `CLEAR` 锁存到 `RT_WIDTH(0xE0)` 与 `RT_HEIGHT(0xE1)` 两个完整 32 bit 寄存器，`DRAW` 不携带尺寸。
 - PSO 暂存区字段顺序由第 20~26 章共同维护，新增字段只能追加。
 - `0x38` 的命令流版本只是回显，判定以 `STREAM_HEADER` 为准。
 - 段内具体偏移由落地章定义；新增先在本节登记。
@@ -157,3 +154,9 @@ PSO 暂存区字段 → 偏移（dword 索引，第 6 章冻结，含 `depthBase
 
 - 包类型、包头布局、stateId、MMIO 分段均为冻结契约，变更走 `roadmap.md` §7.4；包类型从预留区取号后**先登记再使用**。
 - 包类型 / count / packet-specific、stateId 与 MMIO 的当前余量和扩容选项见 `bit-budget.md` §2~§3。
+
+---
+
+## 2026-11-21 评审同步说明
+
+本文件中的 MMIO 分段、RT_SIZE、BARRIER payload、DISPATCH_INDIRECT payload 如与同步裁决不一致，按 `review-sync-20261121.md` §2.2–2.4 修订；旧表/旧载荷视为 `SUPERSEDED`。本文件仍是包、stateId 与 MMIO 登记的唯一 design 入口。

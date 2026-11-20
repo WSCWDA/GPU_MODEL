@@ -55,3 +55,9 @@ CU 驻留 wave 数、SGPR/VGPR/LDS 总容量、FIFO 深度、描述符堆容量�
 ## 8. 契约变更
 
 - 并行确定性规则、三维 workgroup 映射、occupancy 上限均为冻结契约，变更走 `roadmap.md` §7.4（新建 ADR）并回归 S11/S18；并行相关场景在 `parallel` 下硬判据不得回退。
+
+---
+
+## 2026-11-21 评审同步说明
+
+并行执行模型按 `review-sync-20261121.md` §2.7 收口：不得用 CU-wide ticket lock 串行化执行；serial 是参考，parallel 使用多个 CPU worker 执行 CU/workgroup slot，并以确定性 wave 步进保障 barrier 可达。墙钟 watchdog 由每-wave 指令预算取代。

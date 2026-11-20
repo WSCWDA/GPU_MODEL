@@ -212,3 +212,9 @@ S13 断言：注入每类故障 → 错误记录字段精确 → reset 完成 �
 - `log_analyze`/`mem_audit`/`state_inspector`/`spec_runner` 的产物格式（JSON/HTML 汇总）在 36 章实现时与 `validation-model.md` §7 对齐；格式细节归档于 `tools` 文档（属工具层，不进硬件契约）。
 - watchdog timeout（tick 数）默认值是否与具体引擎速率耦合——按 tick 无色约束，默认取自配置，不改语义。
 - 复位期间在飞提交的处理（排队 vs 拒绝）本期取"复位引擎丢弃未完成包 + 后续提交排队重跑"；若 E/S 双策略回归暴露顺序依赖，再补充确定性策略（ADR 记录）。
+
+---
+
+## 2026-11-21 评审同步说明
+
+watchdog 以 `review-sync-20261121.md` §2.7 的每-wave 指令预算实现，不使用墙钟 tick；达到预算返回 Timeout 并携带 wave/PC/dispatch 诊断。删除“Result 枚举扩展冻结”与终版 16 值相冲突的表述。

@@ -217,3 +217,9 @@ workgroup → 首波执行 → LDS 初始化 → BARRIER(Workgroup) → 计算
 
 - 归约 identity 与部分活跃语义的边界样例扩展到 WA-02 全集（block 256、两阶段）在第 42 章全量回归。
 - `DISPATCH_INDIRECT` 的谓词组合（PREDICATE + 间接）一期只保证与直接等价；复杂谓词链二期。
+
+---
+
+## 2026-11-21 评审同步说明
+
+本章只负责驱动侧三维映射/API 契约封装及 indirect/UAV/query 接入，不重复实现第 37 章硬件执行。block 上限和 28-byte indirect ABI、barrier 信封分别按 `review-sync-20261121.md` §2.3–2.5。

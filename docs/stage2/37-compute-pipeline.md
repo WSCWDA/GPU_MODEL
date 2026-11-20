@@ -176,7 +176,7 @@ CP 解析 DISPATCH(0x04) → Compute 引擎
 
 | DoD | 判据（机器可判） | 级别 |
 |---|---|---|
-| D37.1 | 计算入口相关头文件独立编译；`KernelArgsLayout` 六条规则单测全绿（正常 + 非法边界，含 `paramBufByteSize` 4096 通过 / 4097 拒绝）；D13-a/b/c（block 1024 / LDS 128 KiB / grid 2^20+1）记录期 `InvalidArgument` 单测全绿 | L1 契约 |
+| D37.1 | 计算入口相关头文件独立编译；`KernelArgsLayout` 六条规则单测全绿（正常 + 非法边界，含 `paramBufByteSize` 4096 通过 / 4097 拒绝）；D13-a/b/c（block 513 / LDS 128 KiB / grid 2^20+1）记录期 `InvalidArgument` 单测全绿 | L1 契约 |
 | D37.2 | 每 `{ptr,bytes}` 按 `paramOffsets` 写入 GART；重叠 / 越区 / 无效参数区 / 未映射 → 报错且命令流不含 `SET_KERNEL_ARGS` | L1 契约 |
 | D37.3 | `DISPATCH` 能驱动 Compute 引擎产出与 29~31 章单测一致的结果；`sa` 非空 | L1 契约 |
 | D37.4 | `DISPATCH` 后 VGPR uniform 区 `v[56..67]` 内容 = `paramBufVa/grid/block`（快照比对） | L1 契约 |
@@ -246,3 +246,9 @@ CP 解析 DISPATCH(0x04) → Compute 引擎
 - `LaunchWithParamBuffer`（应用直接给参数 VA）留二期，不阻塞一期验收（`compute-line.md` §2）。
 - 计算驱动 API 错误码命名以计算驱动头文件为准；映射方向与禁止项权威在 `architecture-design.md` §3.9（计算驱动列）。
 - "35.1 HLI 图形侧先冻结，37 章启用计算 pipeline 创建"的先后纪律：35.1 DoD 全绿后才允许写计算驱动（stage3 38，ADR-047），不反向修改 HLI 接口。
+
+---
+
+## 2026-11-21 评审同步说明
+
+本章按 `review-sync-20261121.md` §2.4–2.5 重划：最大 workgroup 512 threads；indirect ABI 28 bytes；本章只交付硬件 Compute 通路与直连 HLI 验收。参数打包、stream/event、驱动侧 indirect/UAV/query API 的重复任务/DoD 标记 `SUPERSEDED → stage3 39–41`。

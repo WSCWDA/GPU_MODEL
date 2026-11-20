@@ -205,3 +205,9 @@ CP 解析 DISPATCH(0x04) → Compute 引擎
 
 - kernel 参数布局的显式寄存器直传（部分标量直接进 SGPR uniform，减少参数缓冲读取）——一期统一走参数缓冲，性能优化二期。
 - 多 stream 并发提交在第 40 章引入后，`LaunchKernel` 提交路径需与 stream 封装合并（第 40 章 T40.2）。
+
+---
+
+## 2026-11-21 评审同步说明
+
+本章 block 上限固定为 512 threads（16 waves × 32），按 `review-sync-20261121.md` §2.4；本章唯一负责驱动侧 kernel 参数布局、参数打包和 launch 配置。硬件指令执行与 wave 生成属于第 37 章。

@@ -12,7 +12,7 @@
 
 1. IB 链：`INDIRECT` 指向一片命令缓冲（`stateId 7` 基址），CP 顺序读入执行；IB 内可再含 `INDIRECT`（链式，深度上限防循环）。
 2. 间接绘制：`DRAW_INDIRECT` 从显存读 `{vertexCount, instanceCount, firstVertex, firstInstance}`，与直接等值。
-3. 间接派发：`DISPATCH_INDIRECT` 从显存读 `{gridX,Y,Z}`，与直接等值。
+3. 间接派发：`DISPATCH_INDIRECT` 从显存读 28-byte、16-byte 对齐的 `{grid[3],block[3],reserved0}`；reserved0 必须为 0，与直接派发语义等价。
 4. GPU 侧谓词：`PREDICATE` 从显存读谓词（或查询结果，34 章）→ 条件跳过后续命令。
 5. DMA 切片：CopyEngine 支持 `COPY_MEM` 的切片（stride/深度）语义（`DMA_COPY`），切片区域正确。
 6. 多引擎并发：Copy 与图形可在不同队列并发，属 32 章语义的硬件侧；本章落地 Copy 引擎多实例与 DMA 执行真实重叠。
@@ -200,3 +200,9 @@ for s in [0,sliceCount):
 - IB 链的 `stateId 7` 基址与 `DRAW_INDIRECT` 的 paramVa 相对/绝对寻址语义：本期绝对 VA；35.2（Vulkan `vkCmdDrawIndirect`）可能要求相对，届时由 ADR 记录切换。
 - PREDICATE 的"跳过分量"精确边界（跳过至 IB 尾 vs 命令段尾）本期取 IB/ring 段尾；若 34 章查询谓词需要"跳过 N 条"则扩展 flags。
 - DMA 切片与普通 COPY_MEM 的 overlap 语义统一后，若出现负 stride 场景（镜像拷贝）本期拒绝，留能力位。
+
+---
+
+## 2026-11-21 评审同步说明
+
+本章 DISPATCH_INDIRECT 参数固定为 28-byte、16-byte-aligned `{grid[3],block[3],reserved0}`，见 `review-sync-20261121.md` §2.4；旧 12-byte grid-only布局标记 `SUPERSEDED`。本章 BARRIER 同步 §2.3。

@@ -189,3 +189,9 @@ A-stage3 = A38（对象/装载）∧ A39（打包/派发）∧ A40（stream/even
 - `LaunchWithParamBuffer`（应用直给参数 VA）：二期，本期只登记正确映射（`compute-driver.md` §5）。
 - 二期候选领取：grid-wide barrier（协 kernel）、async copy、image 原子需先领 ADR 扩 `Capability` 位后才可启用，此前一律 `NotSupported`（`architecture-design.md` §7.9）。
 - stage3（38~42）若需回填 29~34 共用单元能力（如新增 subgroup op），按 `roadmap.md` §7.4 流程在共用章 DoD 登记并回归。
+
+---
+
+## 2026-11-21 评审同步说明
+
+A42 是唯一的计算驱动端到端等价门禁：比较直连 HLI 与计算驱动两入口；不复验并重复承担 A37 的硬件单元实现任务。用例范围与 S18/S19 case 锚定以 `review-sync-20261121.md` §3 及 scene-specs 为准。

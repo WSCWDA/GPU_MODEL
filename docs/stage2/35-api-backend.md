@@ -253,3 +253,9 @@ LaunchKernel(fn, grid, block, args):
 - HLI 的 `QueryCapability` 返回能力位集（graphics stages 位、计算位、绑定位、sampler 位、MSAA 位）——具体位枚举在 35.1 实现时按“只用一次查全能力访问”的原则定稿，登记到 `command-mmio` 或 ADR。
 - 三套 UMD 的 API 特化 workaround（如 GL 状态机差异）各自放对应 UMD，是否统一管理在 `umd/graphics/os` 层——先分散，35.4 后再评估合并（属工程层面，不进契约）。
 - Vulkan 的 `vkCmdDrawIndirect` 与 D3D12 的 ExecuteIndirect 参数布局差异：HLI 层统一抽象（33 章 `DRAW_INDIRECT` 载荷），各 UMD 映射；若发现不可统一语义，以 ADR 记录 API 差异并只在 UMD 兼容。
+
+---
+
+## 2026-11-21 评审同步说明
+
+本章按 `review-sync-20261121.md` §1 分期：HLI 是核心必需，外部 API 前端为独立可选子里程碑；Vulkan/D3D12/GL 不得以完整兼容实现作为一期门槛，逐场景切换验证。任务超过约 2 人日须拆分。

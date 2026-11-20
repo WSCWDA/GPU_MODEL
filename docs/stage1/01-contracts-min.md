@@ -68,7 +68,7 @@
 
 ### 3.2 错误契约（`result.h`）
 
-`Result` 取值固定为：`Ok / InvalidArgument / NotSupported / NotMapped / NotResident / InvalidPacket / InvalidIsa / OutOfMemory / DeviceLost / ResetRequired / Internal`。
+`Result` 共 16 值：`Ok / InvalidArgument / NotSupported / NotMapped / NotResident / InvalidPacket / InvalidIsa / OutOfMemory / DeviceLost / ResetRequired / Internal / Busy / OutOfStack / RegisterOverflow / InvalidIr / Timeout`。此集合按 ADR 快照冻结；细分诊断放入错误记录，不新增全局返回值。
 
 - 所有跨层接口返回 `Result`，禁止异常跨层传播。
 - 错误记录结构：
@@ -175,7 +175,7 @@ struct ErrorRecord {
 
 ```
 [1] 类型与尺寸断言   → sizeof(u32)==4、GpuVAddr 为 8 字节、WARP_SIZE==32
-[2] 枚举完整性断言   → Result 取值数 = 11 且无重复；EngineType/Stage/PktType 唯一
+[2] 枚举完整性断言   → Result 取值数 = 16、与 ADR 快照相等且无重复；EngineType/Stage/PktType 唯一
 [3] 包头往返         → 构造 header → 序列化 → 解析 → 字段全等；count 边界 4095/4096
 [4] 版本校验         → version=1 通过；version≠1 返回 InvalidPacket 且记录 packetType/dwordOffset
 [5] 颜色换算         → 0.25→63、1.0→255、-0.1→0、1.5→255；0xFF3F3F3F 拆解为 [63,63,63,255]
@@ -200,7 +200,7 @@ struct ErrorRecord {
 
 | DoD | 判据（机器可判） | 级别 |
 |---|---|---|
-| D1.1 | `static_assert` 全通过：定宽类型尺寸、`GpuVAddr`/`PhysAddr` 8 字节、`WARP_SIZE==32`；`Result` 恰 11 个取值无重复；`EngineType`/`Stage` 无重复值；`-Wall -Wextra` 零警告 | L1 契约 |
+| D1.1 | `static_assert` 全通过：定宽类型尺寸、`GpuVAddr`/`PhysAddr` 8 字节、`WARP_SIZE==32`；`Result` 恰 16 个取值且与 ADR 快照一致、无重复；`EngineType`/`Stage` 无重复值；`-Wall -Wextra` 零警告 | L1 契约 |
 | D1.2 | 包头序列化/反序列化往返字段全等；`count=4095` 可解析、`4096` 被拒；`PktType` 枚举值与 §3.3 表逐项相等（脚本比对）；`version=2` 返回 `InvalidPacket` 且 `ErrorRecord` 中 `packetType=0x00`、`dwordOffset` 精确指向版本字段 | L1 契约 |
 | D1.3 | `FloatToUnorm8(0.25)==63`、`(1.0)==255`、`(-0.1)==0`、`(1.5)==255`；`0xFF3F3F3F` 按 `[B,G,R,A]` 拆解得到 `(63,63,63,255)`；`PixelFormat` 到字节序的映射函数对 `R8G8B8A8_UNORM` 返回 BGRA | L1 契约 |
 | D1.4 | `GD_LOG` 输出行可被正则 `^\[(Error\|Warn\|Info\|Debug\|Trace)\]\[[a-z0-9_]+\]\[[a-z0-9_]+\] .+$` 匹配；`log_level=Warn` 时 Info 行计数为 0；`GD_BUILD_TRACE=0` 编译后二进制中不含 Trace 字符串；配置键数量、名称、默认值与 `roadmap.md` §5.1 权威 19 键表全等（脚本比对，含 `tile_w/tile_h/translation.seed/memory_budget/simd_per_cu`） | L1 契约 |
@@ -270,4 +270,12 @@ struct ErrorRecord {
 
 ## 10. 待定项
 
-无。本章所有条款均已定案；后续若出现需要调整的条款（如包头版本策略、`Result` 新增取值），按冻结契约变更流程新建 ADR 并同步本章 §3 与受影响章的任务与判据。
+无。本章条款按冻结契约管理。后续若需调整，按 roadmap §7.4 登记 ADR、同步全局登记表与受影响章节判据；被替代判据须标记 `SUPERSEDED` 并指向新判据，不能作为阻断回归继续执行。
+
+---
+
+## 2026-11-21 评审同步说明
+
+本章的 `Result=11`、`D1.1` 恰 11 值、回归全局冻结条款均被 `review-sync-20261121.md` §2.1 替代。终版为 16 个 Result；契约变更按 roadmap §7.4 的 ADR + SUPERSEDED 流程。
+
+> 旧 `D1.1` 中“恰 11 个取值”及 `§4` 的“取值数 = 11”属于已退役判据，更新为对 §3.2 16 值集合做唯一性与快照比对。

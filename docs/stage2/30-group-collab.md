@@ -229,3 +229,9 @@ AcqRel/SeqCst：双向可见序。
 - 原子对 global 内存的 device 作用域需要显式全局屏障才能跨 workgroup 可见；S19 用此语义，但"不声明作用域就原子"的情况是否默认 device，待 stage3 38~42（MUSA，原 35.5）确定默认值并记录。
 - LDS bank 布局仿真如引入 31 章并行后产生真实 bank 冲突差异，只影响软观测计数，不影响正确性；届时以同一观察基准对齐。
 - 跨 wave barrier 的"放行后谁先执行"在本期顺序模拟固定 wave 领取序；31 章 CU 并行后在放行点强制确定性。
+
+---
+
+## 2026-11-21 评审同步说明
+
+本章组内执行 barrier 仍由 ISA/LDS 原语实现；对外 BARRIER 包按 `review-sync-20261121.md` §2.3，不另定义 `{memOrder,scope}` 二字段载荷。跨-wave 可达性按 §2.7 的 wave 步进模型。

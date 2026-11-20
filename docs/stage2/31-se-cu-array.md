@@ -261,3 +261,9 @@ grid 边界：work-id >= gridTotal → 越界 → 不执行（提前空转 EXIT�
 - `se_id = tileIndex % seCount` 的取模分区是简化静态方案；若 S11 显示某 SE 空载不均衡，可考虑行色带/哈希，但**不改确定性**（只需保证分区表固定），登记做软观测优化项。
 - ticket 锁固定波领取序：每 CU 的 `nextTicket/servingTicket` 严格单调，跨线程领取顺序可复现；该确定性作为 S11 硬判据（Q-68），不再以"领取结果集合唯一"替代顺序判据。
 - occupancy 上限的默认 wave 数（16）与 LDS 容量耦合（第 30 章），若 S18 大 block 触发等待，登记调整默认值但不改变语义。
+
+---
+
+## 2026-11-21 评审同步说明
+
+本章的 ticket/servingTicket 包围 CU 执行条款被 `review-sync-20261121.md` §2.7 替代。并行 DoD 应证明 CU/workgroup slot 可并发推进、barrier 可达、race-free 结果稳定；不可只证明静态分配顺序。

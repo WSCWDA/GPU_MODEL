@@ -329,3 +329,9 @@
 6. **MMIO 偏移口径（**2026-11-20 已裁定**）**：**代码统一为 dword 索引**，与 `command-mmio.md` §4 一致（字节偏移语义废止，§3.3 的同一数值两边含义不同问题消除）。**需执行（代码不在本轮文档范围）**：按 §4 分段一次性重排 `hw_sim/include/hw_sim/mmio.h` 的 `stateId`/PSO/多上下文区并回写第 2/10 章偏移表；已登记 **B-042**（`roadmap.md` §7.3）并**前置为 A 阶段任务**：随第 10 章开工首任务（T10.1）完成重排与回写，A 门禁"MMIO 与 bit-budget 一致"**无豁免**（`roadmap.md` §2.3 A 行，2026-11-20 评审定案）。
 
 以上 1~5 已在 `roadmap.md` §0.3 ADR-043 与 §7.4 定案；对应章节开工时按此执行，若需偏离必须先走 ADR 再改本表。第 6 项已裁定（代码统一 dword 索引），执行登记 B-042，完成后同步 `mmio.h` 与 `command-mmio.md` §4、第 2/10 章。
+
+---
+
+## 2026-11-21 评审同步说明
+
+同步裁决：Result 终版、MMIO 唯一偏移、BARRIER 3-dword ABI、512-thread 上限和 DISPATCH_INDIRECT 28-byte ABI 见 `review-sync-20261121.md` §2。请将相应容量/编号纳入登记表；旧预算与之冲突时标记 `SUPERSEDED`。
