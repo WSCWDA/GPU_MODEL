@@ -41,42 +41,93 @@
 
 ## 2. 总体架构与数据通路
 
-### 2.1 建议分层
+### 2.1 分层架构与职责
 
-| 层 | 主要职责 | 代表对象 |
+后续代码目录、模块职责和依赖方向以 [architecture-design.md](architecture-design.md) 的模块树为准；本文负责安排实现任务的先后、验收场景和 DoD。架构文档中的图形 API 分支作为后续扩展，本项目当前优先实现计算教学闭环。
+
+| 层 | 规范模块 | 职责与边界 |
 |---|---|---|
-| `common` | 稳定类型、错误、配置、packet/ABI、日志 | `GpuVa`、`Result`、`CommandPacket`、`DeviceConfig` |
-| `runtime` | 用户可调用的设备、队列、内存、kernel 与同步接口 | `Device`、`Queue`、`Buffer`、`Kernel`、`Event` |
-| `driver` | 验证请求、创建命令、管理上下文与提交 | `Context`、`CommandBuffer`、`Submission` |
-| `firmware` | 模拟启动、doorbell、命令队列调度与完成通知 | `Ring`、`CommandProcessor`、`Fence` |
-| `gpu_model` | GPU 行为模型的核心状态和执行单元 | `GpuDevice`、`ComputeUnit`、`Wave`、`MemorySystem` |
-| `isa` | 指令编码/解码/执行及 kernel 镜像 | `Instruction`、`Program`、`Interpreter` |
-| `tools` | 场景运行、参考结果、trace/统计与差分 | `scene_runner`、`trace_viewer`、`ref_model` |
-| `apps` | 面向学习目标的示例和验收场景 | vector_add、branch、reduction、cache_probe |
+| 公共契约 | `common/` | 跨层共享的类型、错误、命令 packet、ISA/ABI、格式、日志和配置；不承载设备执行逻辑 |
+| 硬件行为模型 | `hw_sim/` | 模拟设备、MMIO、ring、CP、中断/fence、内存层次、shader/wave、ISA、纹理与图形固定功能；不得依赖 UMD/KMD |
+| 固件模型 | `firmware/` | 模拟启动、命令队列调度和 watchdog；通过明确的寄存器/队列协议与硬件模型交互 |
+| 内核驱动模型 | `kmd/` | 模拟设备初始化、内存映射、上下文、提交、调度、中断和 reset；不直接执行 shader 指令 |
+| 硬件无关层 | `hli/` | 统一 Device/Queue/Resource/View/Descriptor/Pipeline/Command/Capability 对象，隔离上层 API 与 KMD |
+| 用户态驱动 | `umd/` | `graphics/api` 与 `graphics/pal` 负责图形 API/PAL；`compute` 提供计算 context/module/function/stream/event；`shader` 放前端、IR、优化、寄存器分配和代码生成；`os` 封装 host 内存、线程、时间与隔离 |
+| 应用与场景 | `apps/`、`tests/scenes/` | apps 通过当前阶段公开的 facade 或 UMD 接口使用设备；测试场景验证跨层行为，不绕过契约访问内部状态 |
+| 工具与测试 | `tools/`、`tests/` | 工具消费稳定导出格式；contract/unit/scenes/golden 分别验证边界、模块、集成场景和固定结果 |
 
-依赖方向保持单向：
+依赖方向遵循单向层次：
 
-`common → gpu_model / isa → firmware → driver → runtime → apps`
+`common → hw_sim → firmware → kmd → hli → umd → apps`
 
-`tools` 读取公开的输出、统计和 trace 格式；不得依赖 GPU 模型内部私有结构来推导期望结果。
+各层可以依赖 `common`；`tools` 和 `tests` 可依赖公开接口及稳定导出格式。禁止反向依赖：例如 `hw_sim` 不引用 `kmd`、`hli` 或 `umd`。编译器/ISA 的连接通过 `common/isa` 与 `common/shader_abi` 等稳定契约完成。不得新增平行的根级 `runtime/`、`driver/`、`gpu_model/` 或 `isa/` 目录。
 
-### 2.2 核心计算通路
+### 2.2 仓库模块树
+
+以下目录以 architecture-design.md §2.4/§5 为规范。项目按任务逐步填充，不要求首期实现整棵树；不在当前任务范围的模块保留为空缺，不建立无职责空壳。
+
+```text
+common/
+  types/ result/ packet/ isa/ shader_abi/ format/ log/ config/
+hw_sim/
+  submit/
+  core/ device/ mmio/ ring/ cp/ interrupt/ fence/
+  memory/ flat/ translation/ heaps/ cache/ residency/
+  periph/ copy/ display/
+  shader/ wave/ divergence/ scheduler/ subgroup/ shared/
+  isa/ texture/
+  frontend/ ia/ vgt_spi/ clip_pa/
+  raster/ rasterizer/ msaa/
+  om/ visibility/ geometry/ query/ se/
+firmware/ boot/ scheduler/ watchdog/
+kmd/ ddi/ init/ memory/ context/ submission/ scheduler/ interrupt/ reset/
+hli/ device/ queue/ resource/ view/ descriptor/ pipeline/ command/ capability/
+umd/
+  graphics/ api/ vulkan/ d3d12/ gl/
+            pal/ resource/ binding/ pipeline/ cmd_gen/ queue/
+  shader/ frontend/ ir/ opt/ regalloc/ emit/ llvm/
+  compute/ context/ module/ function/ stream/ event/
+  os/ host_memory/ threads/ time_source/ isolation/
+apps/ scene_e0..scene_e5/ scene_s0..scene_s19/
+tools/ isa_asm/ isa_disasm/ ref_model/ image_diff/ pick_probe/
+       scene_snapshot/ spec_runner/ log_analyze/ mem_audit/ state_inspector/
+tests/ contract/ unit/ scenes/ golden/
+```
+
+当前计算教学主线实际落位：`common` → `hw_sim/memory/flat`、`hw_sim/shader/wave`、`hw_sim/isa` → `hw_sim/submit`、`hw_sim/core/ring`、`hw_sim/core/cp` → `firmware` → `kmd` → `hli` → `umd/compute` → `apps`。架构文档定义的首期图形 facade（`hw_sim/submit/facade.h`，`submit(draw_desc)/wait()`）适用于图形 Stage 1；本项目的计算主线在 T0–T5 使用 `tests/scenes` 中的内部模型级 harness 验证 ISA 与 wave，不把它伪装成完整 UMD/API 路径。T11 再建立真实的 compute UMD→HLI→KMD→Firmware→CP 提交链。
+
+### 2.3 任务到模块的落位
+
+| 任务 | 主要目录 | 说明 |
+|---|---|---|
+| T0 | `common/{types,result,log,config}`、构建配置、`tests/unit` | 冻结公共类型、日志、错误和配置契约 |
+| T1 | `hw_sim/memory/flat`、`hli/resource`（后续）、`tests/unit` | 先实现模型内平坦显存，再由 HLI 资源对象封装 |
+| T2 | `hw_sim/shader/wave`、`common/types` | wave/lane/寄存器状态 |
+| T3 | `common/isa`、`hw_sim/isa`、`tools/isa_asm`、`tools/isa_disasm` | ISA 公共定义、执行与工具分层 |
+| T4 | `tests/scenes` 的模型级 harness，执行逻辑位于 `hw_sim/shader` 与 `hw_sim/isa` | harness 仅用于早期验证，不形成新的 runtime 层 |
+| T5 | `tests/scenes`、`tools/ref_model`、`hw_sim` | vector_add 首期闭环；此时不宣称已贯通 UMD/KMD |
+| T6–T8 | `hw_sim/shader`、`hw_sim/memory`、`tests/scenes` | SIMT 分歧、workgroup、共享内存与同步 |
+| T9 | `hw_sim/submit`、`hw_sim/core/{ring,cp,interrupt,fence}`、`firmware` | 命令提交与完成通知 |
+| T10 | `hw_sim/memory/{translation,heaps,residency}`、`kmd/memory` | VA 映射和驻留策略，模型与驱动职责分开 |
+| T11 | `umd/compute`、`hli`、`kmd`、`firmware`、`hw_sim/submit` | 建立完整公开计算提交链与对象生命周期 |
+| T12 | `hw_sim/memory/cache` | 显式模拟 L1/L2，不读取宿主 CPU cache 作为 GPU cache 状态 |
+| T13–T14 | `hw_sim/shader/scheduler`、`umd/os/threads`、`tests` | 逻辑调度与 CPU worker 执行策略分离 |
+| T15–T16 | `umd/compute`、`hli/queue`、`kmd/scheduler`、`firmware/scheduler` | stream/event、依赖、故障与恢复 |
+| T17–T18 | `tests/{contract,unit,scenes,golden}`、`tools` | 场景规格、回归、诊断导出和分析 |
+
+### 2.4 核心计算数据通路
 
 ```mermaid
 flowchart LR
-    A[应用调用 Launch] --> B[Runtime 验参与打包]
-    B --> C[Driver 创建 Dispatch 命令]
-    C --> D[Ring 与 Command Processor]
-    D --> E[Workgroup 调度]
-    E --> F[Wave 与 ISA 执行]
-    F --> G[GPU 地址与显式缓存]
-    G --> H[全局内存写回]
-    H --> I[Fence / Event 完成]
+    A["应用 / compute API"] --> B["UMD compute"]
+    B --> C["HLI 对象与命令"]
+    C --> D["KMD 提交与映射"]
+    D --> E["Firmware 调度"]
+    E --> F["Ring / CP"]
+    F --> G["hw_sim 执行与内存"]
 ```
 
-每一层都定义输入、输出、错误和可观测事件。最初允许 Runtime 到 GPU model 通过简化的同步接口连接；之后再逐步加入 Ring、doorbell 和异步队列，避免基础学习阶段被完整驱动样板阻塞。
-
----
+这条完整路径对应 T11 及之后的驱动闭环。T0–T5 的模型级 harness 只用于先验证 wave、ISA 和内存的功能语义；T9–T11 逐层引入提交协议与对象边界。驱动不得直接调用执行单元，命令必须经 ring/doorbell/CP 进入模型；`hw_sim` 不识别应用 API、UMD 或 KMD 对象。
 
 ## 3. 阶段总览
 
@@ -84,7 +135,7 @@ flowchart LR
 |---|---|---|---|
 | A：最小计算闭环 | T0–T5 | CPU 解释执行一个 wave，完成 vector_add | 输入/输出正确、逐指令 trace 可复现 |
 | B：SIMT 与 workgroup | T6–T8 | 理解 lane、分支、workgroup 协作与同步 | branch、reduction、histogram 通过判据 |
-| C：驱动提交与地址空间 | T9–T11 | 理解 runtime→driver→queue→CP 和 VA 翻译 | 命令路径、映射、错误路径可追踪 |
+| C：驱动提交与地址空间 | T9–T11 | 理解 UMD→HLI→KMD→Firmware→CP 和 VA 翻译 | 命令路径、映射、错误路径可追踪 |
 | D：内存层次与并行执行 | T12–T14 | 理解 GPU cache、CPU 并行模拟和性能统计边界 | 串行/并行结果一致，cache 探针符合模型 |
 | E：异步系统、工具链与教学收尾 | T15–T18 | 理解队列依赖、事件、恢复和调试诊断 | 端到端回归、工具链和文档齐备 |
 
@@ -104,7 +155,7 @@ flowchart LR
 - **范围**：构建、基础日志、错误返回、断言、设备配置、统一整数宽度；暂不建立完整驱动对象。日志和断言从首个模块建立统一规则，后续观测工具逐步扩展。
 - **依赖**：无。
 - **实施项**：
-  1. 建立 `common`、`gpu_model`、`isa`、`apps`、`tools` 目录及依赖规则。
+  1. 按模块树建立 `common`、`hw_sim`、`firmware`、`kmd`、`hli`、`umd`、`apps`、`tools`、`tests` 的最小目录与依赖规则；只创建当前任务需要的目录。
   2. 定义 `Result/ErrorCode`、`GpuVa`、`DeviceConfig`、日志级别和确定性随机种子。
   3. 提供命令行入口，支持选择场景、配置和 trace 开关。
   4. 建立 Error/Warn/Info/Debug/Trace 分级日志接口，记录 level、module、submodule 和键值字段；支持 console 与模块文件 sink。
@@ -164,7 +215,7 @@ flowchart LR
 
 #### T5：第一个端到端任务：vector_add（L，拆为 3 个子里程碑）
 
-- **目标**：完成第一条从应用 API 到 GPU 内存写回的可观察路径。
+- **目标**：完成第一条模型级 kernel 到 GPU 内存写回的可观察路径，为后续完整 UMD/API 提交链建立功能基线。
 - **范围**：N≤32 的单 wave vector_add；不要求 ring、编译器或并发 workgroup。
 - **依赖**：T0–T4。
 - **子里程碑**：
