@@ -309,7 +309,7 @@ flowchart LR
 
 - **目标**：把模块实现组织成循序渐进的实验，而非堆叠孤立功能。
 - **范围**：基础场景必须 headless 可运行；图形 API、复杂 ISA 和 Vulkan/MUSA/HIP 兼容为后续选修。
-- **依赖**：T0–T18 中纳入一期的任务。
+- **依赖**：T0–T16 中纳入一期的任务；T18 使用本任务定义的场景与回归规则。
 - **实施项**：
   1. 为每个概念提供一个最小 scene、预期结果、关键 trace 说明和常见错误。
   2. 建立自动场景 runner、CPU reference、差分输出和回归汇总。
@@ -532,6 +532,7 @@ flowchart TD
 | T9、T15、T16：提交、队列与恢复 | Mesa 驱动提交路径、MUSA stream/event 接口、Vulkan 队列/同步、Linux DRM | 命令从用户态到内核态的职责边界；队列依赖表达；逻辑完成与错误恢复的传播路径 |
 | 图形选修线 | Mesa Gallium、RADV、RadeonSI、Vulkan 规范 | API 前端、状态追踪、管线创建、shader 编译、资源绑定与命令提交如何分层 |
 | T17：场景与回归 | Mesa 测试体系、torch_musa tests/examples、Vulkan CTS（可选） | 如何构造最小复现、能力判定和回归；如何让教学测试不依赖厂商硬件 |
+| T18：日志与诊断工具 | Mesa 测试/调试产物、[Linux DRM 驱动开发指南](https://docs.kernel.org/gpu/) | 如何从稳定导出文件、日志和失败快照定位问题；工具接口与硬件实现解耦 |
 
 ### 13.3 参考和裁决规则
 
