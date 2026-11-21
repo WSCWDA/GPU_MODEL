@@ -1,5 +1,7 @@
 # 第 10 章 设备 + 环 + CP
 
+> 项目范围、阶段位置和交付以[任务规划](../CPU模拟GPU教学项目_任务规划与实施规格.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
+
 > 本章是高级阶段的入口：把初级薄提交门面替换为 KMD/FW 驱动的真实提交路径，落地最小 KMD DDI、Firmware boot/ring/doorbell、以及按功能级握手定义的 `IEngine`。一条提交从"写环 → doorbell → CP 取指 → 派发 → fence"被完整建模，环回绕、包头版本、非法包定位成为本章核心专有判据。
 > 与本章相关的设计说明：`../architecture-design.md` §3.3（`IEngine` 握手签名）、§3.5（KMD/FW 契约）、§3.10（回调链生命周期）；`../design/command-mmio.md` §1~§4（包头/包表/stateId/MMIO 分段）；`../design/boot-reset.md` §1、§5（启动序列、逻辑特权分层）；`../design/execution-parallel.md` §4（功能级流水线/背压）。
 > 落地模块：`hw_sim/core/{device,mmio,ring,cp,fence,interrupt}`、`firmware/{boot,scheduler}`、`kmd/{ddi,init,submission,interrupt}`、`umd/os`、`apps/scene_s1_empty_submit`。

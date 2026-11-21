@@ -1,5 +1,7 @@
 # 第 32 章 队列 + 同步
 
+> 项目范围、阶段位置和交付以[任务规划](../CPU模拟GPU教学项目_任务规划与实施规格.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
+
 > 本章多队列、多环落地：Graphics/Compute/Copy 三队列家族（每家族独立 ring 实例），`SIGNAL`/`WAIT` timeline semaphore、事件完成标记、跨队列家族所有权转移、以及异步计算队列。队列内命令按记录顺序、跨队列只由 fence/semaphore 定义顺序（ADR-024）。设计说明见 `../design/sync-primitives.md` §1~§2。
 > 与本章相关的设计说明：`../architecture-design.md` §3.3（IEngine）、§3.5（KMD Submit 扩展 queueId）；ADR-024（屏障/所有权转移）；`../design/command-mmio.md`（SIGNAL/WAIT/PREDICATE/BARRIER 包登记）；第 10 章单环扩展为多环。
 > 落地模块：`hw_sim/core/multiqueue`、`kmd/submission`（多队列）、`umd/graphics/pal/queue`、`apps/scene_s12_multiengine`、`apps/scene_s16_barrier_ownership`。

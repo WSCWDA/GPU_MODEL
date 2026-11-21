@@ -1,6 +1,9 @@
 # 第 12 章 缓存 + 写缓冲
 
+> 项目范围、阶段位置和交付以[任务规划](../CPU模拟GPU教学项目_任务规划与实施规格.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
+
 > 本章在翻译层之上落地 L1/L2 缓存与写缓冲：L1 每 CU 16 KiB 写穿入 L2、L2 全局 256 KiB 写回，仅 L2 脏行替换才进写缓冲（按 64 B 合并），I-Cache 命中统计。`cache_enable` 开关只影响统计与路径，不影响结果；缓存一致性由屏障与 fence 维护，不依赖时间或线程顺序（`../design/memory-system.md` §4）。
+> 教学重点是缓存/写缓冲在 GPU 数据通路中的位置、读写与排空、flush/invalidate 后的数据可见性，以及生产者到消费者的数据流和复用。hit/miss 与 I-Cache 计数只作软诊断，不作为主要验收目标。GS/Tessellation 的 patch/control-point 缓冲属于阶段局部暂存，不等同于 L1/L2。
 > 与本章相关的设计说明：`../architecture-design.md` §3.6（内存接口，缓存置于 `Translate` 之后、存储之前）；`../design/memory-system.md` §4（L1/L2/写缓冲/I-Cache、一致性、`cache_enable`）；`../design/validation-model.md` §3（缓存统计为软观测）。
 > 落地模块：`hw_sim/memory/cache`、`kmd/memory`（缓存旁路）、`apps/scene_s3_triangle`（统计探针场景）。
 
@@ -15,7 +18,7 @@
 3. 写缓冲：仅 L2 脏行替换入队，按 64 B 合并；耗尽触发冲刷。
 4. I-Cache：指令取指缓存，只做命中统计、不影响正确性（软观测）。
 5. `cache_enable=on/off` 开关：关闭只停止缓存参与，结果逐字节一致（开关前后零容差）。
-6. 统计只读软观测：命中/失效/写回计数进 MMIO `0x28` 软观测段，进不了硬判据。
+6. 统计只读软观测：命中/失效/写回计数进 MMIO `0x28` 软观测段（可选诊断），进不了硬判据。
 7. 一致性：屏障/屏障 fence 后全局可见；不引入时间或线程顺序依赖。
 
 ### 1.2 非目标

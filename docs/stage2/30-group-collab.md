@@ -1,5 +1,7 @@
 # 第 30 章 组内协作（workgroup + LDS）
 
+> 项目范围、阶段位置和交付以[任务规划](../CPU模拟GPU教学项目_任务规划与实施规格.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
+
 > 本章引入 workgroup 级协作：shared memory（LDS/STS）、原子操作、组内 barrier（workgroup 作用域同步）、以及内存序/作用域（Relaxed/Acquire/Release/AcqRel/SeqCst，作用域 Workgroup/Device）。workgroup 是调度单位、wave 是执行单位；barrier 是组内跨 wave 同步（组内全部 wave 到达才放行）——S19 `case-0`（block=256，8 wave）的跨 wave barrier 是核心专有判据。设计说明见 `../design/sync-primitives.md` §3、`../design/compute-line.md` §1。
 > 与本章相关的设计说明：`../architecture-design.md` §3.8（kernel 参数）；ADR-034；`../design/isa-abi.md` §2（0x40~0x4F 同步/原子）；第 15 章（Suspend/Resume）；`../design/execution-parallel.md` §4/§5（wave 是执行单位）。
 > 落地模块：`hw_sim/shader/shared`、`apps/scene_s10_reduce`（子 case）、`apps/scene_s19_compute_memory`（`case-0`/`case-1`）。

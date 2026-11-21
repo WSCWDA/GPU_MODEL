@@ -1,5 +1,7 @@
 # 第 33 章 命令链 + 多引擎
 
+> 项目范围、阶段位置和交付以[任务规划](../CPU模拟GPU教学项目_任务规划与实施规格.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
+
 > 本章在 10（单环 CP）、13（Copy 引擎）、32（多队列）之上补齐命令间接层：IB（Indirect Buffer）链、间接绘制/派发（`INDIRECT`）、GPU 侧谓词（`PREDICATE`）、以及多引擎（Copy/DMA）并发。间接与直接结果等价是核心判据；DMA 切片拷贝正确。
 > 与本章相关的设计说明：`../architecture-design.md` §3.3（IEngine 握手）；`../design/command-mmio.md` §2（`INDIRECT` 0x0C / `PREDICATE` 0x0D / `stateId 7` IB 基址）；ADR-024（屏障延续）；第 20 章（描述符配合）、第 32 章（队列）。
 > 落地模块：`hw_sim/core/cp` 扩展（IB/INDIRECT/PREDICATE）、`hw_sim/periph/copy`（DMA 切片）、`umd/graphics/pal/cmd_gen`、`apps/scene_s12_multiengine`、`apps/scene_s19_compute_memory`。

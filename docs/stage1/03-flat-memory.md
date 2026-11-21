@@ -1,5 +1,7 @@
 # 第 3 章 平坦内存
 
+> 项目范围、阶段位置和交付以[任务规划](../CPU模拟GPU教学项目_任务规划与实施规格.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
+
 > 本章建立全项目唯一的内存访问通道：单一虚拟地址空间、恒等映射、bump 分配器、资源上传与读回，以及 `SET_STATE_BASE`/`CLEAR`/`COPY_MEM` 三个与内存直接相关的命令包。所有硬件单元此后只能经 `IMemorySubsystem` 访问存储，不得直接解引用主机指针。
 > 与本章相关的设计说明：`../architecture-design.md` §3.6（内存接口）；`../design/memory-system.md` §1~§3、§6、§7（三类地址、堆、主机同步、分配确定性）；`../design/command-mmio.md` §2~§4（`SET_STATE_BASE`/`CLEAR`/`COPY_MEM`、`stateId`、MMIO 段）。
 > 落地模块：`hw_sim/memory/flat`、`hw_sim/core/{cp,mmio}` 追加分支、`hw_sim/submit/facade`、`apps/scene_e1_clear_present`、`apps/scene_e4_mesh`（本章只跑资源上传/读回子集）。

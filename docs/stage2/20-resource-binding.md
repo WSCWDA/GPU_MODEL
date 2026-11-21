@@ -1,5 +1,7 @@
 # 第 20 章 资源与绑定
 
+> 项目范围、阶段位置和交付以[任务规划](../CPU模拟GPU教学项目_任务规划与实施规格.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
+
 > 本章建立图形与计算的统一对象模型：资源（描述存储）与视图（描述用途/切片）分离（ADR-023）、描述符堆（Bindless 一期）、管线对象（图形 stages + 计算 kernel 同构）、root signature 类绑定、资源状态与屏障（粗粒度访问掩码，ADR-024/031）、以及 kernel 参数区封装。它是 21（纹理）、22~26（几何/光栅/OM）与 37/stage3 38~42（计算，原 35.5）的公共底座。
 > 与本章相关的设计说明：`../architecture-design.md` §3.4（HLI 对象面将承此对象模型）、§3.8（`KernelArgsLayout`）；`../design/command-mmio.md` §3（`stateId 3/5` 纹理/绑定/采样器描述符堆基址）；`../design/sync-primitives.md` §2（屏障粗粒度）；ADR-023/024/025（资源视图分离/屏障/能力四档）、ADR-042（地址确定性）。
 > 落地模块：`umd/graphics/pal/{resource,binding,pipeline}`、`hw_sim`（`USE_RESOURCE/VIEW/DESCRIPTOR/STATES` 数据面）、`apps/scene_s4_textured_quad`、`apps/scene_s5_model`（借用资源）、`apps/scene_s14_bindless_uav`、`apps/scene_s18_compute_basic`（kernel 参数）。

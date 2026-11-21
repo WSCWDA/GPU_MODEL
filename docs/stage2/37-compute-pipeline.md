@@ -1,5 +1,7 @@
 # 第 37 章 计算管线（CS 计算管线；直连 HLI 入口验收，不含 MUSA 计算驱动对象模型）
 
+> 项目范围、阶段位置和交付以[任务规划](../CPU模拟GPU教学项目_任务规划与实施规格.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
+
 > 本章是计算线**直连 HLI 入口的收口章**（ADR-013 修订 / ADR-048，2026-11-19/20）：把散落在第 20（kernel 参数）、29~31（波内/组内/并行协作）、32（异步计算）、33（间接派发）、34（查询统计）中的**计算专属开发任务**整合为一条完整、可独立验收的"计算管线"主线；共用硬件单元（subgroup / LDS / atomic / barrier / occupancy / 三维 workgroup 硬件映射 / 队列 / IB / 查询）仍在原章作为**图形 + 计算共用能力**落地（ADR-032），本章只在其上收口计算专属的调度、作用域、间接与统计，并以**直连 HLI 入口**（A37）验收 S18/S19。原 35.5 的 MUSA 计算驱动对象模型**不并入本章**，整体归 stage3 38~42 承载（ADR-047，`../design/compute-driver.md`）。
 > 设计权威：通路与对象模型见 `../design/compute-line.md`；kernel 参数契约见 `../architecture-design.md` §3.8（KernelArgsLayout 六条校验规则）；计算 pipeline 对象面见 `architecture-design.md` §3.4；同步原语与内存作用域见 `../design/sync-primitives.md` §3；执行与并行模型见 `../design/execution-parallel.md`；Wave/Workgroup 拆分与 ABI 分区见 `../design/isa-abi.md` §2/§3。
 > 编号纪律：本章**不新增包类型 / opcode / stateId / MMIO 槽**，全部复用既有登记（`DISPATCH`=0x04、`SET_KERNEL_ARGS`=0x0F/0x0002、`DISPATCH_INDIRECT`、`BARRIER`=0x0E、`PREDICATE`=0x0D）；开工前仍须对照 `../design/bit-budget.md` 审计复用号的所有权（`../roadmap.md` §7.3/§7.4、ADR-043/045）。

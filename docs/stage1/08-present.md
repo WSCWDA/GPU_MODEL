@@ -1,5 +1,7 @@
 # 第 8 章 帧输出
 
+> 项目范围、阶段位置和交付以[任务规划](../CPU模拟GPU教学项目_任务规划与实施规格.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
+
 > 本章收口 E1 的完整验收口径：清屏、单 RT、双缓冲、提交后读回、PNG 导出，并让"出屏 = 显存""双缓冲前后帧可区分"成为机器判据。第 2、3 章的提交/fence 与内存通道在这里被验证为一条可用通路。
 > 与本章相关的设计说明：`../design/validation-model.md` §1~§2（初级基线 raw RGBA8 + 场景元数据、全图逐字节）；`../design/memory-system.md` §7（BUMP 确定性）；第 3 章（`Download` 读回）；第 2 章（fence/提交）。
 > 落地模块：`hw_sim/periph/display`（scanout 简化版）、`hw_sim/submit/facade`（`Download`/PNG 导出）、`tools/image_diff`（raw 比对）、`apps/scene_e1_clear_present`。

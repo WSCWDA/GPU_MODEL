@@ -1,5 +1,7 @@
 # 第 29 章 波内协作
 
+> 项目范围、阶段位置和交付以[任务规划](../CPU模拟GPU教学项目_任务规划与实施规格.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
+
 > 本章引入波内（subgroup）协作原语：`ballot/shuffle/broadcast/reduction/deriv`，对应 ISA 区段 0x70~0x7D（opcode 7 bit 重编号，ADR-043，`../design/isa-abi.md` §2）。wave 内 lane 间按固定 lane 序协作（ADR-018）；归约顺序固定（lane 升序）；结果为确定值。它是计算线（S10/S18）波内共享的第一步，也为第 30 章组内协作提供波内基础。
 > 与本章相关的设计说明：`../design/isa-abi.md` §2（subgroup opcode 0x70~0x7D，7 bit 重编号）、§3（lane 序、mask）；ADR-034（发散分析）；`../design/execution-parallel.md` §5.5（归约顺序固定）；`../design/compute-line.md` §4（共用单元不特化）。
 > 落地模块：`hw_sim/shader/subgroup`、`apps/scene_s10_reduce`、`apps/scene_s18_compute_basic`。

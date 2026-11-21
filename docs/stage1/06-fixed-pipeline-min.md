@@ -1,5 +1,7 @@
 # 第 6 章 固定功能最小集
 
+> 项目范围、阶段位置和交付以[任务规划](../CPU模拟GPU教学项目_任务规划与实施规格.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
+
 > 本章把"顶点 → 图元 → 像素"三段固定功能一次串起来，是初级的重心（L 级，章内拆成 `M6.1` IA / `M6.2` 裁剪视口 / `M6.3` 光栅 / `M6.4` 合并四个可单独验收的里程碑，与 `../roadmap.md` §2.1 登记一致，Q-41）：非索引 IA → VS 分派 → 裁剪/视口 → 光栅 → 深度/颜色写回。一条 `DRAW` 命令从此能产出像素。
 > 与本章相关的设计说明：`../architecture-design.md` §3.7 前置（顶点布局：初级固定 `RenderVertex`，第 22 章换 `VertexInputLayout`）、`../design/isa-abi.md` §3（VS 输出区 / PS 输入输出区 / uniform 区）；第 4、5 章（波执行与指令语义）为着色段消费方。
 > 落地模块：`hw_sim/frontend/{ia,clip,viewport}`、`hw_sim/raster/{rasterizer,interp}`、`hw_sim/om`、`hw_sim/core/cp` 追加 `DRAW`/`SHADER_PSO` 分支、`apps/scene_e2_triangle`、`apps/scene_e4_mesh`。

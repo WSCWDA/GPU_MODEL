@@ -1,5 +1,7 @@
 # 第 11 章 地址翻译 + 堆
 
+> 项目范围、阶段位置和交付以[任务规划](../CPU模拟GPU教学项目_任务规划与实施规格.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
+
 > 本章把初级"单 VA 恒等映射"替换为真实 GPU 地址模型：两级页表/TLB、VRAM/GART/System 三堆、KMD 内存池、分配种子确定性、以及 flush/invalidate 主机同步。所有硬件单元统一走 `VA → TLB → L2 → 存储`，不得绕过翻译直连堆（ADR-042）。
 > 与本章相关的设计说明：`../architecture-design.md` §3.6（`IMemorySubsystem` 接口）；`../design/memory-system.md` §1~§3、§6~§7（三类地址、页表/TLB、堆/分配器、主机同步、分配确定性）；`../design/command-mmio.md` §3（`stateId 1` 页表根）。
 > 落地模块：`hw_sim/memory/{translation,heaps}`、`kmd/memory`、`umd/os`、`firmware/scheduler`（doorbell 写页表根）、`apps/scene_s0_selftest`、`apps/scene_s2_clear`。

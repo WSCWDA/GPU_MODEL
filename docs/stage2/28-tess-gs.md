@@ -1,5 +1,7 @@
 # 第 28 章 Tess + GS
 
+> 项目范围、阶段位置和交付以[任务规划](../CPU模拟GPU教学项目_任务规划与实施规格.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
+
 > 本章补齐几何阶段的曲面细分（HS → Tessellator → DS）与几何着色器（GS）。patch 载荷经本章**自建 patch 缓冲**跨阶段传递，C 阶段不依赖 LDS（Q-59）；HS 输出四因子（inner/e0/e1/e2，ABI `v[28..35]`）驱动 Tessellator 内核；GS 可 emit/restart 生成多图元并改变图元模式。第 28 章是 C 阶段收口章（S6 接入验收）。
 > 与本章相关的设计说明：Q-59（自建 patch 缓冲，C 阶段不依赖 LDS；与第 30 章 LDS 的合并评估后置）；ADR-034（发散分析）、ADR-033（距离区）；`../design/isa-abi.md` §3（VS out 区预留 HS 四因子）；opcode 区段 0x60~0x6F（曲面/几何，7 bit 重编号）。
 > 落地模块：`hw_sim/geometry/{hs,tessellator,ds,gs}`、`apps/scene_s6_tess`（含 GS 子 case）。

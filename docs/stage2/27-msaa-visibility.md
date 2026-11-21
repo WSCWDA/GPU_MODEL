@@ -1,5 +1,7 @@
 # 第 27 章 MSAA + 可见性
 
+> 项目范围、阶段位置和交付以[任务规划](../CPU模拟GPU教学项目_任务规划与实施规格.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
+
 > 本章在 OM（26）之上补两块：多采样（MSAA：子样本覆盖、每样本深度/颜色、resolve）与可见性单元（early-Z、Hi-Z、fast clear）。early-Z 的"早丢弃"在本章真正生效，且必须与 OM 的"写 UAV 禁用 early-Z"标记配合。MSAA 执行频率分层（PS 每像素、深度/混合每样本）是本章专有判据。
 > 与本章相关的设计说明：`../design/isa-abi.md` §3（PS 输出区）；第 25 章（quad 语义）；第 26 章（OM 状态）；`../design/execution-parallel.md`（occupancy 相关）；第 20 章（UAV）。
 > 落地模块：`hw_sim/raster/msaa`、`hw_sim/om`（每样本扩展）、`hw_sim/visibility/`、`apps/scene_s9_msaa`、`apps/scene_s7_occlusion`。

@@ -1,7 +1,7 @@
 # GPU 驱动全栈软模型 — 架构设计
 
 > 定位：定义分层、模块边界、数据流、接口契约与 ABI，回答"系统由哪些层和单元组成、它们如何协作、哪些契约不能破"。
-> 权威顺序：`roadmap.md`（章号、任务、顺序、ADR、能力边界、配置键）→ 本文件（结构与契约）→ `docs/design/`（独立模块设计）→ `docs/design/scene-specs.md`（场景输入与判据）→ 各章文档（实现细节）。本文件不新增章号与场景号；与 roadmap 冲突时以 roadmap 为准。
+> 文档职责：项目目标、范围、阶段与交付以 [任务规划](CPU模拟GPU教学项目_任务规划与实施规格.md) 为主干；`roadmap.md` 展开章级任务与门禁；本文件负责模块树、数据流、层间契约与 ABI；`docs/design/` 细化模块内部机制；`scene-specs.md` 冻结场景输入与判据；stage 文档描述章节实现。本文件不新增章号与场景号。
 > 决策记录见 `roadmap.md` §0.3 ADR 清单与 `docs/adr/`；原 `open-questions.md` 的 Q-01~Q-83 已全部定案关闭，本文件只写已定案内容。
 > 模块设计：本文件 §4 为独立模块设计文档（`docs/design/`）索引；子系统的内部设计细节不在此内联，见各模块文档。
 
@@ -33,12 +33,14 @@
 
 不做 API/二进制兼容、不做真实 GPU 驱动、不做周期级时序、不做电源/热/ECC/虚拟化、不做稀疏资源与压缩纹理、不做可变 subgroup、不做细粒度页错误恢复、不做 TDR 级容错。二期能力只保留 capability bit，一期返回"不支持"。
 
-### 1.4 两阶段与能力档
+### 1.4 正式阶段与能力档
 
 | 阶段 | 章 | 分层形态 | 验收 |
 |---|---|---|---|
 | 初级 | 1~9 | 场景 → 薄提交门面 → 硬件单元 | E0~E5，全图逐字节 |
-| 高级 | 10~36 | 场景 → UMD/计算驱动 → HLI → KMD → FW → 硬件单元 | S0~S19，探针 + 差分 |
+| 高级图形与共用底座 | 10~36 | 场景 → 图形 UMD/HLI → KMD → FW → 硬件单元 | S0~S17，探针 + 差分 |
+| 计算管线 | 37 | HLI DISPATCH → 共用 KMD/FW/Compute 引擎 | S18/S19 的直连 HLI 路径 |
+| 计算驱动扩展 | stage3 38~42 | 计算 UMD → HLI → KMD → FW → Compute 引擎 | S18/S19 双入口等价 |
 
 能力四档见 `roadmap.md` §0.5：初级实现 / 高级一期 / 高级二期（只留 bit）/ 范围外。
 
@@ -187,7 +189,7 @@ umd/
 
 apps/
   scene_e0_selftest .. scene_e5_end_to_end          (1~9)
-  scene_s0_selftest .. scene_s19_compute_memory     (10~36)
+  scene_s0_selftest .. scene_s19_compute_memory     (stage2 10~37; stage3 38~42 for driver entry)
 
 tools/
   isa_asm, isa_disasm            (5,16)
@@ -645,7 +647,7 @@ globalThreadId  = workgroupId * threadsPerGroup + gtid
 
 ## 4. 模块设计文档（`docs/design/`）
 
-> 子系统因工程量增长拆分为独立设计文档；本文件只保留分层、模块树与层间接口。**子模块文档同样遵循权威顺序**：`roadmap.md` → 本文件 → `docs/design/<模块>.md` → 各章文档。
+> 子系统因工程量增长拆分为独立设计文档；本文件只保留分层、模块树与层间接口。项目范围与阶段由任务规划确定；本文件是模块树和层间契约的权威来源；各 `docs/design/<模块>.md` 负责模块内部机制；各章文档负责实现落地。
 > 子模块文档自含：模块内部结构与状态、落地章、验收要点与契约变更规则；同时承载原架构 §4 全部内容与 roadmap 中相关权威条目。
 
 | 模块 | 文档（`docs/design/`） | 落地章 | 职责概览 | 相关层间接口 |
@@ -676,7 +678,7 @@ globalThreadId  = workgroupId * threadsPerGroup + gtid
 | §7 驱动 API 面与 HLI 映射 | 计算驱动函数面、错误码映射、生命周期 | §3.4、§3.9 |
 | §8 验收与差分口径 | 数值容差、结构断言、双入口等价 | `roadmap.md` §6.7 |
 
-模块设计文档的登记位：包类型 / `stateId` / MMIO 段 / opcode 区段的权威登记表见 `roadmap.md` §7.3，增量在 `command-mmio.md`、`isa-abi.md` 对应节登记。位宽与地址空间余量（包类型、MMIO、stateId、GPU VA、ISA opcode、环/堆容量）的集中审计见 `docs/design/bit-budget.md`（**唯一审计基准**：任一涉及包 / MMIO / ISA / 页表分配的章节开工前强制对照，见 `bit-budget.md` §1 与 `roadmap.md` §7.3/§7.4）。
+项目级范围和阶段见任务规划；模块设计文档的登记位：包类型 / `stateId` / MMIO 段 / opcode 区段的权威登记表见 `roadmap.md` §7.3，增量在 `command-mmio.md`、`isa-abi.md` 对应节登记。位宽与地址空间余量（包类型、MMIO、stateId、GPU VA、ISA opcode、环/堆容量）的集中审计见 `docs/design/bit-budget.md`（**唯一审计基准**：任一涉及包 / MMIO / ISA / 页表分配的章节开工前强制对照，见 `bit-budget.md` §1 与 `roadmap.md` §7.3/§7.4）。
 
 ---
 
@@ -948,4 +950,4 @@ gpu-driver-model/
 | 校验方法 | ref_model、探针、容差、差分矩阵 | 7、9 |
 | 编译器 | SSA、φ、线性扫描、分歧分析、LLVM 对照 | 17~19 |
 
-笔记只记录"为什么这样设计"与对照结论，不复制代码；与正文冲突时以 roadmap/本文件/`docs/design/` 为准。
+笔记只记录"为什么这样设计"与对照结论，不复制代码；项目范围和阶段以任务规划为准，模块树与层间契约以本文件为准，模块内机制和场景判据分别以对应 design 文档为准。

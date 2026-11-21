@@ -1,5 +1,7 @@
 # 第 35 章 API 后端（HLI / Vulkan / D3D12 / GL / 计算驱动）
 
+> 项目范围、阶段位置和交付以[任务规划](../CPU模拟GPU教学项目_任务规划与实施规格.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
+
 > 本章收口用户态对象面：35.1 冻结 HLI 原生对象接口（`architecture-design.md` §3.4），35.2~35.4 实现 Vulkan/D3D12/OpenGL 三套图形 UMD。**原 35.5 MUSA-like 计算驱动已于 2026-11-19 迁出**：对象契约与验收归第 37 章（管线收口），实现主体归 **stage3 38~42（`docs/stage3/`，ADR-047）**。**35.1 冻结门禁**：场景直连 HLI 全绿后才允许写任何 UMD。全部路径硬判据一致（探针零容差）。
 > 与本章相关的设计说明：`../architecture-design.md` §3.4（HLI 对象面）、§3.8（`KernelArgsLayout`）、§3.10（回调链）；`../design/compute-line.md` §2~§3（MUSA 对象模型）；ADR-009/022/024/041（自动引用计数）；`../design/sync-primitives.md`。
 > 落地模块：`hli/`、`umd/graphics/api/{vulkan,d3d12,gl}`、`umd/graphics/pal`、`umd/compute`、`apps/scene_s17_*` 等。

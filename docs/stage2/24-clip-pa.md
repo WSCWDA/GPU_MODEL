@@ -1,5 +1,7 @@
 # 第 24 章 裁剪 + PA（图元装配）
 
+> 项目范围、阶段位置和交付以[任务规划](../CPU模拟GPU教学项目_任务规划与实施规格.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
+
 > 本章把初级"近平面 + 视口 6 平面 Sutherland-Hodgman"扩展为完整裁剪管线：guard band 裁剪、Clip/Cull Distance（`kVgprBaseDistance`=`v[68..75]`，8 项，clip 在前、cull 在后，ADR-033/Q-57/Q-64）、多视口索引、退化丢弃，并与 CPU 参考裁剪器对照。PA 在此负责把 VS/GS 后的顶点流装配成带拓扑的图元列表交光栅，并判定背面剔除（Q-61）。
 > 与本章相关的设计说明：`../design/isa-abi.md` §3（距离区 `kVgprBaseDistance`=`v[68..75]`）；ADR-033（顶点间固定距离区）；第 15（分歧）、第 22（拓扑）、第 23（切片）章为上游；第 25 章光栅为下游。
 > 落地模块：`hw_sim/frontend/clip_pa`、`apps/scene_s3_triangle`、`apps/scene_s5_model`。

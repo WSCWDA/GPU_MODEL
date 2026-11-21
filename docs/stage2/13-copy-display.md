@@ -1,5 +1,7 @@
 # 第 13 章 Copy Engine + Display
 
+> 项目范围、阶段位置和交付以[任务规划](../CPU模拟GPU教学项目_任务规划与实施规格.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
+
 > 本章把 `COPY_MEM` 从"CP 同步执行"迁到独立 Copy Engine 引擎实例，并把初级"立即读 RT 上屏"替换为真实显示控制器：逐行扫描、翻转（flip）、vsync。两条线共享同一 `IMemorySubsystem`，都走 `VA → TLB → L2`。
 > 与本章相关的设计说明：`../architecture-design.md` §3.3（`IEngine` 统一签名，Copy 引擎 `sa=nullptr`）；`../design/memory-system.md` §8（Copy/Display 统一走翻译）；`../design/sync-primitives.md` §1（fence）；ADR-015（BGRA 字节序）延续。
 > 落地模块：`hw_sim/periph/copy`、`hw_sim/periph/display`、`hw_sim/core/cp` 追加 `COPY_MEM` 引擎派发、`apps/scene_s2_clear`、`apps/scene_e1`（迁移到新 Display）。

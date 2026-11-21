@@ -1,9 +1,11 @@
 # 内存系统 — 独立模块设计
 
+> 项目目标、范围、阶段与交付以[任务规划](../CPU模拟GPU教学项目_任务规划与实施规格.md)为主干；roadmap展开章级任务，architecture-design定义模块树与层间契约。本文负责本模块的内部技术设计。
+
 > 定位：定义 GPU 内存模型的所有权归属：三类内存地址与唯一访问通道、两级页表 / TLB、三堆（VRAM/GART/System）与分配器、缓存与写缓冲、驻留与上下文，以及主机-GPU 缓存同步、分配确定性与内存 Sanitizer。
 > 落地章：第 3 章平坦内存（初级）、第 11 章地址翻译 + 堆、第 12 章缓存 + 写缓冲、第 14 章驻留 + 上下文；Copy 引擎与 Display 统一走本模型。
 > 权威来源：从 `architecture-design.md` §4.2 拆出，并吸收内存域 / 地址模型与堆（原 §4.8，已并入本文件）、`roadmap.md` §5.1（`mem_sanitizer` 配置）与 §2.8（统一内存域、I-Cache）、ADR-015 / ADR-031 / ADR-042。
-> 权威顺序：`roadmap.md` → `architecture-design.md` → `../docs/design/memory-system.md` → `stageN` 章文档。
+> 职责关系：项目范围与阶段见任务规划；本文件负责内存模块内部机制，架构文档负责 IMemorySubsystem 等跨层接口，roadmap 负责章级实施顺序与验收。
 
 ---
 
@@ -65,6 +67,8 @@
 - 缓存一致性由屏障与 fence 维护，不依赖时间或线程顺序。
 - `cache_enable=off` 只关闭命中统计与缓存路径，不改变结果；任何开关前后结果不同视为正确性缺陷。
 - 缓存统计（命中/失效/写回）进入校验模型的软观测（`../docs/design/validation-model.md`）。
+
+缓存/写缓冲的教学目标是解释数据如何经过 L1/L2、何时留存或排空、flush/invalidate 如何影响可见性，以及消费者何时复用数据。hit/miss、失效数和写回数只是诊断统计，不是核心学习目标或正式场景通过条件。GS/Tessellation 的 patch/control-point、顶点流和生成数据缓冲属于阶段局部暂存/输出队列，不能与通用缓存层混为一谈。
 
 ## 5. 驻留与上下文（第 14 章）
 

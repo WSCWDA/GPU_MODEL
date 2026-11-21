@@ -1,5 +1,7 @@
 # 第 2 章 设备 + 单环
 
+> 项目范围、阶段位置和交付以[任务规划](../CPU模拟GPU教学项目_任务规划与实施规格.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
+
 > 本章建立"提交 → 取指 → 派发 → 完成"的最小闭环：设备对象与 MMIO 寄存器块、单个命令环的读写指针、doorbell、CP 状态机、fence 写值与完成通知。本章结束时，一条只含 `STREAM_HEADER`/`NOP`/`FENCE` 的命令流可以从薄门面提交并确定性地完成。
 > 与本章相关的设计说明：`../architecture-design.md` §3.2（薄提交门面）、§3.3（`IEngine` 握手签名）、§3.10（回调链）；`../design/command-mmio.md` §1~§2、§4（包头、包类型、MMIO 分段）；`../design/sync-primitives.md` §2（fence 规则）；`../design/logging.md` §3（硬件行为校验）。
 > 落地模块：`hw_sim/core/{device,mmio,ring,cp,fence}`、`hw_sim/submit/facade`、`apps/scene_e1_clear_present`（本章只跑其提交子集）。

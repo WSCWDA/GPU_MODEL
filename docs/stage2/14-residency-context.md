@@ -1,5 +1,7 @@
 # 第 14 章 驻留 + 上下文
 
+> 项目范围、阶段位置和交付以[任务规划](../CPU模拟GPU教学项目_任务规划与实施规格.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
+
 > 本章补齐 A 阶段最后一块：GPU 内存驻留管理与多上下文切换。驻留表记录 `{资源, 页范围, 优先级}`、LRU 逐出、逐出前 flush；上下文以 ASID 隔离、可保存/恢复（寄存器/控制流栈/谓词/PC/绑定基址/SE 状态），两上下文交替提交互不污染；并为抢占/恢复（S12）预留接口。本章是 A 阶段收口章，S5/S11 接入验收。
 > 与本章相关的设计说明：`../architecture-design.md` §3.6（`IsResident` 语义）、§3.5（KMD `context`）；`../design/memory-system.md` §5（驻留与上下文）；ADR-031（页错误直接复位）；`../design/boot-reset.md` §2（复位路径）。
 > 落地模块：`hw_sim/memory/residency`、`kmd/context`、`kmd/scheduler`（上下文选择/抢占）、`firmware/scheduler`（上下文加载）、`apps/scene_s5_model`、`apps/scene_s11_parallel`。

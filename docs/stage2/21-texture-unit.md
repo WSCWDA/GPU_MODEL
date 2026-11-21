@@ -1,5 +1,7 @@
 # 第 21 章 纹理单元
 
+> 项目范围、阶段位置和交付以[任务规划](../CPU模拟GPU教学项目_任务规划与实施规格.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
+
 > 本章把初级"nearest 单层 RGBA8"的纹理采样替换为完整硬件纹理单元：格式解码（含 sRGB）、线性/tile 两种布局、mip/LOD/过滤、数组/Cubemap 寻址、独立采样器对象、以及异步纹理采样（延迟隐藏，ADR-036）。设计说明见 `../design/texture-unit.md` §1~§4。
 > 与本章相关的设计说明：`../design/texture-unit.md`（M21.1~M21.3 / 错误语义 / 延迟隐藏）；ADR-036（波挂起唤醒）；`../design/memory-system.md` §8（采样走 IMemory + 缓存）；`../design/command-mmio.md` §3（`stateId 3/5` 纹理/采样器描述符堆基址；采样器并入 `stateId 5`）。
 > 落地模块：`hw_sim/texture/`（format/tiling/mip/filter/address）、`umd/graphics/pal`（sampler 对象）、`hw_sim/shader`（采样挂起/唤醒接入）、`apps/scene_s4_textured_quad`、`apps/scene_s14_bindless_uav`。

@@ -1,5 +1,7 @@
 # 第 40 章 Stream/Event 与异步计算
 
+> 项目范围、阶段位置和交付以[任务规划](../CPU模拟GPU教学项目_任务规划与实施规格.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
+
 > 本章是 **stage3 计算驱动开发线（38~42）** 的第三章。在第 38/39 章基础上实现计算驱动的**异步执行语义**：`stream` = 1:1 映射一个 HLI 队列（优先级创建时声明、不可变；不允许多队列）；`event` = `{queueId, timelineValue, state}`（Record 插 `SIGNAL`、Wait 插 `WAIT`、Query 非阻塞读，值域复用队列 timeline、不复用 fence 对象）；**async compute**：计算队列与图形队列并发提交、计算→图形 fence 依赖（队列家族所有权转移复用第 32 章）、timeline 值序。全程复用第 32 章队列/同步原语，不新增 HLI 接口、不新增包号。
 > 设计权威：Stream/Event 语义见 `../design/compute-driver.md` §6；队列与 timeline、所有权转移见第 32 章与 `../architecture-design.md` §3.13（图形↔计算行）；同步原语与内存作用域见 `../design/sync-primitives.md` §3；WA-11 见 `../architecture-design.md` §7.9，计算通路见 `../design/compute-line.md` §1/§2。
 > 编号纪律：本章不新增编号；复用 `SIGNAL`/`WAIT`（第 32 章）、`BARRIER=0x0E`、`PREDICATE=0x0D`（ADR-043/047）；不新增 HLI 接口（ADR-032）；开工前对照 `../design/bit-budget.md` 审计（ADR-045）。

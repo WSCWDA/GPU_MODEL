@@ -1,5 +1,7 @@
 # 第 5 章 最小 ISA
 
+> 项目范围、阶段位置和交付以[任务规划](../CPU模拟GPU教学项目_任务规划与实施规格.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
+
 > 本章把第 4 章的"内存内指令结构"规范化为 64 bit 定长二进制编码，并交付汇编器/反汇编器与指令语义表。约 20 条指令、线性编码（无压缩）；标量/向量分区位预留，本章只实现向量指令。E0 的"汇编往返"判据在此补全，E2 的着色样例改用编码投递。
 > 与本章相关的设计说明：`../design/isa-abi.md` §1~§2、§3（64 bit 编码、opcode 区段、ABI 分区）；`../architecture-design.md` §3.1（`IShaderArray`）；第 4 章（执行器消费语义）。
 > 落地模块：`common/include/common/isa.h`、`hw_sim/shader/isa`（解码/语义表）、`tools/isa_asm`、`tools/isa_disasm`、`apps/scene_e0_selftest`（往返子集补全）、`apps/scene_e2_triangle`。

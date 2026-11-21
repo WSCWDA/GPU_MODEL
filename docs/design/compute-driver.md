@@ -1,5 +1,7 @@
 # 计算驱动对象模型与 ABI — 独立模块设计
 
+> 项目目标、范围、阶段与交付以[任务规划](../CPU模拟GPU教学项目_任务规划与实施规格.md)为主干；roadmap展开章级任务，architecture-design定义模块树与层间契约。本文负责本模块的内部技术设计。
+
 > 定位：定义 **stage3 计算驱动开发线（新章 38~42，`docs/stage3/`）** 的驱动专属设计——`umd/compute` 的 MUSA 风格对象模型（context / module / function / stream / event）、`MUSA_MODULE_HDR` 二进制布局与装载、kernel 参数打包 ABI、stream/event 同步、生命周期与错误码映射。它是 stage3 各章文档的设计权威。
 > 落地章：38（对象骨架与 Module 装载）、39（LaunchKernel 与参数打包）、40（Stream/Event 与异步）、41（组内协作/间接/UAV 写回）、42（双入口等价与验收）。
 > 权威来源：`architecture-design.md` §3.8（KernelArgsLayout 六条校验）、§3.9（错误契约与 MUSA 错误码映射）、§3.11（DispatchDesc 与 D-01~D-12）、§3.12（映射公式 M-01~M-08）、§3.13（地址空间与作用域 S-01~S-06）、§3.10（生命周期）；`compute-line.md` §2/§7（对象粒度与 HLI 映射）；ADR-009 / ADR-013 / ADR-022 / ADR-030 / ADR-032 / ADR-039 / ADR-041 / ADR-047。

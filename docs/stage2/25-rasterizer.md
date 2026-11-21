@@ -1,5 +1,7 @@
 # 第 25 章 光栅器
 
+> 项目范围、阶段位置和交付以[任务规划](../CPU模拟GPU教学项目_任务规划与实施规格.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
+
 > 本章把初级"像素中心 + 左上规则"光栅升级为完整栅格化：fill rule（top-left）、2×2 quad（强制执行）、三种插值修饰符、点/线光栅规则、scissor，并在 M25.3 集成"无效 lane 仍执行的 quad 判据"。成熟的光栅规则在此定型并对接 CPU 参考模型（覆盖 ±1/16、颜色 ±2、深度 ±1，Q-60）。
 > 与本章相关的设计说明：`../architecture-design.md` §3.3（IEngine 握手）；ADR-035（流水线/背压）；第 24 章（裁剪输出图元）、第 21 章（quad 导数供纹理 LOD）。
 > 落地模块：`hw_sim/raster/rasterizer`、`hw_sim/raster/interp`、`apps/scene_s3_triangle`、`apps/scene_s9_msaa`。

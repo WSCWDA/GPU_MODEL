@@ -1,5 +1,7 @@
 # 第 23 章 VGT / SPI
 
+> 项目范围、阶段位置和交付以[任务规划](../CPU模拟GPU教学项目_任务规划与实施规格.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
+
 > 本章把"VS 逐波分派"拆为 VGT（几何装配）+ 前端派发器（切片）+ SPI（着色器分派器）三级：命令数恒为 1（不因顶点数拆分命令包）、顶点流自动切波、切片边界图元完整、顶点流缓冲常驻复用不随帧增长（ADR-017`IEngine::Execute` 末参）。切片容量与切片决策归本章前端派发器，VGT 只产顶点流（Q-58）。`IEngine` 握手中 `DRAW` 载荷在 VGT/SPI 处理的语义、切片与 `worker_threads` 解耦在这里定型。
 > 与本章相关的设计说明：`../architecture-design.md` §3.3（`IEngine` 末参 `IShaderArray*`）；ADR-017/019（几何前端切片；SE 分区）；`../design/execution-parallel.md` §4（功能级流水线/背压）。
 > 落地模块：`hw_sim/frontend/vgt_spi`、`apps/scene_s5_model`（大顶点流）。

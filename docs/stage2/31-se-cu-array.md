@@ -1,5 +1,7 @@
 # 第 31 章 SE + CU 阵列（策略 B 落地）
 
+> 项目范围、阶段位置和交付以[任务规划](../CPU模拟GPU教学项目_任务规划与实施规格.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
+
 > 本章把"单线程串行 + 固定轮转"升级为真实硬件并行：SE 屏幕 tile 静态分区（ADR-019）、CU 阵列与波原子领取、线程本地 TLB + 全局失效、三维 workgroup 映射、双执行策略 B（硬件对齐并行）落地，以及 occupancy 资源上限（ADR-038）。`se_count × worker_threads` 全组合硬判据一致是本章（及 D 阶段）的核心专有判据。
 > 与本章相关的设计说明：`../architecture-design.md` §3.3（IEngine 握手）；ADR-006/007/019/038；`../design/execution-parallel.md` §1~§6；`../design/memory-system.md` §7（确定性）；`../design/compute-line.md` §4（三维映射）。
 > 落地模块：`hw_sim/se`、`apps/scene_s11_parallel`、`apps/scene_s18_compute_basic`。

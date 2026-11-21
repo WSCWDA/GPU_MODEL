@@ -1,5 +1,7 @@
 # 第 1 章 契约最小集
 
+> 项目范围、阶段位置和交付以[任务规划](../CPU模拟GPU教学项目_任务规划与实施规格.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
+
 > 本章是全项目契约的起点：后续 35 章的结构体、枚举、命令包头、错误码、像素格式与字节序、日志格式、确定性规则，均以本章冻结的条款为准。本章不含任何可执行硬件行为，只交付头文件、编译期断言与自检场景。
 > 与本章相关的设计说明：`../architecture-design.md` §3.9（错误契约）、`../design/command-mmio.md` §1~§2（包头与包类型）、`../design/isa-abi.md` §1~§3（编码与 ABI 分区）、`../design/logging.md` §1/§3（日志与断言）、`../design/memory-system.md` §1（三类地址）。
 > 落地模块：`common/include/common/{types,result,packet,format,log,config}.h`、`apps/scene_e0_selftest`。

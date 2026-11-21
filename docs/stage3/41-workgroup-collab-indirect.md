@@ -1,5 +1,7 @@
 # 第 41 章 组内协作与间接触发
 
+> 项目范围、阶段位置和交付以[任务规划](../CPU模拟GPU教学项目_任务规划与实施规格.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
+
 > 本章是 **stage3 计算驱动开发线（38~42）** 的第四章。在第 38~40 章基础上收口计算**驱动侧**的高级契约：三维 workgroup/grid 驱动侧封装（blockIdx/threadIdx 语义、grid 边界部分 workgroup、越界 work-item 不写内存）；组内 barrier（组内全部 wave 到达放行、跨 wave）与 workgroup/device 内存作用域；subgroup `ballot/shuffle/reduce` + LDS/原子；`DISPATCH_INDIRECT`（间接参数唯一真值、与直接 dispatch 逐值等价）；全阶段 UAV kernel 写回（buffer/image）；计算查询与统计（dispatch 计数 / timestamp 单调 / 可作 GPU 侧谓词）。所有能力建立在 29~31/33/34 章共用单元之上，驱动侧只做**打包、校验与入口语义收口**，不新增 `hw_sim` 单元、不新增包号。
 > 设计权威：映射公式与 M-01~M-08 见 `../architecture-design.md` §3.12；地址空间与作用域 S-01~S-06 见 §3.13；`DispatchDesc`/D-01~D-13 与间接参数见 §3.11；对象与打包 ABI 见 `../design/compute-driver.md` §5；WA-02/WA-12 见 `../architecture-design.md` §7.9，计算通路见 `../design/compute-line.md` §1/§2；查询见第 34 章。
 > 编号纪律：本章不新增编号；复用 `DISPATCH=0x04`、`DISPATCH_INDIRECT`（第 33 章）、`BARRIER=0x0E`、`PREDICATE=0x0D`（ADR-043/047）；不新增 `hw_sim` 单元/目录（ADR-009/032）；开工前对照 `../design/bit-budget.md` 审计（ADR-045）。

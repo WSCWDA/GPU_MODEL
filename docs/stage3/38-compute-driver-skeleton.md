@@ -1,5 +1,7 @@
 # 第 38 章 计算驱动骨架——umd/compute 对象模型与 Module 装载
 
+> 项目范围、阶段位置和交付以[任务规划](../CPU模拟GPU教学项目_任务规划与实施规格.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
+
 > 本章是 **stage3 计算驱动开发线（新章 38~42，ADR-047）** 的第一章。在 1~37 章图形管线（HLI、KMD、FW、内存、队列、Compute 引擎派发、第 37 章计算通路收口）之上，落地 MUSA 风格计算驱动（`umd/compute`）的**对象模型骨架**：`context / module / function` 对象头文件、`MUSA_MODULE_HDR` 二进制格式与装载、符号表解析与 function 入口。从此章起，计算驱动作为独立用户态驱动栈与图形 UMD 并列（ADR-009），只依赖 HLI 与 `umd/os`。
 > 设计权威：驱动对象模型 / `MUSA_MODULE_HDR` 布局 / 符号表 / 生命周期见 `../design/compute-driver.md` §2~§4、§6、§9；kernel 参数与 `DispatchDesc` 契约见 `../architecture-design.md` §3.8、§3.11；对象销毁契约（逆创建、双维度引用计数）见 `../architecture-design.md` §3.10；错误码映射见 §3.9；WA 业务目录见 `../architecture-design.md` §7.9，计算通路见 `../design/compute-line.md` §1/§2。
 > 编号纪律：本章**不新增包类型 / opcode / stateId / MMIO / 配置键**（`DISPATCH=0x04` 等全部复用，ADR-043/047）；开工前对照 `../design/bit-budget.md` 审计（ADR-045）；不新增 `hw_sim` 单元 / 目录（ADR-009）。

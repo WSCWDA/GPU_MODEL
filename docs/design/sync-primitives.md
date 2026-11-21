@@ -1,5 +1,7 @@
 # 同步原语 — 独立模块设计
 
+> 项目目标、范围、阶段与交付以[任务规划](../CPU模拟GPU教学项目_任务规划与实施规格.md)为主干；roadmap展开章级任务，architecture-design定义模块树与层间契约。本文负责本模块的内部技术设计。
+
 > 定位：定义跨单元 / 跨队列 / 跨引擎的正确性核心：fence、timeline semaphore、event、barrier 与内存序/作用域映射。同步语义与内存模型（`../docs/design/memory-system.md`）共同保证"时间无关 + 确定序"。
 > 落地章：第 2 章 Fence 最小载体、第 32 章队列 + 同步、第 33 章命令链 + 多引擎、第 20 章资源屏障；内存序/作用域落在第 30、31 章工作负载侧。
 > 权威来源：从 `architecture-design.md` §4.3 拆出，并吸收 `memory-system.md` §6（主机-GPU 缓存同步）、`roadmap.md` §0.5（能力边界，屏障粗粒度掩码）与 §2.8（屏障与所有权转移、内存序映射）、ADR-024 / ADR-031。

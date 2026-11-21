@@ -1,5 +1,7 @@
 # 轻量日志、硬件统计与断言 — 独立模块设计
 
+> 项目目标、范围、阶段与交付以[任务规划](../CPU模拟GPU教学项目_任务规划与实施规格.md)为主干；roadmap展开章级任务，architecture-design定义模块树与层间契约。本文负责本模块的内部技术设计。
+
 > 定位：定义普通运行日志（`GD_LOG`）、MMIO 只读硬件统计计数器、以及三套断言体系。所有观测手段都只是调试手段，**CI 校验只信任探针 + `ref_model`**（`../docs/design/validation-model.md`）。
 > 落地章：第 1 章轻量日志（ADR-010）；硬件统计计数器高级 A 阶段作为 MMIO 只读段落地（`../docs/design/command-mmio.md` §4 0x20~0x2F）。
 > 权威来源：从 `architecture-design.md` §4.6 拆出，吸收日志体系定义（原 §7.6，已并入本文件）与 ADR-010。

@@ -1,5 +1,7 @@
 # 第 34 章 查询
 
+> 项目范围、阶段位置和交付以[任务规划](../CPU模拟GPU教学项目_任务规划与实施规格.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
+
 > 本章落地 GPU 查询子系统：遮挡查询（occlusion）、时间戳（timestamp）、管线统计（pipeline stats）、以及查询作为 GPU 侧谓词（`PREDICATE` 回读）。查询值进探针/断言面（计数零容差）；归约顺序固定；timestamp 只做单调性判定。可与 32/33 并行推进（roadmap §3.2）。
 > 与本章相关的设计说明：`../architecture-design.md` §3.4（`IHliQueryPool`）；`../design/command-mmio.md` §2（`QUERY` 0x09、`stateId 6` 查询池基址）；ADR-027（查询为硬判据）；第 27 章（遮挡与 early-Z/Hi-Z 计数）、第 31 章（并行波/像素计数）。
 > 落地模块：`hw_sim/query`、`apps/scene_s7_occlusion`、`apps/scene_s2_clear`。

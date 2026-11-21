@@ -1,5 +1,7 @@
 # 第 7 章 纹理最小集
 
+> 项目范围、阶段位置和交付以[任务规划](../CPU模拟GPU教学项目_任务规划与实施规格.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
+
 > 本章引入第一类采样资源：RGBA8 纹理的地址计算（UV → 纹素）、nearest 采样与越界 clamp 语义，以及 `SAMPLE` 指令的最小实现；同时把校验体系从"进程内手工断言"升级为"CPU 参考模型 + 全图逐字节 / 结构断言"（初级不引入探针表，Q-39），为高级阶段的双轨校验奠定基础。
 > 与本章相关的设计说明：`../design/texture-unit.md` §1~§2（环节约定与初级最小集）；`../design/validation-model.md` §1~§4（校验分层、容差；初级不引入探针表）；`../design/memory-system.md` §7（分配确定性）；第 5 章（`LD/ST`/`SAMPLE` 区段）。
 > 落地模块：`hw_sim/texture/nearest`（初级版）、`common/format.h` 追加纹理格式、`hw_sim/shader/isa` 追加 `SAMPLE` 语义、`tools/ref_model`、`tools/image_diff`、`apps/scene_e3_textured_quad`。
