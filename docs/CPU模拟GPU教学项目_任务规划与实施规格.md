@@ -771,21 +771,21 @@ flowchart TD
 
 | 主线 | 学习者看到的输入与结果 | 主模块 | 主要验收 |
 |---|---|---|---|
-| 图形线 | 顶点/索引/纹理/状态 → draw → 光栅与合并 → RT/显示帧 | `hw_sim/frontend`、`shader`、`raster`、`om`、`visibility`、`periph/display`，以及 HLI/UMD | 初级 E0–E5 全图逐字节；高级 S0–S17 探针与差分 |
+| 图形线 | 顶点/索引/状态 → draw → 可编程着色阶段与固定功能阶段 → RT/显示帧 | `hw_sim/frontend`、`shader`、`raster`、`om`、`visibility`、`periph/display`，以及图形 HLI/UMD | 初级 E0–E5 全图逐字节；高级 S0–S17 探针与差分 |
 | 计算线 | kernel/module/function/参数 → dispatch(grid, block) → workgroup/wave → 内存写回与同步 | `umd/compute`、`hli`、`kmd`、`firmware`、`hw_sim/shader`、`memory`、`isa` | S18/S19；阶段 F 直连 HLI；stage3 A38–A42 双入口等价 |
 | 共用底座 | 两条线共享命令、地址空间、资源、缓存、队列、同步、错误和调度 | `common`、`hw_sim/core`、`hw_sim/memory`、`firmware`、`kmd`、`hli` | 共用模块无 graphics-only/compute-only 特化；E/S 回归不退化 |
 
-图形与计算的主要差异保留在入口和工作负载上：图形有 IA/几何前端/光栅/OM；计算没有这些像素阶段，而以 grid/block、workgroup/wave、内存作用域和 barrier 为核心。内存、命令派发、执行阵列、ISA、队列及同步应复用同一模块语义。
+图形与计算的主要差异保留在入口和工作负载上：图形由可编程着色阶段与固定功能单元共同组成，涵盖 IA、裁剪/图元装配、光栅、深度/模板/混合及输出；GS/Tessellation 是高级几何扩展，不是第一帧的前置条件。计算没有 IA/光栅/OM，以 grid/block、workgroup/wave、内存作用域和 barrier 为核心。内存、命令派发、执行阵列、ISA、队列及同步应复用同一模块语义。
 
 ### 18.2 完整功能工作包与阶段验收
 
 | 工作包 | 对应正式章节 | 需要补齐的功能与可学习内容 | 关键交付/门禁 |
 |---|---|---|---|
 | WP0：契约与最小可运行骨架 | 1–2 | 统一类型/错误/packet/ABI/日志/配置；MMIO dword 单位；设备创建销毁、doorbell、单 ring、CP 解包派发、fence；单一薄 facade | E0、S1；包格式与位宽预算一致，空提交能完整走通 |
-| WP1：初级图形纵向切片 | 3–9 | flat VA/bump 分配；warp32 单波；最小 ISA、汇编/反汇编；IA→VS→裁剪/视口→光栅→深度/颜色写回；RGBA8 nearest 纹理；清屏、双缓冲与 PNG 导出 | E0–E5；完成一帧渐变三角、贴图四边形和简单网格的组合绘制，两次输出逐字节一致 |
+| WP1：初级图形纵向切片 | 3–9 | flat VA/bump 分配；warp32 单波；最小 ISA、汇编/反汇编；图形最小管线 IA→VS（可编程）→裁剪/视口/图元装配（PA）→光栅→OM（深度/颜色写回）；RGBA8 nearest 纹理；清屏、双缓冲与 PNG 导出。该阶段明确展示固定功能单元的输入/输出和状态，但不把 VS 误称为固定功能 | E0–E5；完成一帧渐变三角、贴图四边形和简单网格的组合绘制，两次输出逐字节一致 |
 | WP2：设备、地址与执行底座 | 10–16 | 多环预留、CP/FW/KMD 提交边界；三类地址、两级页表/TLB、VRAM/GART/System 三堆、分配器、内存池、cache flush/invalidate；L1/L2/write buffer；Copy/Display；residency/context/ASID；控制流重收敛与波调度；冻结完整 ISA | A0–A 门禁 S1/S2/S13；页表与种子确定、地址越界可定位、缓存 on/off 输出等价 |
 | WP3：编译器与资源接口 | 17–20 | GLSL-like 子集前端、AST/SSA/CFG、类型与 IO 签名校验、发散分析；常量折叠/DCE/CSE 等优化（一期不做 LICM）；SGPR/VGPR 寄存器分配及溢出；ISA 发射；LLVM 对照；资源/视图分离、描述符堆、绑定、管线、动态状态快照、push constant、资源状态与屏障 | B 门禁 S0/S3；手写 ISA/编译器/LLVM 路径输出符合场景判据，绑定/参数边界可断言 |
-| WP4：纹理与完整图形流水线 | 21–28 | 格式解码和线性/tile 布局；mip/LOD、nearest/bilinear/trilinear、wrap/clamp/mirror/border、数组/Cubemap；IA 索引/primitive restart/实例化；VS 切片；裁剪/guard band/PA/Clip-Cull Distance/多视口；fill rule、quad、插值、点线/scissor；depth/stencil/blend/MRT/RT 格式转换/LoadOp/StoreOp；MSAA、early-Z/Hi-Z/fast clear；Tess/GS 与 patch 缓冲 | C 门禁 S3–S9、S14；章节内大任务按 M21.x/M25.x/M26.x/M28.x 拆开独立验收 |
+| WP4：纹理与完整图形流水线 | 21–28 | 格式解码和线性/tile 布局；mip/LOD、nearest/bilinear/trilinear、wrap/clamp/mirror/border、数组/Cubemap；IA 索引/primitive restart/实例化；VS 切片；裁剪/guard band/PA/Clip-Cull Distance/多视口；fill rule、quad、插值、点线/scissor；depth/stencil/blend/MRT/RT 格式转换/LoadOp/StoreOp；MSAA、early-Z/Hi-Z/fast clear；Tess/GS 与 patch 缓冲作为独立高级几何子场景。GS/Tess 不塞入初级首帧；其价值是展示 patch/control point、tess factor、生成顶点/图元及跨几何阶段的数据暂存/复用。具体缓存或片上存储结构按既有模块契约实现，不假定厂商私有实现 | C 门禁 S3–S9、S14；章节内大任务按 M21.x/M25.x/M26.x/M28.x 拆开独立验收 |
 | WP5：SIMT 协作、并行与计算共用语义 | 29–31 | ballot/shuffle/reduction/导数；shared/LDS、atomic、barrier、内存序与 workgroup/device 作用域；三维 grid/block 到 workgroup/wave/lane 映射、部分 workgroup；SE/CU 阵列、occupancy 上限、线程本地 TLB；策略 A 串行黄金基线与策略 B 硬件对齐并行 | D 门禁 S10/S11/S18；所有组合功能判据一致；未实现策略明确返回不支持，禁止静默串行降级 |
 | WP6：队列、引擎、查询与图形 API | 32–36 | Graphics/Compute/Copy 队列；timeline semaphore/fence、跨队列所有权转移；IB 链、直接/间接 draw/dispatch、predication、独立 DMA；occlusion/timestamp/pipeline stats；HLI 原生入口和 Vulkan/D3D12/OpenGL 核心子集；非法访问、非法包、死循环、watchdog、按引擎复位和复位后重跑 | E 门禁 S12/S13/S15–S17；三入口硬判据一致，错误能定位并恢复 |
 | WP7：计算管线收口 | 37 | 计算入口与 dispatch 描述、KernelArgsLayout 校验、compute engine 派发、uniform 装载、三维映射/组内 barrier/统计、异步计算、间接派发、query、全阶段 UAV；直连 HLI 计算入口 | F 门禁 S18/S19；serial/parallel 判据一致，E0–E5/S0–S17 不退化 |
@@ -846,9 +846,9 @@ flowchart TD
 |---|---|---|
 | 可构建程序 | C++ 核心库、CLI 场景运行器、Windows/Linux 构建说明与脚本 | 干净构建通过；核心层不依赖操作系统，平台差异集中在窗口/文件系统适配 |
 | 初级教学演示 | E0–E5 可执行场景；E5 一帧含清屏、渐变三角、贴图四边形和模型 | 从命令行一键运行；产出帧图/原始 buffer；E0–E5 全图逐字节符合仓库基线 |
-| 高级图形演示 | S0–S17 场景覆盖多队列、纹理/几何、MSAA、错误恢复、三套 API 后端子集 | 通过对应场景探针/差分；HLI/Vulkan/D3D12/OpenGL 后端判据一致 |
+| 高级图形演示 | S0–S17 场景覆盖纹理/几何、Tess/GS、MSAA、多队列和图形 API 后端子集 | 通过对应场景探针/差分；HLI/Vulkan/D3D12/OpenGL 后端判据一致；Task/Mesh 等一期不支持能力按 capability 明确拒绝 |
 | 计算驱动演示 | S18/S19 及 C1–C5 demo：launch、参数打包、grid/block、stream/event、协作、间接派发、UAV | 38–42 章 A38–A42 全绿；计算驱动与直连 HLI 两入口逐值等价 |
-| 教学调试能力 | `--trace` 人工阅读输出、错误上下文、状态快照、可复现 scene JSON、raw/PNG 帧、内存审计 | 学习者能从输入、提交包、关键状态到最终像素/内存值追踪一次执行 |
+| 教学调试能力 | `--trace` 人工阅读输出、状态快照、可复现 scene JSON、raw/PNG 帧、内存审计 | 学习者能追踪数据在单元间如何流动、暂存、复用和写回，并定位最终像素/内存结果；trace 不成为机器判据 |
 | CPU 参考与自动校验 | `ref_model`、`image_diff`、`pick_probe`、`spec_runner`、`log_analyze`、`mem_audit`、`state_inspector` | 工具只读模拟器导出的稳定产物；CI 生成可读机器报告与失败诊断包 |
 | 教学文档 | 架构图、模块树、初级简化→高级替换表、任务依赖图、每阶段教程、场景说明、参考资料与 ADR | 新学习者可按阶段复现；文档中的目录/接口/命令/判据与代码一致 |
 
@@ -862,16 +862,19 @@ flowchart TD
 - 运行回归矩阵：按 scene-spec 执行 serial/parallel、cache 开关、后端及错误路径组合，产生 HTML/JSON 汇总和失败快照。
 - 查看结果：生成 raw/PNG 帧、探针差异、显存/资源占用、日志错误摘要；GUI 窗口只作为可选展示层，headless 运行不能依赖 GUI。
 
-### 19.3 分阶段可演示里程碑
+### 19.3 演示单元与推荐呈现顺序
 
-| 里程碑 | 演示主题 | 现场应能看到 |
-|---|---|---|
-| M1 | 命令与状态 | 输入场景如何形成 command packet，ring/CP 如何消费，fence 如何完成 |
-| M2 | 第一帧图形 | 顶点如何经过 VS、裁剪、光栅和 OM 写入 RT，并导出图像 |
-| M3 | GPU 内存与缓存 | VA→PA/TLB、L1/L2 hit/miss、写缓冲/flush 对可观察结果的影响 |
-| M4 | SIMT 与协作 | lane mask、分歧重收敛、subgroup、workgroup barrier 与原子结果 |
-| M5 | 驱动与多队列 | HLI/UMD/KMD/FW 分层、异步队列依赖、故障定位和引擎复位 |
-| M6 | 计算驱动 | module/function/参数包、LaunchKernel、stream/event、S18/S19 双入口对照 |
+下表是把正式章节成果组织成可讲解、可现场运行的**展示单元**，不是 roadmap 的正式任务编号、模块划分或新的里程碑编号。实现和验收仍以对应章号、子里程碑及 E/S/A 场景为准。
+
+| 展示单元 | 演示主题 | 现场应能看到 | 正式内容来源 |
+|---|---|---|---|
+| D1 | 命令提交与设备状态 | 场景描述如何形成 command packet；ring/CP 如何解析并派发；执行完成如何更新 fence。 | 1–2、10 章；E0、S1 |
+| D2 | 第一帧与固定功能图形管线 | 输入顶点经过 IA、VS、裁剪/PA、光栅和 OM，写入 RT 并导出图像；明确哪些阶段是固定功能单元、哪些是可编程 shader。 | 3–9 章；E1–E5 |
+| D3 | 几何阶段扩展：Tessellation 与 GS | 在基础帧上单独打开 tessellation/GS 场景，观察 patch/control point 输入、tess factor、生成顶点/图元及输出缓冲。它们属于高级扩展，不是初级第一帧成立的必要条件；保留在完整项目范围内。 | 24、28 章；S6 |
+| D4 | GPU 地址空间、内存管理与数据复用 | 观察 HostVa/GpuVAddr/PhysAddr 的边界、VA→PA/TLB、VRAM/GART/System 堆、资源驻留，以及数据在 shader/几何阶段之间的暂存、复用、flush/可见性边界。重点解释 GPU 工作流中缓存和中间存储解决什么数据流问题，不以 L1/L2 hit/miss 数字作为演示目标；GS/Tess 场景可用来展示 patch/control point 与生成数据的局部暂存和复用。 | 3、11–12、14、20–21、28 章；S4、S6、S14、S16 |
+| D5 | SIMT、workgroup 与并行协作 | 观察 lane mask、分歧/重收敛、subgroup、workgroup/wave 映射、barrier/atomic 和确定性串行/并行执行。 | 15、29–31 章；S10、S11、S18–S19 |
+| D6 | 图形/计算驱动与共用底座衔接 | 同一软设备如何被图形 UMD（Vulkan/D3D12/GL 子集）和计算驱动分别调用；两者如何复用 HLI 对象、KMD context/VA/资源管理与队列，再经 FW/ring/CP 到达硬件模型。可展示计算写入共享资源后由图形读取/呈现的端到端互操作。 | 10–14、20、32–37 章；S12、S16–S19 |
+| D7 | 计算驱动完整流程 | 展示 context/module/function、参数打包、LaunchKernel、grid/block 映射、stream/event、组内协作、间接 dispatch/UAV，以及计算驱动入口与直连 HLI 入口的等价结果。CS 是计算执行入口，不属于 M2 图形首帧管线。 | 37–42 章；S18/S19、A38–A42 |
 
 ### 19.4 不作为项目成果的数字
 
