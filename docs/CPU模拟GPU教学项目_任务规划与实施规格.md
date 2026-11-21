@@ -144,6 +144,38 @@ flowchart LR
 
 T0–T18 的任务顺序用于分步学习和实现基础机制；若与正式章号、场景号或阶段门禁的顺序发生冲突，以 `roadmap.md` 为准。模块/章节体量用 S/M/L 表示；L 级任务必须按 roadmap 已登记的子里程碑拆开验收。
 
+### 3.1 两条纵向主线与共用模块
+
+| 主线 | 学习者看到的输入与结果 | 主模块 | 主要验收 |
+|---|---|---|---|
+| 图形线 | 顶点/索引/状态 → draw → 可编程着色阶段与固定功能阶段 → RT/显示帧 | `hw_sim/frontend`、`shader`、`raster`、`om`、`visibility`、`periph/display`，以及图形 HLI/UMD | 初级 E0–E5 全图逐字节；高级 S0–S17 探针与差分 |
+| 计算线 | kernel/module/function/参数 → dispatch(grid, block) → workgroup/wave → 内存写回与同步 | `umd/compute`、`hli`、`kmd`、`firmware`、`hw_sim/shader`、`memory`、`isa` | S18/S19；阶段 F 直连 HLI；stage3 A38–A42 双入口等价 |
+| 共用底座 | 两条线共享命令、地址空间、资源、缓存、队列、同步、错误和调度 | `common`、`hw_sim/core`、`hw_sim/memory`、`firmware`、`kmd`、`hli` | 共用模块无 graphics-only/compute-only 特化；E/S 回归不退化 |
+
+图形与计算的主要差异保留在入口和工作负载上：图形由可编程着色阶段与固定功能单元共同组成，涵盖 IA、裁剪/图元装配、光栅、深度/模板/混合及输出；GS/Tessellation 是高级几何扩展，不是第一帧的前置条件。计算没有 IA/光栅/OM，以 grid/block、workgroup/wave、内存作用域和 barrier 为核心。内存、命令派发、执行阵列、ISA、队列及同步应复用同一模块语义。
+
+### 3.2 完整功能工作包与阶段验收
+
+下列工作包按正式路线排序，与 `roadmap.md` 的门禁一致。工作包是对章节成果的聚合说明；正式任务仍使用 roadmap 的章号、子里程碑和 E/S/A 场景编号。
+
+| 工作包 | 对应正式章节 | 需要完成的功能与可学习内容 | 关键交付/门禁 |
+|---|---|---|---|
+| WP0：公共契约 | 1 | 类型/错误/packet/ISA ABI/日志/配置；地址、像素格式、浮点和确定性约定 | E0；契约与汇编往返自检 |
+| WP1：初级图形闭环 | 2–9 | 薄提交门面、单环/CP、flat VA/bump、warp32 单波、最小 ISA；IA→VS→裁剪/视口/PA→光栅→OM；nearest 纹理、清屏、双缓冲和帧导出。VS 是可编程着色阶段；IA/裁剪/PA/光栅/OM 是本教学模型中的固定功能单元 | E1–E5；一帧包含渐变三角、贴图四边形和简单网格，输出逐字节一致 |
+| WP2：高级设备、内存与上下文底座 | 10–14 | 设备/MMIO、ring wrap/CP/fence/中断、FW/KMD 边界；HostVa/GpuVAddr/PhysAddr、页表/TLB、VRAM/GART/System 堆、分配和内存池；L1/L2 与写缓冲的功能职责、flush/可见性；Copy/Display、residency、ASID/context | A 门禁：S1/S2/S13；E0–E5 不退化 |
+| WP3：执行、ISA 与编译器 | 15–19 | 分歧和重收敛、波调度；完整 ISA/汇编器；GLSL-like 前端、AST/SSA/CFG、类型/IO 检查、优化、寄存器分配与发射、LLVM 对照 | B 门禁：S0/S3；ISA/ABI 冻结，执行及编译路径满足场景判据 |
+| WP4：资源、纹理与图形管线扩展 | 20–28 | 资源/视图、描述符、绑定、管线和状态快照；纹理格式、布局、mip/LOD、过滤、数组/Cubemap；IA 索引/重启/实例化、VS 切片、裁剪/PA；光栅插值/点线/scissor；depth/stencil/blend/MRT/LoadOp/StoreOp；MSAA/可见性；Tess/GS patch 几何扩展 | C 门禁：S3–S9/S14；Tess/GS 作为高级独立场景，不是 E5 首帧前置项 |
+| WP5：SIMT 协作与硬件对齐并行 | 29–31 | ballot/shuffle/reduction/导数；LDS/shared、atomic、barrier、内存序/作用域；grid/block→workgroup/wave/lane 映射；SE/CU、occupancy 上限和策略 A/B | D 门禁：S10/S11；S18/S19 所需共用计算语义具备，串行/并行硬判据一致 |
+| WP6：队列、多引擎、查询与驱动后端 | 32–36 | Graphics/Compute/Copy 队列、fence/semaphore、所有权转移；IB、间接命令、predication、DMA；query/statistics；HLI、Vulkan/D3D12/OpenGL 图形 UMD 子集；分层错误与按引擎复位 | E 门禁：S12/S13/S15–S17；重点验收 API→HLI→KMD→FW→硬件提交和资源/队列协同 |
+| WP7：计算管线收口 | 37 | KernelArgsLayout 校验、Compute 派发、uniform 装载、三维 workgroup 映射、组内同步、异步/间接 dispatch、query/UAV；经直连 HLI 执行计算场景 | F 门禁：S18/S19；计算功能与共用底座通过双执行策略验证 |
+| WP8：计算驱动与双入口 | 38–42 | 计算 UMD 对象模型 context/module/function/stream/event；module 装载、参数打包和 LaunchKernel；异步 stream/event；协作、间接 dispatch/UAV；直连 HLI 与计算驱动双入口 | G 门禁：A38–A42；S18/S19 双入口逐值等价，完整 E/S 回归 |
+
+WP4 中的 Tessellation/GS 会增加专门的 patch/control point 与生成数据流演示，帮助解释几何阶段间的数据暂存和复用。具体 cache、patch buffer、顶点流缓冲分别归属各自模块；不能把“所有阶段数据复用”都说成 L1/L2 命中。
+
+任务拆分执行正式来源为 `roadmap.md` §2.1–§2.4。10、11、14、17、18、20、21、25、26、28、30、31、35 等 L 级章节必须按 roadmap 已登记的子里程碑分别设计、实现、验收；跨章节接口先冻结再集成，不以“一次性完成整章”作为任务粒度。
+
+
+
 ## 4. 任务规格
 
 每项任务均按“目标—范围—依赖—实施项—交付物—DoD”验收。实现过程中新增功能若改变公开契约，必须同步更新接口文档、场景输入和回归判据。
@@ -492,7 +524,7 @@ flowchart TD
 | 高级二期预留 | Task/Mesh Shader、Multiview、Conservative Rasterization、完整抢占/TDR 等 | 只登记 capability bit；一期查询为不支持并明确拒绝 |
 | 范围外 | API/二进制兼容、周期级/真实性能仿真、虚拟化、稀疏资源、压缩纹理、视频引擎、电源/热、ECC、细粒度页错误恢复等 | 不实现；不得通过隐式简化伪装成支持 |
 
-每项能力都必须有明确档位、对应模块/章节、支持状态和失败行为。图形与计算共用的内存、命令、执行、队列和同步底座不得复制出两套语义；具体能力落位见本文件 §18。
+每项能力都必须有明确档位、对应模块/章节、支持状态和失败行为。图形与计算共用的内存、命令、执行、队列和同步底座不得复制出两套语义；具体能力落位见本文件 §3.2。
 
 ## 9. 项目完成门禁
 
@@ -526,6 +558,21 @@ flowchart TD
 9. 参考来源、精确版本/提交、借鉴点及未采用部分。
 
 满足以下任一条件时应拆分任务：跨越两个以上独立概念；同时修改三个以上主要模块；DoD 需要多个互不相关场景；单任务难以在一个短开发周期内完成并评审。拆分后保留父任务目标与整体门禁，避免子任务各自完成但端到端链路未完成。
+
+---
+
+### 10.2 每章统一补充的实施项
+
+在原有“目标—范围—依赖—实施项—交付物—DoD”之外，章/子里程碑的设计评审和验收还需逐项回答：
+
+1. 图形与计算两线分别如何使用该模块；共用部分是否误做了单线特化。
+2. 输入/输出契约、所有权、生命周期、状态机和错误传播到哪一层。
+3. 初级简化在哪里实现、由哪章替换；关闭该能力是否能回到上一阶段黄金基线。
+4. 确定性由何种排序/种子/归约规则保证；时间、worker 完成顺序不能改变结果。
+5. 必须输出哪些可观察状态、计数器、错误上下文和人工阅读 trace；它们是否只是软观测。
+6. 机器判据来自哪个 scene-spec、CPU reference、探针或固定基线；容差与失败行为是什么。
+7. 哪些配置键控制该能力，非法组合、能力缺失和超限请求如何处理。
+8. 修改冻结接口后影响哪些下游模块、场景和回归组合，是否需要 ADR。
 
 ---
 
@@ -578,7 +625,24 @@ flowchart TD
 | T17：场景与回归 | Mesa 测试体系、torch_musa tests/examples、Vulkan CTS（可选） | 如何构造最小复现、能力判定和回归；如何让教学测试不依赖厂商硬件 |
 | T18：日志与诊断工具 | Mesa 测试/调试产物、[Linux DRM 驱动开发指南](https://docs.kernel.org/gpu/) | 如何从稳定导出文件、日志和失败快照定位问题；工具接口与硬件实现解耦 |
 
-### 13.3 参考和裁决规则
+### 13.3 子模块设计文档与任务映射
+
+| 独立设计文档 | 本规划要落实的细节 | 对应工作包 |
+|---|---|---|
+| [command-mmio.md](design/command-mmio.md) | packet/version/count、包类型登记、stateId/MMIO 分段、ring wrap/满判定、CP 唯一派发、位宽审计 | WP0、WP2、WP6 |
+| [memory-system.md](design/memory-system.md) | HostVa/GpuVAddr/PhysAddr 分离；硬件单元只能经 `IMemorySubsystem`；页表/TLB、三堆、cache/write buffer、flush、驻留、确定性分配与 sanitizer | WP1、WP2、WP5 |
+| [isa-abi.md](design/isa-abi.md)、[compiler.md](design/compiler.md) | 64-bit ISA、opcode/寄存器 ABI、往返汇编、编译器 SSA/CFG 到 ISA、LLVM 对照边界 | WP1、WP3 |
+| [compute-line.md](design/compute-line.md)、[compute-driver.md](design/compute-driver.md) | 计算最小通路、对象映射、module/function/参数 ABI、stream/event 生命周期、错误映射、双入口等价 | WP5、WP7、WP8 |
+| [execution-parallel.md](design/execution-parallel.md)、[sync-primitives.md](design/sync-primitives.md) | Strategy A/B、时间无关、固定归约顺序、workgroup barrier、队列同步与内存作用域 | WP5–WP8 |
+| [texture-unit.md](design/texture-unit.md) | 纹理格式、tiling、mip/LOD、过滤、寻址、采样器和异步延迟隐藏 | WP1、WP4 |
+| [boot-reset.md](design/boot-reset.md) | 初始化依赖、失败回滚、分层故障、watchdog、引擎级 reset 和重跑验证 | WP0、WP6 |
+| [logging.md](design/logging.md) | GD_LOG 等级、错误定位字段、MMIO 只读统计、断言分层；日志和统计不成为正确性来源 | WP0、WP2、WP6 |
+| [validation-model.md](design/validation-model.md)、[scene-specs.md](design/scene-specs.md) | E 场景全图字节判据、高级固定探针/CPU ref_model、容差、KFT、回归矩阵和 CI 诊断包 | WP1–WP8 |
+| [bit-budget.md](design/bit-budget.md) | packet/opcode/MMIO/VA/ring/heap 位宽容量审计；冻结前解决冲突，不在实现中临时扩位 | WP0、WP2、WP3 |
+
+这些设计文档是模块实现的输入，不需要在任务规划中复写整套接口数值。每个工作包开工前记录采用的设计文档版本、相关 ADR、冻结接口及必须先决的未决项。
+
+### 13.4 参考和裁决规则
 
 1. **先看规范，再看实现**：API/ISA 语义优先引用正式规范或官方编程文档；源码用于解释一种实现路径，不单独作为跨厂商语义依据。
 2. **分清抽象层次**：每条参考资料标注为 API、UMD、HLI、KMD、Firmware、ISA、硬件架构或测试工具；不得把某层的职责误写到另一层。
@@ -756,86 +820,9 @@ flowchart TD
 
 ---
 
-## 18. 与既有全栈方案对齐的功能与任务扩展
+## 18. 项目最终交付与可展示成果
 
-本节把 `docs/README.md`、`docs/roadmap.md` 中的完整功能范围接入本实施规划。实现以章号和子里程碑为最小正式任务单位；表中的工作包仅用于教学呈现和阶段组织，不替代 `roadmap.md` 的任务编号、任务数量或门禁。
-
-### 18.1 两条纵向主线与共用模块
-
-| 主线 | 学习者看到的输入与结果 | 主模块 | 主要验收 |
-|---|---|---|---|
-| 图形线 | 顶点/索引/状态 → draw → 可编程着色阶段与固定功能阶段 → RT/显示帧 | `hw_sim/frontend`、`shader`、`raster`、`om`、`visibility`、`periph/display`，以及图形 HLI/UMD | 初级 E0–E5 全图逐字节；高级 S0–S17 探针与差分 |
-| 计算线 | kernel/module/function/参数 → dispatch(grid, block) → workgroup/wave → 内存写回与同步 | `umd/compute`、`hli`、`kmd`、`firmware`、`hw_sim/shader`、`memory`、`isa` | S18/S19；阶段 F 直连 HLI；stage3 A38–A42 双入口等价 |
-| 共用底座 | 两条线共享命令、地址空间、资源、缓存、队列、同步、错误和调度 | `common`、`hw_sim/core`、`hw_sim/memory`、`firmware`、`kmd`、`hli` | 共用模块无 graphics-only/compute-only 特化；E/S 回归不退化 |
-
-图形与计算的主要差异保留在入口和工作负载上：图形由可编程着色阶段与固定功能单元共同组成，涵盖 IA、裁剪/图元装配、光栅、深度/模板/混合及输出；GS/Tessellation 是高级几何扩展，不是第一帧的前置条件。计算没有 IA/光栅/OM，以 grid/block、workgroup/wave、内存作用域和 barrier 为核心。内存、命令派发、执行阵列、ISA、队列及同步应复用同一模块语义。
-
-### 18.2 完整功能工作包与阶段验收
-
-下列工作包按正式路线排序，与 `roadmap.md` 的门禁一致。工作包是对章节成果的聚合说明；正式任务仍使用 roadmap 的章号、子里程碑和 E/S/A 场景编号。
-
-| 工作包 | 对应正式章节 | 需要完成的功能与可学习内容 | 关键交付/门禁 |
-|---|---|---|---|
-| WP0：公共契约 | 1 | 类型/错误/packet/ISA ABI/日志/配置；地址、像素格式、浮点和确定性约定 | E0；契约与汇编往返自检 |
-| WP1：初级图形闭环 | 2–9 | 薄提交门面、单环/CP、flat VA/bump、warp32 单波、最小 ISA；IA→VS→裁剪/视口/PA→光栅→OM；nearest 纹理、清屏、双缓冲和帧导出。VS 是可编程着色阶段；IA/裁剪/PA/光栅/OM 是本教学模型中的固定功能单元 | E1–E5；一帧包含渐变三角、贴图四边形和简单网格，输出逐字节一致 |
-| WP2：高级设备、内存与上下文底座 | 10–14 | 设备/MMIO、ring wrap/CP/fence/中断、FW/KMD 边界；HostVa/GpuVAddr/PhysAddr、页表/TLB、VRAM/GART/System 堆、分配和内存池；L1/L2 与写缓冲的功能职责、flush/可见性；Copy/Display、residency、ASID/context | A 门禁：S1/S2/S13；E0–E5 不退化 |
-| WP3：执行、ISA 与编译器 | 15–19 | 分歧和重收敛、波调度；完整 ISA/汇编器；GLSL-like 前端、AST/SSA/CFG、类型/IO 检查、优化、寄存器分配与发射、LLVM 对照 | B 门禁：S0/S3；ISA/ABI 冻结，执行及编译路径满足场景判据 |
-| WP4：资源、纹理与图形管线扩展 | 20–28 | 资源/视图、描述符、绑定、管线和状态快照；纹理格式、布局、mip/LOD、过滤、数组/Cubemap；IA 索引/重启/实例化、VS 切片、裁剪/PA；光栅插值/点线/scissor；depth/stencil/blend/MRT/LoadOp/StoreOp；MSAA/可见性；Tess/GS patch 几何扩展 | C 门禁：S3–S9/S14；Tess/GS 作为高级独立场景，不是 E5 首帧前置项 |
-| WP5：SIMT 协作与硬件对齐并行 | 29–31 | ballot/shuffle/reduction/导数；LDS/shared、atomic、barrier、内存序/作用域；grid/block→workgroup/wave/lane 映射；SE/CU、occupancy 上限和策略 A/B | D 门禁：S10/S11；S18/S19 所需共用计算语义具备，串行/并行硬判据一致 |
-| WP6：队列、多引擎、查询与驱动后端 | 32–36 | Graphics/Compute/Copy 队列、fence/semaphore、所有权转移；IB、间接命令、predication、DMA；query/statistics；HLI、Vulkan/D3D12/OpenGL 图形 UMD 子集；分层错误与按引擎复位 | E 门禁：S12/S13/S15–S17；重点验收 API→HLI→KMD→FW→硬件提交和资源/队列协同 |
-| WP7：计算管线收口 | 37 | KernelArgsLayout 校验、Compute 派发、uniform 装载、三维 workgroup 映射、组内同步、异步/间接 dispatch、query/UAV；经直连 HLI 执行计算场景 | F 门禁：S18/S19；计算功能与共用底座通过双执行策略验证 |
-| WP8：计算驱动与双入口 | 38–42 | 计算 UMD 对象模型 context/module/function/stream/event；module 装载、参数打包和 LaunchKernel；异步 stream/event；协作、间接 dispatch/UAV；直连 HLI 与计算驱动双入口 | G 门禁：A38–A42；S18/S19 双入口逐值等价，完整 E/S 回归 |
-
-WP4 中的 Tessellation/GS 会增加专门的 patch/control point 与生成数据流演示，帮助解释几何阶段间的数据暂存和复用。具体 cache、patch buffer、顶点流缓冲分别归属各自模块；不能把“所有阶段数据复用”都说成 L1/L2 命中。
-
-任务拆分执行正式来源为 `roadmap.md` §2.1–§2.4。10、11、14、17、18、20、21、25、26、28、30、31、35 等 L 级章节必须按 roadmap 已登记的子里程碑分别设计、实现、验收；跨章节接口先冻结再集成，不以“一次性完成整章”作为任务粒度。
-
-### 18.3 明确一期边界，避免扩展失控
-
-能力按 `roadmap.md` §0.5 登记为四档：
-
-- **必须完成**：初级 1–9 章及 E0–E5，不得用 stub 或静默降级替代。
-- **高级一期**：10–37 章规定的 P0 硬件、图形 API 子集、计算管线，以及 38–42 章计算驱动开发线；按 A–G 门禁递进。
-- **高级二期预留**：Task/Mesh Shader、Multiview、Conservative Rasterization、完整抢占/TDR 等只查询 capability bit，一期明确返回“不支持”。
-- **范围外**：API/二进制兼容、周期精确/真实带宽模型、虚拟化、稀疏资源、压缩纹理、视频引擎、电源热管理、ECC、细粒度页错误恢复等不纳入实现。
-
-每个 capability 必须标注档位、关闭/不支持时行为、对应任务和测试；“看起来能跑”不能代替明确能力声明。
-
-### 18.4 子模块设计文档的落实方式
-
-| 独立设计文档 | 本规划要落实的细节 | 对应工作包 |
-|---|---|---|
-| [command-mmio.md](design/command-mmio.md) | packet/version/count、包类型登记、stateId/MMIO 分段、ring wrap/满判定、CP 唯一派发、位宽审计 | WP0、WP2、WP6 |
-| [memory-system.md](design/memory-system.md) | HostVa/GpuVAddr/PhysAddr 分离；硬件单元只能经 `IMemorySubsystem`；页表/TLB、三堆、cache/write buffer、flush、驻留、确定性分配与 sanitizer | WP1、WP2、WP5 |
-| [isa-abi.md](design/isa-abi.md)、[compiler.md](design/compiler.md) | 64-bit ISA、opcode/寄存器 ABI、往返汇编、编译器 SSA/CFG 到 ISA、LLVM 对照边界 | WP1、WP3 |
-| [compute-line.md](design/compute-line.md)、[compute-driver.md](design/compute-driver.md) | 计算最小通路、对象映射、module/function/参数 ABI、stream/event 生命周期、错误映射、双入口等价 | WP5、WP7、WP8 |
-| [execution-parallel.md](design/execution-parallel.md)、[sync-primitives.md](design/sync-primitives.md) | Strategy A/B、时间无关、固定归约顺序、workgroup barrier、队列同步与内存作用域 | WP5–WP8 |
-| [texture-unit.md](design/texture-unit.md) | 纹理格式、tiling、mip/LOD、过滤、寻址、采样器和异步延迟隐藏 | WP1、WP4 |
-| [boot-reset.md](design/boot-reset.md) | 初始化依赖、失败回滚、分层故障、watchdog、引擎级 reset 和重跑验证 | WP0、WP6 |
-| [logging.md](design/logging.md) | GD_LOG 等级、错误定位字段、MMIO 只读统计、断言分层；日志和统计不成为正确性来源 | WP0、WP2、WP6 |
-| [validation-model.md](design/validation-model.md)、[scene-specs.md](design/scene-specs.md) | E 场景全图字节判据、高级固定探针/CPU ref_model、容差、KFT、回归矩阵和 CI 诊断包 | WP1–WP8 |
-| [bit-budget.md](design/bit-budget.md) | packet/opcode/MMIO/VA/ring/heap 位宽容量审计；冻结前解决冲突，不在实现中临时扩位 | WP0、WP2、WP3 |
-
-这些设计文档是模块实现的输入，不需要在任务规划中复写整套接口数值。每个工作包开工前记录采用的设计文档版本、相关 ADR、冻结接口及必须先决的未决项。
-
-### 18.5 每章统一补充的实施项
-
-在原有“目标—范围—依赖—实施项—交付物—DoD”之外，章/子里程碑的设计评审和验收还需逐项回答：
-
-1. 图形与计算两线分别如何使用该模块；共用部分是否误做了单线特化。
-2. 输入/输出契约、所有权、生命周期、状态机和错误传播到哪一层。
-3. 初级简化在哪里实现、由哪章替换；关闭该能力是否能回到上一阶段黄金基线。
-4. 确定性由何种排序/种子/归约规则保证；时间、worker 完成顺序不能改变结果。
-5. 必须输出哪些可观察状态、计数器、错误上下文和人工阅读 trace；它们是否只是软观测。
-6. 机器判据来自哪个 scene-spec、CPU reference、探针或固定基线；容差与失败行为是什么。
-7. 哪些配置键控制该能力，非法组合、能力缺失和超限请求如何处理。
-8. 修改冻结接口后影响哪些下游模块、场景和回归组合，是否需要 ADR。
-
----
-
-## 19. 项目最终交付与可展示成果
-
-### 19.1 最终提交物
+### 18.1 最终提交物
 
 最终交付应是一个可从干净检出构建、可 headless 运行、可复现输入、可验证结果、可用于逐步教学的 CPU GPU 软模型仓库，至少包含：
 
@@ -849,7 +836,7 @@ WP4 中的 Tessellation/GS 会增加专门的 patch/control point 与生成数�
 | CPU 参考与自动校验 | `ref_model`、`image_diff`、`pick_probe`、`spec_runner`、`log_analyze`、`mem_audit`、`state_inspector` | 工具只读模拟器导出的稳定产物；CI 生成可读机器报告与失败诊断包 |
 | 教学文档 | 架构图、模块树、初级简化→高级替换表、任务依赖图、每阶段教程、场景说明、参考资料与 ADR | 新学习者可按阶段复现；文档中的目录/接口/命令/判据与代码一致 |
 
-### 19.2 最终运行体验
+### 18.2 最终运行体验
 
 项目应支持一组简单、可复制的命令入口，具体命令以实现阶段冻结的 CLI 为准。演示优先按图形初级链路组织，再扩展共用底座与计算驱动：
 
@@ -859,7 +846,7 @@ WP4 中的 Tessellation/GS 会增加专门的 patch/control point 与生成数�
 - 运行回归矩阵：按 scene-spec 执行 serial/parallel、cache 开关、后端及错误路径组合，产生 HTML/JSON 汇总和失败快照。
 - 查看结果：生成 raw/PNG 帧、探针差异、显存/资源占用、日志错误摘要；GUI 窗口只作为可选展示层，headless 运行不能依赖 GUI。
 
-### 19.3 演示单元与推荐呈现顺序
+### 18.3 演示单元与推荐呈现顺序
 
 下表是把正式章节成果组织成可讲解、可现场运行的**展示单元**，不是 roadmap 的正式任务编号、模块划分或新的里程碑编号。实现和验收仍以对应章号、子里程碑及 E/S/A 场景为准。
 
@@ -873,7 +860,7 @@ WP4 中的 Tessellation/GS 会增加专门的 patch/control point 与生成数�
 | D6 | 图形/计算驱动与共用底座衔接 | 同一软设备如何被图形 UMD（Vulkan/D3D12/GL 子集）和计算驱动分别调用；两者如何复用 HLI 对象、KMD context/VA/资源管理与队列，再经 FW/ring/CP 到达硬件模型。可展示计算写入共享资源后由图形读取/呈现的端到端互操作。 | 10–14、20、32–37 章；S12、S16–S19 |
 | D7 | 计算驱动完整流程 | 展示 context/module/function、参数打包、LaunchKernel、grid/block 映射、stream/event、组内协作、间接 dispatch/UAV，以及计算驱动入口与直连 HLI 入口的等价结果。CS 是计算执行入口，不属于 M2 图形首帧管线。 | 37–42 章；S18/S19、A38–A42 |
 
-### 19.4 不作为项目成果的数字
+### 18.4 不作为项目成果的数字
 
 所有性能输出必须注明是 CPU 模拟器运行时间或模型统计。不得把宿主 L1/L2 命中、CPU worker speedup、模拟 cache hit rate 或功能级等待次数包装成真实 GPU 性能、带宽、周期或占用率实测值。宿主 CPU 的 L1/L2 优化只可作为模拟器性能工程的独立数据，不改变模拟 GPU 的显式 cache model。
 
