@@ -219,10 +219,10 @@ flowchart LR
 - **范围**：N≤32 的单 wave vector_add；不要求 ring、编译器或并发 workgroup。
 - **依赖**：T0–T4。
 - **子里程碑**：
-  - **T5.1**：应用准备输入/输出 buffer 和 kernel 参数。
-  - **T5.2**：Runtime 调用同步 `launch`，驱动创建最简 dispatch descriptor。
+  - **T5.1**：场景 harness 准备输入/输出 buffer 和 kernel 参数。
+  - **T5.2**：测试 harness 调用 `KernelRunner` 的同步接口，构造最简 kernel descriptor；该入口只服务早期模型验证。
   - **T5.3**：运行器执行 kernel，读回结果并与 CPU reference 比对。
-- **交付物**：`scene_vector_add`、CPU reference、运行日志、完整数据通路说明。
+- **交付物**：`tests/scenes/scene_vector_add`、CPU reference、运行日志、模型级执行路径说明。
 - **DoD**：正常、空输入、非法参数和越界 case 均有判据；CPU reference 独立计算期望结果；重复运行输出一致。
 
 ### 阶段 B：SIMT 与 workgroup 协作
@@ -265,7 +265,7 @@ flowchart LR
 
 #### T9：命令包、Ring 与 Command Processor（L）
 
-- **目标**：用可观测的命令提交替代 Runtime 直接调用 KernelRunner。
+- **目标**：用可观测的命令提交路径逐步替代测试 harness 对 KernelRunner 的直接调用。
 - **范围**：单进程、单队列、CPU 同步推进的 Ring 模型；不模拟 MMIO 时序与中断延迟。
 - **依赖**：T5；建议 T7 稳定后扩展 dispatch。
 - **实施项**：
@@ -285,14 +285,14 @@ flowchart LR
 - **交付物**：地址空间管理器、页表/TLB 统计、隔离场景。
 - **DoD**：不同 Context 的同 VA 指向不同数据；读写权限生效；TLB 开关不改变功能结果；失效后重新翻译正确。
 
-#### T11：Runtime / Driver 对象边界与错误传播（M）
+#### T11：UMD / HLI / KMD 对象边界与错误传播（M）
 
 - **目标**：把场景代码从内部模型细节中解耦，形成教学所需的最小软件栈。
 - **范围**：Device、Context、Buffer、Kernel、Queue、Submission 对象及错误映射；不做外部 API 兼容。
 - **依赖**：T9、T10。
-- **实施项**：明确对象生命周期；参数和命令合法性由 Driver 验证；定义 Runtime 错误、Driver 错误、GPU 执行错误的映射；禁止上层直接访问私有 GPU 模型状态。
+- **实施项**：明确 compute UMD、HLI、KMD 对象生命周期；UMD/HLI 验证上层参数与对象状态，KMD 验证提交和映射；定义各层错误到 GPU 执行错误的传播规则；禁止上层直接访问 hw_sim 私有状态。
 - **交付物**：API/ABI 文档、对象模型、错误映射表、经抽象层运行的场景。
-- **DoD**：所有核心场景经 Runtime→Driver→Ring→CP 路径执行；对象释放/重复提交/非法状态均有确定行为；层间依赖检查通过。
+- **DoD**：核心计算场景可经 UMD compute→HLI→KMD→Firmware→Ring/CP 路径执行；对象释放、重复提交和非法状态均有确定行为；层间依赖检查通过。
 
 ### 阶段 D：内存层次与 CPU 并行模拟
 
@@ -349,7 +349,7 @@ flowchart LR
 
 #### T16：故障注入、超时与可恢复性（M）
 
-- **目标**：让学习者观察执行错误如何跨 GPU model、CP、Driver 和 Runtime 传播。
+- **目标**：让学习者观察执行错误如何跨 hw_sim、CP、KMD/HLI 与 UMD 传播。
 - **范围**：非法指令、非法地址、Ring 错误、执行步数超限等软件可控故障；不模拟真实硬件故障概率。
 - **依赖**：T9–T11、T15。
 - **实施项**：故障注入开关；错误定位和责任层；Context/Queue 失效状态；简单 reset/recreate；保留失败现场快照。
@@ -403,7 +403,7 @@ flowchart TD
     T7 --> T8[T8 LDS 与 Barrier]
     T5 --> T9[T9 Ring 与 CP]
     T9 --> T10[T10 VA 翻译]
-    T10 --> T11[T11 Runtime/Driver]
+    T10 --> T11[T11 UMD/HLI/KMD]
     T11 --> T12[T12 Cache Model]
     T8 --> T13[T13 CPU 并行]
     T12 --> T14[T14 驻留]
@@ -436,7 +436,7 @@ flowchart TD
 | B1 `branch_mask` | lane 分歧及重收敛 | T6 | 混合分支输出正确、mask trace 正确 |
 | B2 `multi_workgroup` | grid/block/wave 映射 | T7 | 各工作项唯一覆盖、尾部边界正确 |
 | B3 `reduction_histogram` | LDS、原子、barrier | T8 | 结果符合 CPU reference，无死锁 |
-| C1 `ring_dispatch` | Runtime 到 CP 的提交 | T9–T11 | ring/direct 两入口语义等价 |
+| C1 `ring_dispatch` | UMD/HLI/KMD 到 CP 的提交 | T9–T11 | ring/direct 两入口语义等价 |
 | D1 `cache_locality` | 显式 L1/L2 命中行为 | T12 | 统计符合访问序列的解析期望 |
 | D2 `serial_parallel` | CPU worker 并行实现 | T13 | 输出一致、无竞争错误 |
 | D3 `residency_pressure` | 预算/驻留/逐出 | T14 | 事件和访问结果符合配置 |
@@ -498,14 +498,14 @@ flowchart TD
 ### 阶段 A 门禁：最小闭环
 
 - T0–T5 的 DoD 全部通过。
-- vector_add 可以从应用入口启动，经过 Runtime/最小 Driver 语义，运行 ISA 并写回 GPU memory。
+- vector_add 可以从应用入口启动，经过 compute UMD/HLI/KMD 的分层语义，运行 ISA 并写回 GPU memory。
 - 同一输入重复运行产生相同结果；逐指令模式能追踪 lane 状态和访存。
 
 ### 阶段 B/C 门禁：执行语义与提交链
 
 - branch、multi_workgroup、reduction/histogram 通过参考判定。
 - Ring/CP 路径和 direct-launch 基线语义一致。
-- Context/VA 错误能经 Driver/Runtime 传播并保留诊断信息。
+- Context/VA 错误能经 KMD/HLI/UMD 分层传播并保留诊断信息。
 
 ### 阶段 D/E 门禁：系统机制
 
@@ -577,7 +577,7 @@ flowchart TD
 
 | 任务/模块 | 建议参考 | 需要提取的设计问题 |
 |---|---|---|
-| T0、T11：公共契约与 Runtime/Driver 边界 | Vulkan、MUSA SDK/torch_musa、Mesa Gallium/RADV | 公共对象如何创建/销毁；验证由哪层承担；错误如何映射；API 与硬件命令如何解耦 |
+| T0、T11：公共契约与 UMD/HLI/KMD 边界 | Vulkan、MUSA SDK/torch_musa、Mesa Gallium/RADV | 公共对象如何创建/销毁；验证由哪层承担；错误如何映射；API 与硬件命令如何解耦 |
 | T1、T10、T12、T14：地址、缓存与驻留 | AMDGPU/ROCm、NVIDIA 公共文档与开放内核模块、Mesa winsys | VA/资源句柄、页映射与权限、可见性/flush 语义、缓存模型边界；哪些信息属于公开接口，哪些属于硬件细节 |
 | T2–T8：Wave、ISA 与协作 | HIP 硬件说明、CUDA Programming Guide/PTX、LLVM AMDGPU、MUSA 教程 | lane/wave/workgroup 语义、控制流、参数和寄存器、barrier/atomic 作用域；跨厂商相同概念与不同定义 |
 | T9、T15、T16：提交、队列与恢复 | Mesa 驱动提交路径、MUSA stream/event 接口、Vulkan 队列/同步、Linux DRM | 命令从用户态到内核态的职责边界；队列依赖表达；逻辑完成与错误恢复的传播路径 |
@@ -588,7 +588,7 @@ flowchart TD
 ### 13.3 参考和裁决规则
 
 1. **先看规范，再看实现**：API/ISA 语义优先引用正式规范或官方编程文档；源码用于解释一种实现路径，不单独作为跨厂商语义依据。
-2. **分清抽象层次**：每条参考资料标注为 API/Runtime、UMD、KMD、Firmware、ISA、硬件架构或测试工具；不得把某层的职责误写到另一层。
+2. **分清抽象层次**：每条参考资料标注为 API、UMD、HLI、KMD、Firmware、ISA、硬件架构或测试工具；不得把某层的职责误写到另一层。
 3. **多源交叉验证**：通用模块尽量至少比较两个不同生态；仅单一厂商公开的能力应标注“厂商特定”，并说明是否纳入本项目。
 4. **公开信息与推断分开**：设计记录区分“规范明确规定”“源码可观察”“跨来源归纳”“教学模型选择”“尚未验证假设”。对闭源硬件/驱动部分不得用推测填补事实空白。
 5. **每项借鉴都要解释取舍**：记录参考文件/符号/目录、精确版本或 commit、借鉴的思想、为教学模型所做的简化，以及明确不采用的实现细节。
@@ -661,7 +661,7 @@ flowchart TD
 1. 编译期断言检查类型宽度、枚举、布局和 ABI。
 2. 开发期断言检查内部不变量；Release 可移除，不能承载用户输入或硬件正确性判定。
 3. 运行时硬件行为检查在 Debug 与 Release 都执行；返回 GPU 模型层错误码，记录上下文并中止当前 submission，不直接 abort 进程。
-4. Runtime/Driver 在进入硬件模型前校验非法句柄、参数和对象状态；应用错误不应伪装成 GPU reset。
+4. UMD/HLI/KMD 按各自职责校验句柄、参数、对象状态和提交请求；应用错误不应伪装成 GPU reset。
 5. 跨层错误保留原始原因和模块上下文；驱动可转换语义，不能吞掉硬件模型错误。
 
 ### 15.3 统计计数器
@@ -683,7 +683,7 @@ flowchart TD
 | state_inspector | 状态/计数器导出 | 查看 queue、fence、wave、cache、TLB 摘要 | T9/T12/T18 |
 | diff / report 工具 | 期望/实际输出和配置快照 | 输出逐项差异及可读汇总 | T17/T18 |
 
-工具放在 tools/，支持 headless；原则上只依赖稳定文件格式和公开导出接口，不 include gpu_model 私有头文件。可视化界面为选修，不得成为自动化回归前置条件。
+工具放在 tools/，支持 headless；原则上只依赖稳定文件格式和公开导出接口，不 include hw_sim 私有头文件。可视化界面为选修，不得成为自动化回归前置条件。
 
 ---
 
@@ -747,7 +747,7 @@ flowchart TD
 | G0 契约冻结 | 工程规则、基本类型、错误/日志、seed 和场景模板 | 公共接口可评审，基础自检和日志测试通过 |
 | G1 最小计算闭环 | flat memory、Wave32、ISA、KernelRunner、vector_add | 参考输出一致、逐步执行可追踪、重复运行稳定 |
 | G2 SIMT 协作 | 分歧、workgroup、LDS/atomic/barrier | branch/reduction/histogram 场景通过；barrier 错误可诊断 |
-| G3 驱动路径 | Ring/CP、Context、VA、Runtime/Driver | 经提交链执行与简化直连路径等价，错误传播正确 |
+| G3 驱动路径 | Ring/CP、Context、VA、UMD/HLI/KMD | 经提交链执行与简化直连路径等价，错误传播正确 |
 | G4 内存与并行 | cache、residency、CPU worker pool | 功能结果不变，统计符合解析用例，serial/parallel 回归一致 |
 | G5 异步与教学交付 | 多队列、恢复、工具链、教学场景 | 依赖/故障场景可复现；headless 回归和文档齐备 |
 
@@ -757,5 +757,5 @@ flowchart TD
 2. SIMT/workgroup 语义冻结前，不用宿主多线程并行来“验证”GPU 并行性能。
 3. Cache Model 语义和统计定义冻结前，不把 CPU cache profile 与 GPU cache 指标合并。
 4. serial 基线通过前，不把 parallel 性能报告列为验收门禁。
-5. 统一 Runtime/Driver/HLI 边界形成后，再做 Mesa/MUSA 风格的 API/驱动适配扩展。
+5. 统一 UMD/HLI/KMD 边界形成后，再做 Mesa/MUSA 风格的 API/驱动适配扩展。
 6. 每个阶段完成后更新任务依赖、场景回归矩阵和参考来源版本；范围改变时记录决策理由和受影响任务。
