@@ -458,28 +458,25 @@ flowchart TD
 
 ---
 
-## 6. 验收场景集
+## 6. 任务级快速检查
 
-| 场景 | 验证目标 | 主要任务 | 核心判据 |
+本表是 T0–T18 的模块级开发自检，不是项目正式场景编号，也不替代 `docs/design/scene-specs.md` 中的 E0–E5、S0–S19 与 A38–A42 验收。
+
+| 自检项 | 验证目标 | 关联任务 | 核心判据 |
 |---|---|---|---|
-| A0 `contract_smoke` | 类型/配置/错误 | T0 | 自检通过、错误格式稳定 |
-| A1 `memory_copy` | 上传、寻址、读回、越界 | T1 | 原始字节一致、边界错误正确 |
-| A2 `isa_step` | 指令语义与单步 | T2–T4 | 状态快照与手算期望一致 |
-| A3 `vector_add` | 第一个端到端 dispatch | T5 | N 范围内逐元素相等、重复结果一致 |
-| B1 `branch_mask` | lane 分歧及重收敛 | T6 | 混合分支输出正确、mask trace 正确 |
-| B2 `multi_workgroup` | grid/block/wave 映射 | T7 | 各工作项唯一覆盖、尾部边界正确 |
-| B3 `reduction_histogram` | LDS、原子、barrier | T8 | 结果符合 CPU reference，无死锁 |
-| C1 `ring_dispatch` | UMD/HLI/KMD 到 CP 的提交 | T9–T11 | ring/direct 两入口语义等价 |
-| D1 `cache_locality` | 显式 L1/L2 命中行为 | T12 | 统计符合访问序列的解析期望 |
-| D2 `serial_parallel` | CPU worker 并行实现 | T13 | 输出一致、无竞争错误 |
-| D3 `residency_pressure` | 预算/驻留/逐出 | T14 | 事件和访问结果符合配置 |
-| E1 `async_copy_compute` | 队列依赖与事件 | T15 | 消费者严格等待生产者完成 |
-| E2 `fault_recovery` | 故障传播和恢复 | T16 | 故障被定位、reset 后任务可运行 |
-| E3 `diagnostic_tools` | 日志分析、状态/内存审计、失败复现 | T18 | 工具只读公开 dump/trace/snapshot；快照可以复现问题 |
+| UT-00 契约自检 | 类型、配置、错误和日志契约 | T0 | 结构/枚举断言通过，错误格式稳定 |
+| UT-01 平坦内存 | 上传、寻址、读回和越界 | T1 | 原始字节一致，非法访问确定失败 |
+| UT-02 指令单步 | ISA 语义与 wave 状态 | T2–T4 | 状态变化符合手算期望 |
+| UT-03 vector_add | ISA、wave、内存的模型级组合 | T5 | 元素逐值相等、重复结果一致；不代表图形 E5 |
+| UT-04 SIMT/协作 | 分歧、workgroup、LDS、atomic、barrier | T6–T8 | 结果与参考一致，非法同步可诊断 |
+| UT-05 提交路径 | Ring、CP、Context 与分层接口 | T9–T11 | 包解析、提交、完成和错误传播符合契约 |
+| UT-06 内存数据流 | 缓存/暂存、flush、驻留与资源预算 | T12、T14 | 数据生命周期、复用与可见性符合模型；不以 hit/miss 比例验收 |
+| UT-07 Host 并行 | WorkerPool 和确定性执行 | T13 | serial/parallel 硬判据一致 |
+| UT-08 队列依赖 | Fence/Event、异步 copy/compute | T15 | 消费者仅在依赖满足后执行 |
+| UT-09 错误路径 | 故障注入和恢复 | T16 | 错误归属、状态变化和恢复行为符合契约 |
+| UT-10 诊断工具 | 快照、日志、内存和状态导出 | T17–T18 | 工具可离线读取公开产物，快照可复现 |
 
-每个场景具有固定输入和配置；统计量用于解释模型行为，功能输出由独立 CPU reference 或解析期望判定。墙钟耗时只用于报告 host 模拟器实现效率，不作为 GPU 行为正确性判据。
-
----
+项目对外展示和阶段验收仍运行正式 E/S 场景；这些 UT 项用于缩小模块故障范围。统计输出只解释定义好的模型行为，不把 CPU 执行指标解释为真实 GPU 性能。
 
 ## 7. 横向设计约束
 
@@ -576,19 +573,18 @@ flowchart TD
 
 ---
 
-## 11. 推荐的下一步文档产出顺序
+## 11. 推荐的开发拆解顺序
 
-1. `project-charter.md`：冻结定位、范围、非目标和术语。
-2. `architecture.md`：冻结层次、依赖方向、对象生命周期和主数据通路。
-3. `contracts.md`：定义地址、错误、命令、kernel 参数、事件与 trace ABI。
-4. `tasks/T0–T5`：优先写到足以直接开工并完成 vector_add。
-5. `scenes/A0–A3`：先固定最小回归与参考模型。
-6. 建立 reference-map.md，登记开源源码、规范和架构资料的版本及任务映射。
-7. 后续按 T6–T18 逐个补齐模块设计和场景规格；每次新增前检查依赖与范围。
+本项目已有 `roadmap.md`、`architecture-design.md`、`docs/design/`、`docs/design/scene-specs.md` 和 `docs/stage1–stage3/` 设计资料。下一步不是另建一套 project-charter/architecture/contracts 文档，而是按现有权威文件推进并补齐实现级细节：
 
-此顺序先把可运行闭环和公共契约落地，再扩展硬件模型；避免先把大量设计章节写完、最后才发现模块无法组成一致的端到端系统。
+1. **核对开工基线**：以 roadmap 确认章号、依赖、ADR、能力档与正式门禁；以 architecture-design 确认目录树、层间接口和依赖方向；检查模块设计与 scene-specs 是否互相一致。
+2. **完成初级图形闭环**：按第 1–9 章顺序实现，从契约、薄提交门面、平坦内存、单波/ISA，到固定功能图形流水线、纹理与输出；每章运行对应 E 场景，最终 E5 完成一帧。
+3. **按 A–E 门禁扩展高级底座和图形**：逐章实现设备/内存/调度/编译器/资源/纹理/固定功能扩展/并行/队列/API 后端；L 级章节使用 roadmap 登记的子里程碑。
+4. **收口计算能力**：在第 20、29–34、35.1 等前置契约稳定后完成第 37 章直连 HLI 计算管线，再实现 stage3 第 38–42 章计算驱动；不倒置依赖或重复定义 HLI ABI。
+5. **每个任务都同步验收资料**：实现前确认输入、输出和错误契约；实现后补齐场景判据、回归矩阵、可读 trace/导出和文档链接；接口变更走 roadmap 的 ADR 流程。
+6. **以 §18 的最终提交物和展示单元收尾**：确保干净构建、headless 演示、E/S/A 回归、可复现输入和教程材料完整。
 
----
+详细依赖及允许调整的顺序以 `roadmap.md` §3、§6 为准。
 
 ## 12. 与原设计资料的关系
 
@@ -797,24 +793,17 @@ flowchart TD
 
 任务体量建议采用 S/M/L：S 为单一概念与少量契约；M 为可独立验收的模块；L 为跨模块闭环，必须拆分且每个子里程碑优先控制在 3–6 个主体实现项。评估体量时计入文档、工具、测试、回归和集成，不只数代码文件。
 
-### 17.2 项目实施门禁
+### 17.2 正式门禁与任务完成的关系
 
-| 门禁 | 必须具备 | 允许进入下一阶段的条件 |
-|---|---|---|
-| G0 契约冻结 | 工程规则、基本类型、错误/日志、seed 和场景模板 | 公共接口可评审，基础自检和日志测试通过 |
-| G1 最小计算闭环 | flat memory、Wave32、ISA、KernelRunner、vector_add | 参考输出一致、逐步执行可追踪、重复运行稳定 |
-| G2 SIMT 协作 | 分歧、workgroup、LDS/atomic/barrier | branch/reduction/histogram 场景通过；barrier 错误可诊断 |
-| G3 驱动路径 | Ring/CP、Context、VA、UMD/HLI/KMD | 经提交链执行与简化直连路径等价，错误传播正确 |
-| G4 内存与并行 | cache、residency、CPU worker pool | 功能结果不变，统计符合解析用例，serial/parallel 回归一致 |
-| G5 异步与教学交付 | 多队列、恢复、工具链、教学场景 | 依赖/故障场景可复现；headless 回归和文档齐备 |
+正式阶段门禁以 §9 与 `roadmap.md` §2.3、§6.3 为准。单个 T 任务或单章子里程碑通过，只说明该模块自检完成；只有同时满足正式场景、契约冻结和前序回归要求，才能声明 E/A–G 阶段完成。本文不另建一套与 roadmap 并列的 G0–G5 项目门禁。
 
 ### 17.3 研发顺序硬约束
 
 1. T5 vector_add 完成前，不实现复杂计算协作；它是语义微测，不代表初级图形交付已完成。外部 API 兼容始终不在项目范围。
 2. SIMT/workgroup 语义冻结前，不用宿主多线程并行来“验证”GPU 并行性能。
-3. Cache Model 语义和统计定义冻结前，不把 CPU cache profile 与 GPU cache 指标合并。
+3. GPU 缓存与局部暂存的数据流、生命周期和可见性语义冻结前，不把宿主 CPU cache profile 混入 GPU 模型解释。
 4. serial 基线通过前，不把 parallel 性能报告列为验收门禁。
-5. 统一 UMD/HLI/KMD 边界形成后，再做 Mesa/MUSA 风格的 API/驱动适配扩展。
+5. HLI 契约稳定后再实现图形 UMD；第 37 章计算管线收口后再实现第 38–42 章计算驱动。
 6. 每个阶段完成后更新任务依赖、场景回归矩阵和参考来源版本；范围改变时记录决策理由和受影响任务。
 
 
