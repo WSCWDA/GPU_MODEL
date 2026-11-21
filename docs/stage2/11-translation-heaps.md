@@ -1,6 +1,6 @@
 # 第 11 章 地址翻译 + 堆
 
-> 项目范围、阶段位置和交付以[任务规划](../CPU模拟GPU教学项目_任务规划与实施规格.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
+> 项目范围、阶段位置和交付以[任务规划](../README.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
 
 > 本章把初级"单 VA 恒等映射"替换为真实 GPU 地址模型：两级页表/TLB、VRAM/GART/System 三堆、KMD 内存池、分配种子确定性、以及 flush/invalidate 主机同步。所有硬件单元统一走 `VA → TLB → L2 → 存储`，不得绕过翻译直连堆（ADR-042）。
 > 与本章相关的设计说明：`../architecture-design.md` §3.6（`IMemorySubsystem` 接口）；`../design/memory-system.md` §1~§3、§6~§7（三类地址、页表/TLB、堆/分配器、主机同步、分配确定性）；`../design/command-mmio.md` §3（`stateId 1` 页表根）。
@@ -16,7 +16,7 @@
 2. 三堆语义：VRAM 空闲链表（4 KiB 对齐）、GART bump + 容量上限不碎片整理、System 仅 host；分配失败 `OutOfMemory` 不改状态（`../design/memory-system.md` §3）。
 3. KMD 内存池：段 → 页 → 小对象分层；分配元数据 `{tag, logicalTime, size, va}` 记录，供快照与泄漏检测（§3.1）。
 4. 分配确定性：分配器支持配置种子，多次运行 VA 分配序列完全一致（§7）。
-5. flush/invalidate：`HOST_VISIBLE`/`HOST_COHERENT` 内存域的 flush（CPU 缓存→GPU）与 invalidate（GPU→CPU）语义落地。
+5. 定义 `HOST_VISIBLE`/`HOST_COHERENT` 的可见性契约并预留 flush/invalidate 接口；实际写缓冲排空与缓存失效由第 12 章实现，本章不重复实现缓存机制。
 6. 页错误入口：未映射返回 `NotMapped` 带 VA；未驻留返回 `NotResident`；均记录 `{unit,packetType,dwordOffset,va}` 后中止当前提交，**不复位**（ADR-031；细粒度页错误恢复在范围外）。
 7. 页错误只做"记录 + 中止提交"入口，不做 wave 级恢复。
 
@@ -166,7 +166,7 @@ Unmap(va, bytes): 校验已映射 → 释放 PTE → InvalidateTlb（全清，�
 | T11.12 | ② 主体 | `SET_STATE_BASE(stateId=1)` + FW doorbell 页表根与 MMIO 回读 |
 | T11.13 | ② 主体 | `IMemorySubsystem` 替换实现：全部方法走翻译、不直连堆；单元调用点不改 |
 | T11.14 | ③ 接入 | `scene_s2_clear` 全流程：上传→映射→读回；`scene_s0` 自检翻译/TLB |
-| T11.15 | ④ 验收 | A11：S2/S0 全绿 + 本章专有判据（同数据两 VA 一致、翻页失效、TLB 命中递增）+ 回归 |
+| T11.15 | ④ 验收 | A11：S2/S0 全绿 + 本章专有判据（同数据两 VA 一致、翻页失效、TLB 命中递增） + R11 回归项 |
 
 **章内里程碑（Q-49）**：
 
@@ -196,7 +196,7 @@ Unmap(va, bytes): 校验已映射 → 释放 PTE → InvalidateTlb（全清，�
 | D11.12 | `SET_STATE_BASE(stateId=1, root)` 后 MMIO `0x42/0x43` 回读等于 root 高/低 32 bit；doorbell 后 `CTX_STATE` 更新 | L1 契约 |
 | D11.13 | 新旧实现下所有 `Read/Write` 调用点（着色器/Copy/Display/纹理）结果一致；代码搜索无直接 `Storage` 访问。**新增 L1 契约单测（正常+非法边界，部分失败语义）**：多页 `Write` 中一页未映射 → 整体 `NotMapped` 且无半写副作用（已映射页不被部分修改） | L1 契约 |
 | D11.14 | `scene_s2` 上传 N 顶点、映射读回逐字节相等；`scene_s0` 自检 `Translate`/TLB 命中无误 | L1 契约 |
-| D11.15 | A11 全绿：S2 主判据 + 专有判据（两 VA 一致、翻页失效、TLB 递增）+ S0 自检 + E0~E9 A1~A9 回归 | L1 契约 + L2 |
+| D11.15 | A11 全绿：S2 主判据 + 专有判据（两 VA 一致、翻页失效、TLB 递增）+ S0 自检 + R11 回归项（E0~E5 已交付场景） | L1 契约 + L2 |
 
 ---
 
@@ -210,7 +210,7 @@ Unmap(va, bytes): 校验已映射 → 释放 PTE → InvalidateTlb（全清，�
 | 产物 | 两张读回缓冲、TLB 命中/缺失计数、页表快照 |
 | 主判据 | S2 全流程 `Download` 与上传数据逐字节一致；S0 自检全绿 |
 | 本章专有判据 | ① 同数据两 VA（va1/va2 指向同一内容）读回一致；② 页表项翻转（va→pa1 改 va→pa2）后原 pa1 读回不再可见、新 pa2 完全可见；③ TLB 命中计数严格递增（重复访问同页） |
-| 回归项 | A1~A10 全绿；E 场景不进新映射仍以旧输出一致 |
+| 回归项 | R11：E 场景不进新映射仍以旧输出一致；未列明历史 A 门禁不自动阻断 |
 | 后续补齐 | 缓存命中/失效统计在第 12 章；驻留逐出在第 14 章；多上下文 ASID 页表切换在第 14 章 |
 
 ---

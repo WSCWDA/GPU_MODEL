@@ -1,6 +1,6 @@
 # 第 32 章 队列 + 同步
 
-> 项目范围、阶段位置和交付以[任务规划](../CPU模拟GPU教学项目_任务规划与实施规格.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
+> 项目范围、阶段位置和交付以[任务规划](../README.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
 
 > 本章多队列、多环落地：Graphics/Compute/Copy 三队列家族（每家族独立 ring 实例），`SIGNAL`/`WAIT` timeline semaphore、事件完成标记、跨队列家族所有权转移、以及异步计算队列。队列内命令按记录顺序、跨队列只由 fence/semaphore 定义顺序（ADR-024）。设计说明见 `../design/sync-primitives.md` §1~§2。
 > 与本章相关的设计说明：`../architecture-design.md` §3.3（IEngine）、§3.5（KMD Submit 扩展 queueId）；ADR-024（屏障/所有权转移）；`../design/command-mmio.md`（SIGNAL/WAIT/PREDICATE/BARRIER 包登记）；第 10 章单环扩展为多环。
@@ -71,8 +71,8 @@ public:
 |---|---|---|
 | `SIGNAL`(0x0A) | `{queueId, semaphoreVa/Id, value}` | 写 timeline 值；完成信号 |
 | `WAIT`(0x0B) | `{queueId, semaphoreVa/Id, value}` | 阻塞至 `sem >= value` |
-| `PREDICATE`(0x0D) | `{predVa, mask, cond}` | 条件执行（33 章语义；本章仅登记包号） |
-| `BARRIER`(0x0E) | `{srcStageMask, dstStageMask, accessMask, acquire/release}` | 粗粒度 |
+| `PREDICATE`(0x0D) | `{predVa:u64, mask:u64, cond:u64, skipDwords:u32, reserved0:u32}` | 条件执行；载荷与跳过范围唯一口径见 `command-mmio.md` §2.4 |
+| `BARRIER`(0x0E) | 3-dword envelope `{kind,scope,memOrder,accessMask; srcStageMask; dstStageMask}`；ownership kind=2 | 粗粒度 |
 
 - 包号：`PREDICATE`=0x0D、`BARRIER`=0x0E、0x0F 预留（Q-65）。**顶层 `PKT_TYPE` 已冻结（ADR-043）**：后续同步类新命令不占 0x0F，统一走 `EXTENDED` 子操作码或 `INDIRECT`(0x0C) IB（`../design/bit-budget.md` §2.3）。
 - `WAIT` 阻塞后续包；不得依赖中断到达顺序（轮询值）。
@@ -138,7 +138,7 @@ Queue.WaitSemaphore(v): 阻塞后续包直到 timeline>=v
 | T32.6 | ② 主体 | 所有权转移（release/acquire 显式） |
 | T32.7 | ② 主体 | 异步计算队列提交不阻塞图形（fence 后合并） |
 | T32.8 | ③ 接入 | `scene_s12_multiengine`（三队列交错依赖）、`scene_s16_barrier_ownership`（所有权转移 + 跨队列 barrier）接入 |
-| T32.9 | ④ 验收 | A32：S12/S16 全绿 + 专有判据 + A31 回归 |
+| T32.9 | ④ 验收 | A32：S12/S16 全绿 + 专有判据 + R32 回归项 |
 
 ---
 
@@ -148,13 +148,13 @@ Queue.WaitSemaphore(v): 阻塞后续包直到 timeline>=v
 |---|---|---|
 | D32.1 | 接口独立编译；`QueueDesc.familyId` 枚举冻结 | L1 契约 |
 | D32.2 | 三队列独立：输出互不串扰；`Signal` 只推进本 timeline | L1 契约 |
-| D32.3 | `WaitSemaphore(2)`：timeline>=2 才放行；值单调（SIGNAL 递减被拒/忽略） | L1 契约 |
+| D32.3 | `WaitSemaphore(2)`：timeline>=2 才放行；值单调；小于当前已完成值的 `SIGNAL` 以 `InvalidArgument` 拒绝且不改变 semaphore 状态 | L1 契约 |
 | D32.4 | WaitHost：不等 delay，只等值 | L1 契约 |
 | D32.5 | BARRIER：release 后 acquire 读可见；`READ→WRITE` 不越级 | L1 契约 |
 | D32.6 | 所有权：QueueB 在 acquire 前不读 QueueA 写的数据；acquire 后读到 | L1 契约 |
 | D32.7 | 异步计算：图形在 wait 前不显示计算产物；不阻塞整体推进 | L1 契约 |
 | D32.8 | S12/S16 探针通过 | L2 + A32 |
-| D32.9 | A32 全绿：三引擎交错依赖正确、timeline semaphore 值序正确、跨队列家族所有权转移、计算异步队列不破坏依赖 + 回归 | L1 + L2 |
+| D32.9 | A32 全绿：三引擎交错依赖正确、timeline semaphore 值序正确、跨队列家族所有权转移、计算异步队列不破坏依赖 + R32 回归项 | L1 + L2 |
 
 ---
 
@@ -168,7 +168,7 @@ Queue.WaitSemaphore(v): 阻塞后续包直到 timeline>=v
 | 产物 | 各队列 timeline 序列、RT 输出、所有权转移日志 |
 | 主判据 | S12/S16 输出 = ref_model（依赖顺序零容差） |
 | 本章专有判据 | ① 三引擎交错依赖正确；② timeline semaphore 值序正确；③ 跨队列家族所有权转移；④ 计算异步队列不破坏依赖 |
-| 回归项 | A1~A31 全绿；单队列基线（S1）不退化 |
+| 回归项 | R32：单队列基线（S1）不退化；未列明历史 A 门禁不自动阻断 |
 | 后续补齐 | IB 链/间接（33）；事件完成标记（34 查询） |
 
 ---

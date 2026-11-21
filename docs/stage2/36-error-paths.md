@@ -1,6 +1,6 @@
 # 第 36 章 错误路径
 
-> 项目范围、阶段位置和交付以[任务规划](../CPU模拟GPU教学项目_任务规划与实施规格.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
+> 项目范围、阶段位置和交付以[任务规划](../README.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
 
 > 本章收口全项目错误处理：10~35 各章保留的"单元 + 包类型 + dword 偏移"定位钩子统一接入 watchdog、复位路径与故障注入。三类故障分层（硬件/驱动/应用，ADR-039）、按引擎 watchdog、`reset 后可重跑一致`（S13）是本章核心专有判据。设计说明见 `../design/boot-reset.md` §2~§4。
 > 与本章相关的设计说明：`../architecture-design.md` §3.9（错误契约）；ADR-011/031/039/040；`../design/logging.md`（日志与断言）；`../design/boot-reset.md`；`tools/{log_analyze, mem_audit, state_inspector, spec_runner}`。
@@ -36,13 +36,13 @@
     │                                │
     ▼                                ▼
  firmware/watchdog（每引擎活跃标记）  kmd/reset（复位管理器）
- 引擎超时/无进展 → watchdog tick      → 停止该引擎 → 复位该引擎 → 重建上下文
+ wave 超出指令预算/引擎错误 → watchdog 判定 → 停止该引擎 → 复位该引擎 → 重建上下文
     │                                │测试：注入故障 → 定位 → reset → 重跑
     ▼
  应用/CI：S13 → log_analyze/mem_audit/spec_runner
 ```
 
-- watchdog 按引擎：`active[engineId]` 每 tick 更新；无进展超限才触发该引擎复位。
+- watchdog 使用模型逻辑预算而非墙钟 tick：每 wave 退休指令计数；单 wave 达到 `kMaxInstructionsPerWave=2^24` 返回 `Timeout`。引擎进展统计用于区分长任务与无进展，超时只复位对应引擎。
 
 ---
 
@@ -67,8 +67,8 @@ struct ErrorRecord {
 ```cpp
 class ResetManager {   // kmd/reset
 public:
-    Result ArmWatchdog(u32 engineId, u32 timeoutTicks);
-    Result OnEngineProgress(u32 engineId);   // watchdog 喂狗
+    Result ArmWatchdog(u32 engineId, u64 instructionBudget);
+    Result OnEngineProgress(u32 engineId, u32 workgroupId); // 逻辑进展记录，不按墙钟喂狗
     Result ResetEngine(EngineType);          // 单引擎复位：停 CP→丢包→清 fence→reboot ring
     const ErrorRecord& LastError() const;
 };
@@ -113,8 +113,9 @@ S13 断言：注入每类故障 → 错误记录字段精确 → reset 完成 �
 ### 4.2 watchdog（按引擎）
 
 ```
-每 tick：各引擎 OnEngineProgress（若有包在处理）
-超时（progress 未推进超过 timeoutTicks）→ 该引擎标记 stuck → ResetEngine(engine)
+每条 wave 指令退休：instructionCount[wave]++
+达到 kMaxInstructionsPerWave=2^24 → Timeout + wave/PC/dispatch 诊断 → ResetEngine(engine)
+workgroup 完成只更新进展观测；不得以墙钟或 scheduler tick 决定硬件结果。
 （不复位其它健全引擎——不整设备一刀切）
 ```
 
@@ -142,7 +143,7 @@ S13 断言：注入每类故障 → 错误记录字段精确 → reset 完成 �
 | T36.7 | ② 主体 | 复位后上下文重建 + 重跑一致性（固定输入） |
 | T36.8 | ② 主体 | `log_analyze`/`mem_audit` 工具接入（错误统计、泄漏/UAF） |
 | T36.9 | ③ 接入 | `scene_s13_fault` 全故障矩阵 + reset 后重跑 S2 接入 |
-| T36.10 | ④ 验收 | A36：S13 全绿 + 专有判据 + 全部 E/S 回归 |
+| T36.10 | ④ 验收 | A36：S13 全绿 + 专有判据 + 已交付硬件范围内的 E1~E5/S0~S17 回归（E0 单独 L1 自检；S18/S19 归 37/42） |
 
 ---
 
@@ -152,14 +153,14 @@ S13 断言：注入每类故障 → 错误记录字段精确 → reset 完成 �
 |---|---|---|
 | D36.1 | 接口独立编译；`ErrorRecord` 字段固定；`Result` 枚举扩展冻结 | L1 契约 |
 | D36.2 | 每类故障定位到 `{unit, packetType, dwordOffset, va, code}`（注入→断言字段） | L1 契约 |
-| D36.3 | `ResetRequired` → 单引擎复位完成（FIFO 空/fence 清零/ring 重 boot），其余引擎数据完好 | L1 契约 |
+| D36.3 | `ResetRequired` → 单引擎复位完成；在飞任务丢弃、复位中提交返回 `Busy`、旧 queue/stream generation 返回 `DeviceLost`、不隐式重放；其余引擎数据完好 | L1 契约 |
 | D36.4 | watchdog：死循环只在对应引擎触发复位；其它引擎提交正常 | L1 契约 |
 | D36.5 | 8 类注入菜单各命中（BadPacket/BadIsa/OomLoop/UnmappedVa/Deadlock/BadVersion/DescriptorOOB/RingOverflow） | L1 契约 |
 | D36.6 | 错误保留表在复位后仍可读（LastError）；日志含 unit/type/offset/va/code | L1 契约 |
-| D36.7 | reset 后重跑 S2：输出与首次一致（固定输入） | 横切零容差 |
+| D36.7 | 复位期间提交返回 `Busy`，旧 queue/stream generation 返回 `DeviceLost`；应用重建受影响资源并显式重提 S2 后输出与首次一致 | 横切零容差 |
 | D36.8 | `log_analyze` 报告正确错误计数；`mem_audit` 标识泄漏/UAF | L1 契约 |
-| D36.9 | `scene_s13_fault` 全故障矩阵探针通过（8 类 × 目标单元；reset 后 S2 一致） | L2 + A36 |
-| D36.10 | A36 全绿：故障定位到单元、reset 后 S2 重跑成功（watchdog 按引擎监控、不做全设备一刀切）+ 全部 E/S 回归 | L1 + L2 + 横切 |
+| D36.9 | `scene_s13_fault` 全故障矩阵探针通过（8 类 × 目标单元；显式重建并重提后 S2 一致） | L2 + A36 |
+| D36.10 | A36 全绿：故障定位到单元、显式重建并重提后 S2 结果一致；E1~E5/S0~S17 已交付范围回归不退化（E0 单独 L1 自检，S18/S19 归 37/42） | L1 + L2 + 横切 |
 
 ---
 
@@ -173,8 +174,8 @@ S13 断言：注入每类故障 → 错误记录字段精确 → reset 完成 �
 | 产物 | 错误记录（unit/type/offset/va/code）、watchdog 日志、reset 后 S2 结果 |
 | 主判据 | 每类故障：定位到单元与位置 + reset 后 S2 重跑成功；watchdog 只复位对应引擎 |
 | 本章专有判据 | ① 故障定位到单元；② reset 后 S2 重跑成功；③ watchdog 按引擎监控、不做全设备一刀切 |
-| 回归项 | 全部 E/S 场景（含双策略）无因错误处理回退；A1~A35 全绿 |
-| 后续补齐 | 项目收口：E/S 全场景在双策略、多后端、故障注入下不退化（全回归矩阵） |
+| 回归项 | R36：已交付 E1–E5、S0–S17 的适用判据不因错误处理退化；E0 单独 L1 自检；未列明历史 A 门禁不自动阻断 |
+| 后续补齐 | 项目最终 E/S 全场景回归与双入口计算验证由第 42 章 A-stage3 收口 |
 
 ---
 
@@ -183,18 +184,18 @@ S13 断言：注入每类故障 → 错误记录字段精确 → reset 完成 �
 | 关注点 | 本章回答 |
 |---|---|
 | 确定性 | 错误记录构造序、复位动作序、重跑一致序固定 |
-| 时间无关 | watchdog 用逻辑 tick（无进展判定），非墙钟 |
-| 可观测 | ErrorRecord、watchdog 计时、`log_analyze` 报告、`--trace=error` |
+| 时间无关 | watchdog 使用每 wave 退休指令预算，不依赖墙钟/tick |
+| 可观测 | ErrorRecord、watchdog 指令预算、`log_analyze` 报告、`--trace=error` |
 | 契约影响 | `ErrorRecord`/`ResetManager`/复位语义/特权边界冻结 |
 | 简化登记 | 初级"错误即中止" → 定位 + 按引擎复位 + watchdog |
 | 计算兼容 | 错误钩子覆盖计算引擎（37/stage3 38~42，原 35.5）同样可注入 |
-| 配置与回退 | `fault_inject`（测试）、`watchdog_timeout` 配置 |
+| 配置与回退 | `fault_inject`（测试）、`kMaxInstructionsPerWave=2^24` 固定预算 |
 | 调试钩子 | `--trace=error`（每次错误一行）；`--watchdog-log` |
 | trace 契约 | 不进入判据 |
 | 契约变更 | 复位/故障分层/特权边界/watchdog 为冻结项；变更走 ADR 回归 S13/S1 |
 | 校验归属 | L1（结构/定位字段）+ L2（S13 矩阵）+ 横切（reset 重跑一致） |
 | 双策略 | 复位与重跑在 `serial/parallel` 下一致（并行下故障仍可定位） |
-| 阶段衔接 | 全项目收口：发动全部 E/S 场景回归矩阵 = 项目最终验收面 |
+| 阶段衔接 | 本章验证已交付硬件范围；全部 E/S 项目回归由第 42 章在 S18/S19 和 stage3 完成后收口 |
 
 ---
 
@@ -212,8 +213,8 @@ S13 断言：注入每类故障 → 错误记录字段精确 → reset 完成 �
 ## 10. 待定项
 
 - `log_analyze`/`mem_audit`/`state_inspector`/`spec_runner` 的产物格式（JSON/HTML 汇总）在 36 章实现时与 `validation-model.md` §7 对齐；格式细节归档于 `tools` 文档（属工具层，不进硬件契约）。
-- watchdog timeout（tick 数）默认值是否与具体引擎速率耦合——按 tick 无色约束，默认取自配置，不改语义。
-- 复位期间在飞提交的处理（排队 vs 拒绝）本期取"复位引擎丢弃未完成包 + 后续提交排队重跑"；若 E/S 双策略回归暴露顺序依赖，再补充确定性策略（ADR 记录）。
+- `kMaxInstructionsPerWave` 的默认值是否需要按 shader 复杂度配置——当前固定为 2^24；以后变更需登记 ADR。
+- 复位语义固定：故障引擎的在飞提交丢弃并标记失败；复位期间新提交返回 `Busy`；复位完成后旧 queue/stream generation 句柄返回 `DeviceLost`。不隐式重放。应用重建受影响队列/stream/资源后显式重提。
 
 ---
 

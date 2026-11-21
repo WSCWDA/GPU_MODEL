@@ -1,7 +1,7 @@
 # GPU 驱动全栈软模型 — 架构设计
 
 > 定位：定义分层、模块边界、数据流、接口契约与 ABI，回答"系统由哪些层和单元组成、它们如何协作、哪些契约不能破"。
-> 文档职责：项目目标、范围、阶段与交付以 [任务规划](CPU模拟GPU教学项目_任务规划与实施规格.md) 为主干；`roadmap.md` 展开章级任务与门禁；本文件负责模块树、数据流、层间契约与 ABI；`docs/design/` 细化模块内部机制；`scene-specs.md` 冻结场景输入与判据；stage 文档描述章节实现。本文件不新增章号与场景号。
+> 文档职责：项目目标、范围、阶段与交付以 [任务规划](README.md) 为主干；`roadmap.md` 展开章级任务与门禁；本文件负责模块树、数据流、层间契约与 ABI；`docs/design/` 细化模块内部机制；`scene-specs.md` 冻结场景输入与判据；stage 文档描述章节实现。本文件不新增章号与场景号。
 > 决策记录见 `roadmap.md` §0.3 ADR 清单与 `docs/adr/`；原 `open-questions.md` 的 Q-01~Q-83 已全部定案关闭，本文件只写已定案内容。
 > 模块设计：本文件 §4 为独立模块设计文档（`docs/design/`）索引；子系统的内部设计细节不在此内联，见各模块文档。
 
@@ -554,7 +554,7 @@ struct DispatchDesc {
     u32      flags;                        // bit0 = 组内使用 barrier；bit1 = 需 device 作用域；其余必须 0
 };
 
-struct DispatchArgsIndirect {              // 6 dword，16 B 对齐
+struct DispatchArgsIndirect {              // 7 u32 = 28 B；起始地址 16 B 对齐；reserved0 必须为 0
     Dim3 grid;
     Dim3 block;
     u32  reserved0;                        // 必须 0
@@ -567,7 +567,7 @@ struct DispatchArgsIndirect {              // 6 dword，16 B 对齐
 
 | 编号 | 规则 |
 |---|---|
-| D-01 | `block` 三维各 ≥ 1，`block.x*block.y*block.z ≤ 1024`；**允许非 32 倍数**，末波按 `LaneMask` 处理（§3.12 M-02），不得为凑整波而静默补齐线程 |
+| D-01 | `block` 三维各 ≥ 1，`block.x*block.y*block.z ≤ 512`；**允许非 32 倍数**，末波按 `LaneMask` 处理（§3.12 M-02），不得为凑整波而静默补齐线程 |
 | D-02 | `grid` 三维各 ≥ 1，总 workgroup 数 ≤ `kMaxWorkgroups`（ADR-038 固定容量，**`2^20`**，登记 `bit-budget.md` §7.1 **B-038**；2026-11-20 定案，ADR-043/045） |
 | D-03 | `ldsStaticBytes ≤` CU LDS 容量（永久 **64 KiB/CU**，B-036）且 16 B 对齐；超限直接拒绝，不做"缩 LDS 硬跑" |
 | D-04 | `sgprCount ≤ s0..s31` 可用量、`vgprCount ≤ v0..v127` 扣除 ABI 保留区（`isa-abi.md` §3 `kVgprBase*` 分区）；声明值只影响调度预算，不改变 ISA 语义 |
@@ -626,10 +626,10 @@ globalThreadId  = workgroupId * threadsPerGroup + gtid
 | 写 → 读 | 需要的机制 | 不满足时的现象 |
 |---|---|---|
 | 同线程 private | 程序序 | — |
-| 同组 LDS | `BARRIER(scope=Workgroup)` | 读到旧值 / 竞态 |
-| 同组 global（同 CU） | `BARRIER(scope=Workgroup)`（排空该 CU 写队列） | 读到 L1 旧值 |
-| 跨组 / 跨 CU global | `BARRIER(scope=Device)`（排空全部写队列 + L1 invalidate） | 部分 CU 读到旧值 |
-| 跨 dispatch / 跨队列 | fence / timeline + `BARRIER(scope=Device)` | 顺序不可解释 |
+| 同组 LDS | ISA `BARRIER(Workgroup)` 指令（非 `PKT_TYPE=0x0E` 包） | 读到旧值 / 竞态 |
+| 同组 global（同 CU） | ISA `BARRIER(Workgroup)` + workgroup 可见性规则；命令包级 resource barrier 不在 kernel 内插入 | 读到 L1 旧值 |
+| 跨组 / 跨 CU global | 命令包 `BARRIER(kind=resource,scope=Device)` + 写队列排空/失效 | 部分 CU 读到旧值 |
+| 跨 dispatch / 跨队列 | fence/timeline + 命令包 `BARRIER(kind=ownership,scope=Device)` | 顺序不可解释 |
 | 图形 ↔ 计算 | 队列家族所有权转移（32）+ fence + device barrier | RT / UAV 互不可见 |
 
 **规则**

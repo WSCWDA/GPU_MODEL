@@ -1,6 +1,6 @@
 # 第 5 章 最小 ISA
 
-> 项目范围、阶段位置和交付以[任务规划](../CPU模拟GPU教学项目_任务规划与实施规格.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
+> 项目范围、阶段位置和交付以[任务规划](../README.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
 
 > 本章把第 4 章的"内存内指令结构"规范化为 64 bit 定长二进制编码，并交付汇编器/反汇编器与指令语义表。约 20 条指令、线性编码（无压缩）；标量/向量分区位预留，本章只实现向量指令。E0 的"汇编往返"判据在此补全，E2 的着色样例改用编码投递。
 > 与本章相关的设计说明：`../design/isa-abi.md` §1~§2、§3（64 bit 编码、opcode 区段、ABI 分区）；`../architecture-design.md` §3.1（`IShaderArray`）；第 4 章（执行器消费语义）。
@@ -88,7 +88,7 @@
 | 0x20 | `LD` | 内存 | `v[dst] = mem32(常数区基址 + src0 索引·4)`：基址 = 随包下发的常数区基址（stateId=4），src0 为按 lane 索引 |
 | 0x21 | `ST` | 内存 | `mem32(基址+src0 索引) = v[src1]` |
 | 0x50 | `GET_THREAD_ID` | 内建 | `v[dst] = lane` |
-| 0x51 | `GET_VERTEX_ID` | 内建 | `v[dst] = vertexIdBase + lane（由 DispatchArgs 注入）` |
+| 0x51 | `GET_VERTEX_ID` | 内建 | `v[dst] = IA 注入的 vertexId`；非索引为 `firstVertex+i`，索引为 `baseVertex+index[i]`，不由 lane 推导 |
 | 0x52 | `GET_INSTANCE_ID` | 内建 | `v[dst] = instanceId` |
 | 0x53 | `GET_PIXEL_POS` | 内建 | `v[dst] = {pixelX, pixelY, 0, 1}`（4 槽写） |
 | 0x7F | `EXIT` | 控制流 | 终止当前 lane；全部活动 lane EXIT 后波结束 |
@@ -145,7 +145,7 @@ bin1           ──isa_disasm─► 规范化文本
 
 | 任务 | 段 | 内容 |
 |---|---|---|
-| T5.1 | ① 契约 | 编码布局、opcode 区段表、20 条指令枚举与语法冻结到 `common/isa.h`；`Encode/Decode` 签名与位掩码常量 |
+| T5.1 | ① 契约 | 以 `Op` 枚举追加方式扩展第 4 章初级子集，登记本章 20 条指令的助记符/opcode/操作数语义到 `common/isa.h`；`Encode/Decode` 签名与位掩码常量冻结，不重排已有枚举值 |
 | T5.2 | ② 主体 | `Encode/Decode`：指令 ↔ 64 bit 字往返；位布局按 §3.1 断言；非法字段（`dst>127`、未知 opcode）译码失败路径 |
 | T5.3 | ② 主体 | `isa_asm`：全语法解析、寄存器/哨兵/立即数、报错行号与列号；对给定样例与参考二进制逐字一致 |
 | T5.4 | ② 主体 | `isa_disasm`：规范文本输出；对任意合法二进制逐行可再汇编 |
@@ -160,13 +160,13 @@ bin1           ──isa_disasm─► 规范化文本
 
 | DoD | 判据（机器可判） | 级别 |
 |---|---|---|
-| D5.1 | `static_assert(sizeof(编码字)==8)`；opcode 表与 §3.2 逐项一致（脚本比对）；`decode(dst>127)` 与未知 opcode 均返回明确错误码 | L1 契约 |
+| D5.1 | `static_assert(sizeof(编码字)==8)`；`Op` 枚举、20 条 opcode 表与 `ToInstr` 映射逐项一致；新增项只追加、不改变第 4 章初始枚举值；`decode(dst>127)` 与未知 opcode 返回明确错误码 | L1 契约 |
 | D5.2 | 构造 20 条指令各 1 个实例：`Encode∘Decode` 还原 `{op,dst,src0,src1,imm}` 全等；`src0==0xFF` 用例 imm32 位型还原 | L1 契约 |
 | D5.3 | 样本程序 P1/P2 汇编后与参考二进制逐 64 bit 字一致；语法错误（未知名、`v128`、缺操作数）返回行/列错误 | L1 契约 |
 | D5.4 | 对 bin1 反汇编 → 再汇编 → bin2：逐字相等（E0 主判据）；对全部 smoke 指令重复该往返 | L1 契约 |
 | D5.5 | `ToInstr`：20 条指令全部可映射；`CMP` 六种 OP 每种 assert 谓词位；未知 opcode → `std::nullopt` | L1 契约 |
 | D5.6 | smoke 用例计数 = 2×20（合法+边界）；逐条 `Decode` 不抛异常、无失败返回；`s` 编号输入被汇编器日志级拒绝（非静默） | L1 契约 |
-| D5.7 | E0 中"汇编往返"用例由 `SKIP_PENDING_CH5` 变为通过，计数并入 E0 断言总数；`scene_e2` VS 以汇编文本→编码投递，A4（`scene_e2` 寄存器终态）仍全等 | L1 契约 + A5 |
+| D5.7 | E0 中"汇编往返"用例由 `SKIP_PENDING_CH5` 变为通过，计数并入 E0 断言总数；`scene_e2` VS 以汇编文本→编码投递，E2（`scene_e2` 寄存器终态）仍全等 | L1 契约 + A5 |
 | D5.8 | A5 全绿：E0 断言数比 ch1 增加往返+smoke 相应条数；E2 VS 终态回归不退化 | L1 契约 |
 
 ---
@@ -181,7 +181,7 @@ bin1           ──isa_disasm─► 规范化文本
 | 产物 | 往返二进制、E2 VS 寄存器终态 |
 | 主判据 | E0：汇编→二进制→反汇编→再汇编二进制相同；E2：VS 终态与第 4 章一致 |
 | 本章专有判据 | ① 子集全指令 smoke 无解码失败；② `s` 编号在标量通路启用前被拒绝（不静默展开） |
-| 回归项 | A1（类型/包头断言）、A4（终态） |
+| 回归项 | R05：E0 类型/包头断言与 E2 寄存器终态判据不退化；不把 A1/A4 整章作为门禁 |
 | 后续补齐 | 完整 E2 全图（A6）；完整编码与计算指令（第 16 章）；编译产物一致（第 17~19 章） |
 
 ---

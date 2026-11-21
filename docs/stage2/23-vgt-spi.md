@@ -1,8 +1,8 @@
 # 第 23 章 VGT / SPI
 
-> 项目范围、阶段位置和交付以[任务规划](../CPU模拟GPU教学项目_任务规划与实施规格.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
+> 项目范围、阶段位置和交付以[任务规划](../README.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
 
-> 本章把"VS 逐波分派"拆为 VGT（几何装配）+ 前端派发器（切片）+ SPI（着色器分派器）三级：命令数恒为 1（不因顶点数拆分命令包）、顶点流自动切波、切片边界图元完整、顶点流缓冲常驻复用不随帧增长（ADR-017`IEngine::Execute` 末参）。切片容量与切片决策归本章前端派发器，VGT 只产顶点流（Q-58）。`IEngine` 握手中 `DRAW` 载荷在 VGT/SPI 处理的语义、切片与 `worker_threads` 解耦在这里定型。
+> 本章定义 IA 与 VGT/SPI 的边界：IA 负责读取 index/restart 并装配顶点属性；VGT 接收已装配顶点和拓扑，形成图元流；前端派发器按完整图元切片；SPI 将切片转为 VS wave。命令数恒为 1，切片容量与 `worker_threads` 解耦（ADR-017/019）。
 > 与本章相关的设计说明：`../architecture-design.md` §3.3（`IEngine` 末参 `IShaderArray*`）；ADR-017/019（几何前端切片；SE 分区）；`../design/execution-parallel.md` §4（功能级流水线/背压）。
 > 落地模块：`hw_sim/frontend/vgt_spi`、`apps/scene_s5_model`（大顶点流）。
 
@@ -31,7 +31,7 @@
 ## 2. 单元框图
 
 ```
- DRAW（1 条）──► VGT：图元装配 → 顶点流（只产流）
+ DRAW（1 条）──► IA：索引/属性装配 ──► VGT：拓扑化顶点流
                     │  前端派发器：切片（boundary 完整，≤Cap verts）→ SPI
                     ▼
                   SPI：Dispatch 到 VS 波（IShaderArray）
@@ -66,10 +66,11 @@ struct DrawSlice {
     u32 instance;            // 本切片实例
     Topology topo;
 };
-// 边界保证：slice 的 vtx 集合涵盖若干完整三角形（不产生半个三角形跨片）
+// 每个 DrawSlice 输出完整图元；内部 carry state 延续跨切片的拓扑上下文
 ```
 
 - SPI 收到切片后对每 32 顶点（或 slice 剩余）构造波 `Dispatch(mask)`。
+- patch topology 进入第 28 章时以完整 patch 为最小切片单位：有效容量为 `floor(vgtSliceCapacity / patchControlPoints) * patchControlPoints`；patch 不跨片，容量不足一个 patch 时记录期返回 `InvalidArgument`。
 
 ### 3.3 SPI 出波
 
@@ -88,13 +89,14 @@ VS 波数统计 = Σ ceil(slice 顶点/32)
 
 ```
 DRAW → 展开顶点索引流（on-demand）：
-  slice n: 收集顶点使包含完整图元：
-    对 triangle：每 3 顶点成图元；片尾若剩余 <1 个完整图元则并入下一片
-    （条带/fan 在前端派发器内按拓扑切）
+  slice n: 按拓扑边界收集完整图元；需要跨内部容量边界时把尚未成图元的尾顶点带入下一片：
+    TriangleList：尾部不足 3 顶点带入下一片；仅整个 draw 的末尾残余顶点丢弃
+    TriangleStrip：带入末尾 2 顶点并保留 winding parity；TriangleFan：带入中心点与末尾 1 顶点
+    LineList：带入末尾 1 顶点；LineStrip：带入末尾 1 顶点
   切片起点与全局 firstVertex 对齐；实例化：每实例视为独立 draw 段（切片在实例边界可断）
 ```
 
-- 片尾不足一个完整图元的顶点并入下一片（本片只含完整图元，图元不在切片间拆分）；切片由前端派发器执行，VGT 只负责顶点流。
+- 内部切片边界保留未完成图元所需的最小顶点上下文并合并到下一片；draw 末尾的不完整 list 图元丢弃。对外 `DrawSlice` 只提交完整图元；条带/fan 的跨片用例覆盖 winding 与中心顶点延续。
 
 ### 4.2 背压
 
@@ -129,7 +131,7 @@ SPI 每波出队 → 分发到 CU/SIMD 波执行
 | T23.6 | ② 主体 | 顶点流缓冲池：首次分配 + 帧间复用 + `streamFrame` 标记 |
 | T23.7 | ② 主体 | 命令数恒 1 断言与超量顶点完整执行 |
 | T23.8 | ③ 接入 | `scene_s5_model`（大顶点流：100K 三角形级）接入全链路 |
-| T23.9 | ④ 验收 | A23：S5 大顶点流全绿 + 专有判据 + A22 回归 |
+| T23.9 | ④ 验收 | A23：S5 大顶点流全绿 + 专有判据 + R23 回归项 |
 
 ---
 
@@ -139,13 +141,13 @@ SPI 每波出队 → 分发到 CU/SIMD 波执行
 |---|---|---|
 | D23.1 | 接口独立编译；`vgtSliceCapacity` 默认 256 | L1 契约 |
 | D23.2 | 顶点流展开：非索引/索引顶点的 on-demand 流正确 | L1 契约 |
-| D23.3 | 边界完整：每 slice 顶点集含整数个三角形；跨片的图元不出现 "半三角形"（脚本遍历原语列表验证） | L1 契约 |
+| D23.3 | TriangleList/Strip/Fan 与 LineList/Strip 的多切片输入，输出图元序列与未切片参考一致；内部边界 carry state 正确，draw 末尾不完整 list 图元丢弃 | L1 契约 |
 | D23.4 | 100K 三角形（300K 顶点）：`stats.commandCount==1`；VS 波数 = Σ ceil(...) 精确 | L1 契约 |
 | D23.5 | FIFO 满时 PushVGT 返回 Busy 且切片不丢；排空后全部完成 | L1 契约 |
 | D23.6 | 跨 3 帧提交：GART 顶点流缓冲地址不变（未重分配）；`streamFrame` 递增 | L1 契约 |
 | D23.7 | 单条 DRAW 全程无额外命令包；切片数与 `worker_threads` 无关 | L1 契约 |
 | D23.8 | S5 大顶点流出图 = ref_model；探针覆盖网格中心与边缘 | L2 + A23 |
-| D23.9 | A23 全绿：命令数恒 1、顶点数不受单次派发容量限制、切片边界图元完整、顶点流常驻复用不随帧增长 + 回归 | L1 + L2 |
+| D23.9 | A23 全绿：命令数恒 1、顶点数不受单次派发容量限制、跨切片图元序列无丢失/重复、顶点流常驻复用不随帧增长 + R23 回归项 | L1 + L2 |
 
 ---
 
@@ -159,7 +161,7 @@ SPI 每波出队 → 分发到 CU/SIMD 波执行
 | 产物 | 切片列表、VS 波数、命令包计数、GART 顶点流缓冲 VA 轨迹 |
 | 主判据 | S5 大网格出图 = ref_model（中心/边缘探针零容差） |
 | 本章专有判据 | ① 命令数恒为 1；② 顶点数不受单次派发容量限制（无 overflow）；③ 切片容量归前端派发器、VGT 只产顶点流；④ 切片边界图元完整；⑤ 顶点流常驻复用不随帧增长 |
-| 回归项 | A1~A22 全绿；E4（千三角形基线）不退化 |
+| 回归项 | R23：E4（千三角形基线）不退化；未列明历史 A 门禁不自动阻断 |
 | 后续补齐 | SE 分区/tile（31 章）在切片之上再做并行；GS 输入流（28 章）走 patch |
 
 ---
@@ -168,7 +170,7 @@ SPI 每波出队 → 分发到 CU/SIMD 波执行
 
 | 关注点 | 本章回答 |
 |---|---|
-| 确定性 | 切片序固定（升序）、边界算法确定、[]内分配时序确定 |
+| 确定性 | 切片序固定（升序）、边界算法确定、切片内顶点分配按 §4.1 的确定性顺序 |
 | 时间无关 | 无墙钟；流复用受 fence 逻辑时序 |
 | 可观测 | 切片数/VS 波数/命令数、FIFO 占用、`--trace=vgt/spi` |
 | 契约影响 | 切片规则/`DrawSlice`/流复用为冻结项（登 `IEngine` 语义） |

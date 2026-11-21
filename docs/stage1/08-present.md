@@ -1,6 +1,6 @@
 # 第 8 章 帧输出
 
-> 项目范围、阶段位置和交付以[任务规划](../CPU模拟GPU教学项目_任务规划与实施规格.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
+> 项目范围、阶段位置和交付以[任务规划](../README.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
 
 > 本章收口 E1 的完整验收口径：清屏、单 RT、双缓冲、提交后读回、PNG 导出，并让"出屏 = 显存""双缓冲前后帧可区分"成为机器判据。第 2、3 章的提交/fence 与内存通道在这里被验证为一条可用通路。
 > 与本章相关的设计说明：`../design/validation-model.md` §1~§2（初级基线 raw RGBA8 + 场景元数据、全图逐字节）；`../design/memory-system.md` §7（BUMP 确定性）；第 3 章（`Download` 读回）；第 2 章（fence/提交）。
@@ -52,7 +52,7 @@
 ```cpp
 struct FramebufferDesc {
     GpuVAddr backVa;      // CLEAR 目标（渲染目标，stateId 0）
-    GpuVAddr frontVa;     // 当前显示内容（由 Flip 赋值）
+    GpuVAddr frontVa;     // 当前显示内容（创建时清为背景色，由 Flip 更新）
     u32      width, height;
     u8       format;      // 0 = R8G8B8A8_UNORM（本章仅此值）
 };
@@ -112,7 +112,7 @@ Result Readback(u64* frameIndex);      // 当前 front 快照指针描述（校�
 | T8.2 | ② 主体 | 双缓冲：back 渲染/front 显示、`Flip` 整块拷贝、`frame_index` 递增、清屏只作用于 back |
 | T8.3 | ② 主体 | 读回与导出：`Download`、`ExportRaw`（[B,G,R,A] 内存序）、前置到 `image_diff` 的比对通道、PNG 人工导出（可选开关） |
 | T8.4 | ③ 接入 | 门面 `SubmitFrame` 集成；`scene_e1` 双缓冲清屏上屏，含"第二帧不同清屏色"变体用例 |
-| T8.5 | ④ 验收 | A8：E1 全绿收口（三条判据 + 回归 A1~A7） |
+| T8.5 | ④ 验收 | A8：E1 全绿收口（三条判据 + R08 回归项） |
 
 ---
 
@@ -121,10 +121,10 @@ Result Readback(u64* frameIndex);      // 当前 front 快照指针描述（校�
 | DoD | 判据（机器可判） | 级别 |
 |---|---|---|
 | D8.1 | 头文件独立编译；`FramebufferDesc` 偏移 `static_assert`；E1 三条判据常量与 §3.3 表一致 | L1 契约 |
-| D8.2 | 两次 `SubmitFrame` 后 `frame_index∈{1,2}`；flip 前 `Download(frontVa)` 保上一帧内容；`CLEAR` 后 `back==背景` 且 `front` 不同（用第二色帧区分） | L1 契约 |
+| D8.2 | 创建时 `front` 与 `back` 均初始化为确定背景色；两次 `SubmitFrame` 后 `frame_index∈{1,2}`；flip 前 `Download(frontVa)` 保留上一帧快照，`CLEAR` 只改 back，翻转后 front 与 back 内容一致；第二色帧能区分前后帧 | L1 契约 |
 | D8.3 | `ExportRaw` 输出与内存字节逐字节一致；`image_diff` 对 0 差异返回成功、对构造的 1 字节差异文件返回失败并指出坐标 | L1 契约 |
 | D8.4 | `scene_e1`：E1 全图逐字节 = 背景色；读回缓冲 = 显存；双缓冲前后帧可区分用例通过；连续两次运行 raw 基线逐字节一致 | L1 契约 + A8 |
-| D8.5 | A8 全绿：回归 A1~A7 全绿；初级 `--trace` 样例每章一份齐备（对照 `roadmap.md` §2.3 初级门禁） | L1 契约 |
+| D8.5 | A8 全绿：R08 回归项；初级 `--trace` 样例每章一份齐备（对照 `roadmap.md` §2.3 初级门禁） | L1 契约 |
 
 ---
 
@@ -138,7 +138,7 @@ Result Readback(u64* frameIndex);      // 当前 front 快照指针描述（校�
 | 产物 | front/back raw、PNG、image_diff 报告 |
 | 主判据 | 全图逐字节等于背景色；读回缓冲 = 显存；双缓冲前后帧可区分 |
 | 本章专有判据 | ① 出屏 = 显存（front 透传恒等）；② 双缓冲前后帧可区分 |
-| 回归项 | A1~A7 |
+| 回归项 | R08：E0–E4 已交付基线不退化；E0 单独执行契约自检；未列明历史 A 门禁不自动阻断 |
 | 后续补齐 | 真扫描时序/vsync/翻转链在第 13 章；E1 输入冻结，不做改动 |
 
 ---

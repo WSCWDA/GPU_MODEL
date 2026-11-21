@@ -1,6 +1,6 @@
 # 第 38 章 计算驱动骨架——umd/compute 对象模型与 Module 装载
 
-> 项目范围、阶段位置和交付以[任务规划](../CPU模拟GPU教学项目_任务规划与实施规格.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
+> 项目范围、阶段位置和交付以[任务规划](../README.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
 
 > 本章是 **stage3 计算驱动开发线（新章 38~42，ADR-047）** 的第一章。在 1~37 章图形管线（HLI、KMD、FW、内存、队列、Compute 引擎派发、第 37 章计算通路收口）之上，落地 MUSA 风格计算驱动（`umd/compute`）的**对象模型骨架**：`context / module / function` 对象头文件、`MUSA_MODULE_HDR` 二进制格式与装载、符号表解析与 function 入口。从此章起，计算驱动作为独立用户态驱动栈与图形 UMD 并列（ADR-009），只依赖 HLI 与 `umd/os`。
 > 设计权威：驱动对象模型 / `MUSA_MODULE_HDR` 布局 / 符号表 / 生命周期见 `../design/compute-driver.md` §2~§4、§6、§9；kernel 参数与 `DispatchDesc` 契约见 `../architecture-design.md` §3.8、§3.11；对象销毁契约（逆创建、双维度引用计数）见 `../architecture-design.md` §3.10；错误码映射见 §3.9；WA 业务目录见 `../architecture-design.md` §7.9，计算通路见 `../design/compute-line.md` §1/§2。
@@ -32,7 +32,7 @@
 apps（Demo C1 module_probe）
    │  MUSA_MODULE_HDR blob（示例 kernel ISA，手写或 17~19 章编译器产物）
    ▼
-umd/compute::Context　←── IHliDevice（ASID 1:1:1）+ 资源表
+umd/compute::Context　←── IHliDevice + 独立 KMD context/ASID（Context:ASID 1:1）+ 资源表
    │  umd/compute::ModuleLoad(blob)
    ▼
 module blob 解析：magic/version/reserved → 代码段 → 符号表逐条
@@ -111,7 +111,7 @@ class Function;              // 持 Module* + FunctionInfo
 ### 4.1 对象状态机（`compute-driver.md` §2 权威）
 
 ```
-Context: Created → [可创建 Module/Stream] → Destroyed（前先同步所有 stream）
+Context: Created → [可创建 Module/Function] → Destroyed（仍有子对象/硬件引用时返回 Busy；不隐式同步）
 Module:  Loaded(解析通过) → Resident(GART 常驻) → Bound(被 SetKernel 引用) → 释放
 Function:Resolved(符号命中) → Launched(第 39 章首次 Dispatch 引用) → 随 Module 释放
 ```
@@ -139,7 +139,7 @@ Context::ModuleLoad(blob)
 | 子里程碑 | 任务 | 段 | 内容 |
 |---|---|---|---|
 | M38.1 | T38.1 | ① 契约 | `umd/compute` 头文件：`Context/Module/Function` + `ModuleHdr/SymEntry/ModuleInfo/FunctionInfo`（对齐 `compute-driver.md` §2~§4，`static_assert` 布局单测落头文件） |
-| M38.1 | T38.2 | ② 主体 | `Context` 创建/销毁：`IHliDevice`（ASID 1:1:1）+ 资源表；销毁前校验所有 stream 已同步；逆创建顺序（§3.10） |
+| M38.1 | T38.2 | ② 主体 | `Context` 创建/销毁：同一 `IHliDevice` 支持多个 Context，每个分配独立 ASID；销毁有 Module/Function 等存活子对象或硬件引用时返回 `Busy`，不隐式同步；逆创建顺序（§3.10） |
 | M38.1 | T38.3 | ② 主体 | `MUSA_MODULE_HDR` 解析：magic/version/reserved、代码段、符号表逐条解码（L-01~L-04）；损坏/截断 → `InvalidIsa` |
 | M38.1 | T38.4 | ② 主体 | `Function` 入口解析：`codeBaseVa + entryOffset`（4 B 对齐、越段 `InvalidIsa`、未映射 `NotMapped`）；pc 相对偏移不需地址修补 |
 | M38.2 | T38.5 | ③ 接入 | module 装载经 HLI 资源（GART `HOST_VISIBLE`，第 11 章确定性分配器）接入；Demo C1 `module_probe` 跑通 |
@@ -159,7 +159,7 @@ Context::ModuleLoad(blob)
 | DoD | 判据（机器可判） | 级别 |
 |---|---|---|
 | D38.1 | 计算驱动头文件独立编译；`ModuleHdr`/`SymEntry` 布局 `static_assert` 全绿 | L1 契约 |
-| D38.2 | Context 创建/销毁逆序、无泄漏（`mem_audit` 通过）；销毁前未同步 stream 返回确定错误 | L1 契约 |
+| D38.2 | 同一 device 创建两个 Context 得到不同 ASID；逆序销毁无泄漏；存在存活子对象或硬件引用时 `ContextDestroy` 返回 `Busy`，清理后可销毁 | L1 契约 |
 | D38.3 | `ModuleHdr` 字段与 blob 逐字节一致；6 种非法样例（bad magic/version/reserved/越界/截断/坏对齐）全部返回确定错误且无部分创建 | L1 契约 |
 | D38.4 | Function 入口解析正确（`codeBaseVa+entryOffset`）；越段 `InvalidIsa`、未映射 `NotMapped` | L1 契约 |
 | D38.5 | Demo C1 `module_probe` 输出符号表（name/entryOffset/paramBytes/vgprCount/ldsBytes）与解析入口；两次运行逐字节一致 | L2 |
@@ -177,7 +177,7 @@ Context::ModuleLoad(blob)
 | 产物 | 符号表打印、每个 function 的 `kernelVa`、`MUSA_MODULE_HDR` 与 blob 字节比对、异常样例错误码与错误日志 |
 | 主判据 | `ModuleHdr` 字段逐字节一致；符号表解析正确；异常输入全部命中确定错误且无泄漏（L1 + D38.2~D38.4） |
 | 本章专有判据 | 对象生命周期逆序创建/销毁无泄漏；重复解析同一符号返回同一 Function（幂等）；装载不产生任何包 |
-| 回归项 | A1~A37 全绿；S18（作为 37 章通路能力验证）在接入后不退化 |
+| 回归项 | R38：S18（作为 37 章通路能力验证）在接入后不退化；未列明历史 A 门禁不自动阻断 |
 
 > 场景输入与探针单份规约见 `../design/scene-specs.md` §3（S18 节）与 §4（第 38 行）。
 

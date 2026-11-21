@@ -1,6 +1,6 @@
 # 第 10 章 设备 + 环 + CP
 
-> 项目范围、阶段位置和交付以[任务规划](../CPU模拟GPU教学项目_任务规划与实施规格.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
+> 项目范围、阶段位置和交付以[任务规划](../README.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
 
 > 本章是高级阶段的入口：把初级薄提交门面替换为 KMD/FW 驱动的真实提交路径，落地最小 KMD DDI、Firmware boot/ring/doorbell、以及按功能级握手定义的 `IEngine`。一条提交从"写环 → doorbell → CP 取指 → 派发 → fence"被完整建模，环回绕、包头版本、非法包定位成为本章核心专有判据。
 > 与本章相关的设计说明：`../architecture-design.md` §3.3（`IEngine` 握手签名）、§3.5（KMD/FW 契约）、§3.10（回调链生命周期）；`../design/command-mmio.md` §1~§4（包头/包表/stateId/MMIO 分段）；`../design/boot-reset.md` §1、§5（启动序列、逻辑特权分层）；`../design/execution-parallel.md` §4（功能级流水线/背压）。
@@ -151,7 +151,7 @@ public:
 IDLE → WAIT_RING（ring 非空？）→ FETCH_HEADER（读 1 dword 包头）
      → PARSE（PKT_TYPE/count 校验，count>0 且 ≤4095）
      → DISPATCH（按类型：内部处理 or Push 到引擎）
-     → ADVANCE（tail 推进 count*dword；跨尾用 NOP 填充）
+     → ADVANCE（head 推进 count 个 dword；跨尾前由生产者用 NOP 填充）
      → WRITE_FENCE（若包为 FENCE）→ IDLE
 错误转移：非法类型/版本/长度 → ERROR_{report,ResetRequired} → IDLE（后续提交被拒直到复位）
 ```
@@ -194,7 +194,7 @@ FENCE 包载荷 {u64 value} → CP 写 FENCE_MON(0x08) → 触发中断(INT_STAT
 | T10.12 | ② 主体 | FW boot/ring 编程/`ProgramRing`/`OnDoorbell` 启动 CP、`LoadContext` 占位 |
 | T10.13 | ② 主体 | `Submit`：写环 + 更新 tail + doorbell；中断读回完成值 |
 | T10.14 | ③ 接入 | `scene_s1` 空环提交：`Submit([]) → WaitFence` 命令链不断链、无包执行仍推进 fence |
-| T10.15 | ④ 验收 | A10：S1 空环 + S13 报错子集全绿（场景主判据 + 本章专有判据 + A1~A9 回归） |
+| T10.15 | ④ 验收 | A10：S1 空环 + S13 报错子集全绿（场景主判据 + 本章专有判据 + R10 回归项） |
 
 **章内里程碑（Q-49）**：
 
@@ -238,7 +238,7 @@ FENCE 包载荷 {u64 value} → CP 写 FENCE_MON(0x08) → 触发中断(INT_STAT
 | 产物 | ring 快照、fence 值序列、错误记录 `{unit,pktType,dwordOffset,va,code}` |
 | 主判据 | S1：`N>size` 提交后 fence 序列单调完整；每次运行 ring/fence 快照一致 |
 | 本章专有判据 | ① 环回绕正确（见 D10.6）；② 包不跨环尾、`NOP` 填充正确（D10.9）；③ 非法包报类型+偏移（D10.8）；④ 版本不匹配拒绝（D10.7）；⑤ fence 语义顺序（D10.11） |
-| 回归项 | A1~A9 全绿（E0~E5 不因新 SW stack 退化；本阶段门禁：环/包格式/KMD-FW 接口冻结） |
+| 回归项 | R10：E0–E5 不因新软件栈退化；本阶段门禁冻结 ring、包格式和 KMD/FW 接口；未列明历史 A 门禁不自动阻断 |
 | 后续补齐 | 多引擎 ring 仲裁在第 32、33 章；S13 完整故障注入与复位在第 36 章收口 |
 
 ---

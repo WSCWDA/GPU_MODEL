@@ -1,6 +1,6 @@
 # 计算线（含计算驱动）— 独立模块设计
 
-> 项目目标、范围、阶段与交付以[任务规划](../CPU模拟GPU教学项目_任务规划与实施规格.md)为主干；roadmap展开章级任务，architecture-design定义模块树与层间契约。本文负责本模块的内部技术设计。
+> 项目目标、范围、阶段与交付以[任务规划](../README.md)为主干；roadmap展开章级任务，architecture-design定义模块树与层间契约。本文负责本模块的内部技术设计。
 
 > 定位：定义高级阶段引入的第二条纵向功能线：计算最小通路、workgroup/wave 映射语义、内存作用域与 barrier、MUSA 对象模型的计算驱动、以及图形线内的预留点与启动条件。计算线通路与共用单元以独立第 37 章收口（ADR-013 修订，2026-11-19）；**计算驱动对象模型与 ABI 的驱动专属细节迁出到 `docs/design/compute-driver.md`**，计算驱动开发任务的 **stage3 新章 38~42**（`docs/roadmap.md` §0.2/§2.1 登记、`docs/stage3/`）作为 MUSA 风格计算驱动开发线承载。
 > 落地章：共用单元在第 20（kernel 参数与绑定）、29（波内协作）、30（组内协作）、31（三维 workgroup 映射）、32（队列与同步）、33（间接派发）、34（查询）、37（计算管线收口）章；计算驱动开发线在 stage3 新章 38~42（`docs/stage3/`）。
@@ -37,11 +37,11 @@ kernel（编译器产物或手写 ISA） → module / function 对象 → kernel
 
 **对象粒度（38 章实现前冻结；实现细节与 ABI 见 `compute-driver.md`）**：
 
-- `context` = HLI device + KMD context（ASID），一期 1:1:1；销毁前所有 stream 必须已同步。
+- 一个 HLI device 可创建多个计算 `Context`；每个 Context 绑定唯一 KMD context/ASID（Context:ASID=1:1）。销毁不隐式同步；有子对象或硬件提交引用时返回 `Busy`，stream drain 归计算驱动第 40 章。
 - `module` = 自有头 `MUSA_MODULE_HDR` + 代码段 + 符号表（`name / entryOffset / paramBytes / vgprCount / ldsBytes`），常驻 GART；不引入 ELF/COFF，不做重定位。
 - `function` = module 内入口（`codeBaseVa + entryOffset` + 参数布局）；分支用 pc 相对偏移，因此加载不需要地址修补。
-- `stream` = 1:1 映射一个 HLI 队列，stream 内顺序即队列顺序；不允许多队列，优先级创建时声明、不可变。
-- `event` = 独立对象 `{queueId, timelineValue, state}`；Record 在命令流插 `SIGNAL`，Wait 插 `WAIT`，Query 非阻塞读状态；值域复用队列 timeline，不复用 fence 对象。
+- `stream` = 1:1 映射一个 HLI 队列，stream 内顺序即队列顺序；Graphics/Compute 等不同队列可各自拥有 stream，单个 stream 不跨队列；优先级创建时声明、不可变。
+- `event` 拥有独立 timeline semaphore 与单调 value；Record 在调用 stream 中插 `SIGNAL`，Wait 可跨队列在其他 stream 插 `WAIT`，Query 非阻塞读取完成值；不复用队列 fence 值域。
 - kernel 参数由驱动打包：应用按签名提交 `ArgPack{ptr, bytes}[]`，驱动写入 GART `HOST_VISIBLE | HOST_COHERENT` 参数缓冲并生成 `KernelArgsLayout`（`architecture-design.md` 层间接口契约 §3.8）；应用直接给参数 VA 的 `LaunchWithParamBuffer` 留二期。
 - 计算驱动（38~42）**不新增 HLI 接口**：dispatch 走已有 `DISPATCH` 包与 compute pipeline，队列与同步走第 32 章原语。
 

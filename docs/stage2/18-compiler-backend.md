@@ -1,6 +1,6 @@
 # 第 18 章 后端
 
-> 项目范围、阶段位置和交付以[任务规划](../CPU模拟GPU教学项目_任务规划与实施规格.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
+> 项目范围、阶段位置和交付以[任务规划](../README.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
 
 > 本章把前端 SSA IR 变为最终 ISA blob：优化（常量折叠/DCE/CSE/复制传播，不做循环变换）→ 线性扫描寄存器分配（SGPR/VGPR 分区、溢出）→ 指令选择 + 64 bit 发射。手写后端在本章定稿，作为第 19 章 LLVM 对照的唯一基线与"逐字节一致"的唯一参照。设计说明见 `../design/compiler.md` §1~§3。
 > 与本章相关的设计说明：`../design/compiler.md`（后端三里程）；ADR-012（19 必须在 18 后）；ADR-034（发散值→VGPR）；`../design/isa-abi.md` §3（ABI 分区不覆盖）。
@@ -13,7 +13,7 @@
 ### 1.1 目标
 
 1. 优化（M18.1）：常量折叠、死代码消除（DCE）、公共子表达式消除（CSE）、复制传播；**禁止任何循环变换（含 LICM/循环不变量外提）**；优化不得改变可观测结果（优化开/关一致）。
-2. 分歧分析从标注落实到分配：一致值（uniform）进 SGPR，发散值进 VGPR；溢出写 GART scratch（per-thread，≤ 4 KiB、4 B 对齐、不清零）。
+2. 分歧分析从标注落实到分配：一致值（uniform）进 SGPR，发散值进 VGPR；溢出写 GART scratch（per-thread ≤4 KiB、4 B 对齐、不清零；每 wave ≤128 KiB；不占 CU-local occupancy 容量；按有效线程数分配，GART 不足则 dispatch 前 `OutOfMemory`）。
 3. 线性扫描寄存器分配（M18.2）：VGPR 从 `v[76..]` 起（临时量区，isa-abi §3），可用上限 `v[127]`（`vgprLimit=128`）；SGPR `s0..s31` 限定；溢出（寄存器不足）→ GART scratch，不占用 ABI 分区。
 4. 指令选择 + 发射（M18.3）：SSA → 指令序列 → 64 bit 编码（第 16 章）；编码逐位一致。
 5. 发射顺序确定：IR 块序 + 指令选择顺序固定 → blob 确定。
@@ -109,12 +109,12 @@ CSE（公共子表达式）→ 复制传播 → 常量折叠 → DCE
 ```
 活跃区间：按块序线性扫描，记录每 SSA 生存期[start,end]
 → 若 overlap set ≤ vgprLimit 可用范围 → 直接分配 v[76..]
-→ 否则：最老活跃值 spill 到 GART scratch 槽（per-thread，≤ 4 KiB、4 B 对齐、不清零），spillCount++
+→ 否则：最老活跃值 spill 到 GART scratch 槽（per-thread ≤4 KiB、每 wave ≤128 KiB；GART scratch 不占 CU-local occupancy），spillCount++
 → uniform（发散标注 uniform）→ SGPR 或常量池
 → 最终验证分区不重叠（assert）
 ```
 
-- 溢出槽映射到 GART scratch（per-thread，≤ 4 KiB、4 B 对齐、不清零），发射 `LD/ST` 访问。
+- 溢出槽映射到 GART scratch（per-thread ≤4 KiB、每 wave ≤128 KiB、4 B 对齐、不清零），发射 `LD/ST` 访问；dispatch scratch 分配超出 GART 可用容量时提交前返回 `OutOfMemory`。
 
 ### 4.3 发射
 
@@ -146,7 +146,7 @@ CSE（公共子表达式）→ 复制传播 → 常量折叠 → DCE
 | T18.11 | ② 主体 | 后端自检：合法 IR 编译成功、非法 IR（溢出/超限）对应错误 |
 | T18.12 | ② 主体 | 后端差分自检：优化开/关两跑 + 输出 RB 一致 + 溢出统计（`scene_s3_triangle` 数据源） |
 | T18.13 | ③ 接入 | S3 编译着色器执行链路接入：blob 喂解释器（16 章）出图 |
-| T18.14 | ④ 验收 | A18：S3 编译执行 = ref_model + 专有判据（优化开/关一致、溢出统计可输出）+ 回归 |
+| T18.14 | ④ 验收 | A18：S3 编译执行 = ref_model + 专有判据（优化开/关一致、溢出统计可输出）+ R18 回归项 |
 
 **章内里程碑（Q-49）**：
 
@@ -189,7 +189,7 @@ CSE（公共子表达式）→ 复制传播 → 常量折叠 → DCE
 | 产物 | 优化前/后 IR、blob、`SpillStats`、两跑 RT 探针 |
 | 主判据 | S3 编译出图 = ref_model 期望；优化开/关输出一致 |
 | 本章专有判据 | ① 优化开/关一致（逻辑等价性，探针零容差）；② 寄存器溢出统计可输出且溢出不破坏结果 |
-| 回归项 | A1~A17 全绿；手写 ISA 基线（第 6/7 章）不因编译器链路引入变化 |
+| 回归项 | R18：手写 ISA 基线（第 6/7 章）不因编译器链路引入变化；未列明历史 A 门禁不自动阻断 |
 | 后续补齐 | 第 19 章 LLVM 对照以此为唯一基线与"逐字节一致"唯一参照 |
 
 ---

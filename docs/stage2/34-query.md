@@ -1,6 +1,6 @@
 # 第 34 章 查询
 
-> 项目范围、阶段位置和交付以[任务规划](../CPU模拟GPU教学项目_任务规划与实施规格.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
+> 项目范围、阶段位置和交付以[任务规划](../README.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
 
 > 本章落地 GPU 查询子系统：遮挡查询（occlusion）、时间戳（timestamp）、管线统计（pipeline stats）、以及查询作为 GPU 侧谓词（`PREDICATE` 回读）。查询值进探针/断言面（计数零容差）；归约顺序固定；timestamp 只做单调性判定。可与 32/33 并行推进（roadmap §3.2）。
 > 与本章相关的设计说明：`../architecture-design.md` §3.4（`IHliQueryPool`）；`../design/command-mmio.md` §2（`QUERY` 0x09、`stateId 6` 查询池基址）；ADR-027（查询为硬判据）；第 27 章（遮挡与 early-Z/Hi-Z 计数）、第 31 章（并行波/像素计数）。
@@ -12,7 +12,7 @@
 
 ### 1.1 目标
 
-1. 遮挡查询：`QUERY_OCCLUSION begin/end` 统计通过深度测试的像素数（可带 early-Z）。
+1. 遮挡查询：`QUERY_OCCLUSION begin/end` 统计通过深度/模板测试的样本数；`sampleCount=1` 时等同像素数。
 2. 时间戳：在命令流中打点 `QUERY_TIMESTAMP` 记录逻辑执行序号（`frame_index`/fence 相关），只做单调性判定（不做墙钟时间）。
 3. 管线统计：顶点数/图元数/VS 波数/PS 像素数/深度通过等硬计数（零容差断言），与硬件统计 MMIO 分开（查询 → 显存；统计 → MMIO 软观测）。
 4. 查询池：`QUERY(stateId 6)` 基址 + 池对象（`IHliQueryPool`）；`begin/end/resolve`。
@@ -86,12 +86,12 @@ PREDICATE { predVa=查询池槽 }：判定逻辑与 33 章一致
 
 ```
 QUERY.Pool[o].begin → 累计器归零
-引擎处理像素：depth 通过 → cum++
+引擎处理覆盖样本：深度/模板通过 → cum++（early-Z 通过只计一次；early-Z 拒绝不计）
 QUERY.end → Pool[o] = cum（若期间有 begin/end 跨多提交，值持续累计）
 GetResult(o) → 计数
 ```
 
-- 计数含 early-Z 拒绝后通过的（27 章）；口径 = "实际写出的像素"。
+- 每个覆盖且通过深度/模板测试的样本计一次；early-Z 拒绝样本不计，early-Z 通过样本计一次。计数不依赖 shader 是否 discard、颜色写掩码或是否实际写出颜色；MSAA 下单位为 sample，`sampleCount=1` 时与像素计数相同。
 
 ### 4.2 时间戳（逻辑序）
 
@@ -125,7 +125,7 @@ PipelineStatsBegin 记录基线，End 时写差值（= 这段新增）
 | T34.6 | ② 主体 | 查询归约顺序固定（多单元累计序） |
 | T34.7 | ② 主体 | 查询作 GPU 侧谓词（`PREDICATE` 回读） |
 | T34.8 | ③ 接入 | `scene_s7_occlusion`（遮挡 + predicate + 管线统计）、`scene_s2_clear`（时间戳打点）接入 |
-| T34.9 | ④ 验收 | A34：S7/S2 全绿 + 专有判据 + A33 回归 |
+| T34.9 | ④ 验收 | A34：S7/S2 全绿 + 专有判据 + R34 回归项 |
 
 ---
 
@@ -135,13 +135,13 @@ PipelineStatsBegin 记录基线，End 时写差值（= 这段新增）
 |---|---|---|
 | D34.1 | 接口独立编译；`QueryType` 枚举冻结 | L1 契约 |
 | D34.2 | `GetResult` 默认 0；`Reset` 后 0；begin/end 次序错 → `InvalidArgument` | L1 契约 |
-| D34.3 | 遮挡：全遮挡三角形 → 0；半遮挡 → 正计数 = 深度通过数（与 27 章一致） | L2 解析 |
+| D34.3 | 遮挡：全遮挡 → 0；半遮挡 → 正计数等于通过深度/模板测试的覆盖样本数；关闭颜色写掩码或 shader discard 不改变计数；early-Z 开/关计数相同 | L2 解析 |
 | D34.4 | 时间戳：两打点值 `v2>=v1`（单调）| L1 契约 |
-| D34.5 | 管线统计：`VS 波数` = Σ（同 23 章）；`像素通过` = 同 26 章 | L1 契约 |
+| D34.5 | 管线统计：`VS 波数` = Σ（同 23 章）；`PS 像素数`与`depth-pass sample 数`分开统计，查询单位按 D34.3 | L1 契约 |
 | D34.6 | 同场景两次运行查询值一致（归约序固定） | L1 契约 |
 | D34.7 | `PREDICATE`：遮挡=0 → 后续命令被跳过（计数为 0）；非 0 → 执行 | L1 契约 |
 | D34.8 | S7/S2 探针通过 | L2 + A34 |
-| D34.9 | A34 全绿：遮挡 query=0、timestamp 单调不减、统计不参与正确性、查询作 GPU 侧谓词 + 回归 | L1 + L2 |
+| D34.9 | A34 全绿：遮挡 query=0、timestamp 单调不减、统计不参与正确性、查询作 GPU 侧谓词 + R34 回归项 | L1 + L2 |
 
 ---
 
@@ -155,7 +155,7 @@ PipelineStatsBegin 记录基线，End 时写差值（= 这段新增）
 | 产物 | 查询池槽值、predicate 跳转日志、时间戳序列 |
 | 主判据 | 查询值零容差（遮挡数、统计数）；timestamp 单调 |
 | 本章专有判据 | ① 遮挡 query=0（全遮场景）；② timestamp 单调不减；③ 统计不参与正确性（其值不误导）；④ 查询作 GPU 侧谓词（predicate 正确） |
-| 回归项 | A1~A33 全绿；早期统计（23/25/27）口径不变 |
+| 回归项 | R34：早期统计（23/25/27）口径不变；未列明历史 A 门禁不自动阻断 |
 | 后续补齐 | 35.2 三套 UMD 的查询 API 映射以本池为基础 |
 
 ---

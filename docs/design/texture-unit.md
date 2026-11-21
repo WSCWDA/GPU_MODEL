@@ -1,6 +1,6 @@
 # 纹理单元 — 独立模块设计
 
-> 项目目标、范围、阶段与交付以[任务规划](../CPU模拟GPU教学项目_任务规划与实施规格.md)为主干；roadmap展开章级任务，architecture-design定义模块树与层间契约。本文负责本模块的内部技术设计。
+> 项目目标、范围、阶段与交付以[任务规划](../README.md)为主干；roadmap展开章级任务，architecture-design定义模块树与层间契约。本文负责本模块的内部技术设计。
 
 > 定位：定义纹理采样子系统的格式解码、存储布局、mip/LOD、过滤、寻址、比较采样与采样器对象。初级只做最小集（RGBA8 / nearest / clamp），高级补齐完整单元并接入异步延迟隐藏。
 > 落地章：第 7 章纹理最小集（初级，M）、第 21 章纹理单元（高级，M21.1~M21.3）。
@@ -14,7 +14,9 @@
 |---|---|
 | 格式解码 | 一期支持 RGBA8/BGRA8、R8、RG8、D24S8；sRGB 采样时解码到线性空间 |
 | 存储布局 | 线性与 tile 两种；tile 尺寸由格式与 mip 决定，寻址对上层透明 |
-| mip / LOD | LOD 由 `float2 uv` 与 `dPdx/dPdy` 及采样器状态计算；相邻 mip 三线性过滤；越界 clamp 到有效层 |
+| mip / LOD | 输入 `uv/dPdx/dPdy` 为归一化纹理坐标；按纹理宽高换算 texel-space rho，`lod=log2(max(rho,2^-24))+bias`，裁剪到有效 mip 与采样器范围；相邻 mip 三线性过滤 |
+
+计算式和非法导数/空 LOD 区间的错误语义以第 21 章 §4.2 为唯一权威。
 | 过滤 | nearest、bilinear、trilinear；各向异性只保留 capability bit，一期拒参（返回不支持） |
 | 寻址 | wrap / clamp / mirror / border；数组层与 Cubemap 面选择显式 |
 | 比较采样 | `SAMPLE_CMP` 返回比较结果；shadow 路径不改变格式解码 |

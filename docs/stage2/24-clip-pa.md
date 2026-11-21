@@ -1,6 +1,6 @@
 # 第 24 章 裁剪 + PA（图元装配）
 
-> 项目范围、阶段位置和交付以[任务规划](../CPU模拟GPU教学项目_任务规划与实施规格.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
+> 项目范围、阶段位置和交付以[任务规划](../README.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
 
 > 本章把初级"近平面 + 视口 6 平面 Sutherland-Hodgman"扩展为完整裁剪管线：guard band 裁剪、Clip/Cull Distance（`kVgprBaseDistance`=`v[68..75]`，8 项，clip 在前、cull 在后，ADR-033/Q-57/Q-64）、多视口索引、退化丢弃，并与 CPU 参考裁剪器对照。PA 在此负责把 VS/GS 后的顶点流装配成带拓扑的图元列表交光栅，并判定背面剔除（Q-61）。
 > 与本章相关的设计说明：`../design/isa-abi.md` §3（距离区 `kVgprBaseDistance`=`v[68..75]`）；ADR-033（顶点间固定距离区）；第 15（分歧）、第 22（拓扑）、第 23（切片）章为上游；第 25 章光栅为下游。
@@ -57,7 +57,8 @@ VIEWPORT：选择 viewportIndex → 变换到像素坐标（+ scissor）
 ### 3.1 输入（来自 VS 顶点流）
 
 ```
-PosAndAttrib { float4 clipPos; float4 attribs[...]; float clipDist[8]; float cullDist[8]; u32 viewportIdx; }
+PosAndAttrib { float4 clipPos; float4 attribs[...]; float distance[8]; u32 viewportIdx; }
+// distance[0..clipCount) 是 clipDistance；其后 cullCount 项是 cullDistance；clipCount+cullCount<=8
 ```
 
 - `viewportIdx` 每顶点可不同（GS/VS 写）；最终图元取首顶点索引。
@@ -129,7 +130,7 @@ scissor 属于光栅（25 章）；这里只做视口与深度范围。
 | T24.7 | ② 主体 | 多视口：viewport 数组选择 + 视口变换 + 深度范围 |
 | T24.8 | ② 主体 | 与 CPU 参考裁剪器集成（`ref_model` 的 clip 模块）逐 case 对照 |
 | T24.9 | ③ 接入 | `scene_s3_triangle`/`scene_s5_model` 接入（出界/跨近平面/guard band/多视口） |
-| T24.10 | ④ 验收 | A24：S3/S5 全绿 + 专有判据 + L1 clip/cull distance 单测 + A23 回归 |
+| T24.10 | ④ 验收 | A24：S3/S5 全绿 + 专有判据 + L1 clip/cull distance 单测 + R24 回归项 |
 
 ---
 
@@ -138,14 +139,14 @@ scissor 属于光栅（25 章）；这里只做视口与深度范围。
 | DoD | 判据（机器可判） | 级别 |
 |---|---|---|
 | D24.1 | 接口独立编译；距离区规范（`kVgprBaseDistance`=`v[68..75]`、clip 前 cull 后、总数≤8、写超声明 count → L1 错）与 §3 一致 | L1 契约 |
-| D24.2 | 出界/跨近平面三角形裁剪后像素集 = 参考裁剪器（探针 ±1/16） | L2 解析 |
+| D24.2 | 出界/跨近平面裁剪后的量化顶点与最终像素集合逐项等于 reference；±1/16 只作为交点参数 t 的诊断容差，不放宽像素/探针判据 | L2 解析 |
 | D24.3 | guard band：band 内顶点不产新顶点；跨 band 顶点裁剪产生交点；无裂缝（相邻图元共享边像素一致） | L1 + L2 |
 | D24.4 | Clip Distance：某顶点 clipDist<0 → 沿边插值出新顶点属性（对比手工）；cull：全负 → 图元 0 像素 | L1 契约 |
 | D24.5 | 退化丢弃与背面剔除：面积~0 不产出像素；图元统计 +1 但像素 0；`cullMode/frontFace` 镜像剔除结果正确（PA 判定，OM 不重复） | L1 契约 |
-| D24.6 | 视口索引越界（>viewportCount-1）→ `InvalidArgument`（或 clamp，本期报错语义取拒绝，登记待定项） | L1 契约 |
+| D24.6 | 视口索引越界（>viewportCount-1）唯一返回 `InvalidArgument`，不 clamp、不改写状态 | L1 契约 |
 | D24.7 | 视口变换：NDC→像素坐标与公式逐一相等；多视口两窗口各自正确 | L1 契约 |
 | D24.8 | 取 20 个典型裁剪 case（出界/跨平面/band/退化）：`ref_model` clip 输出与本实现图元列表逐 case 一致 | L2 解析 |
-| D24.9 | A24 全绿：出界/跨近平面与参考裁剪器一致 + guard band 无裂缝 + 退化丢弃 + 多视口索引校验 + Clip/Cull Distance 逐顶点逐图元正确 + 回归 | L1 + L2 |
+| D24.9 | A24 全绿：出界/跨近平面与参考裁剪器一致 + guard band 无裂缝 + 退化丢弃 + 多视口索引校验 + Clip/Cull Distance 逐顶点逐图元正确 + R24 回归项 | L1 + L2 |
 
 ---
 
@@ -159,7 +160,7 @@ scissor 属于光栅（25 章）；这里只做视口与深度范围。
 | 产物 | 裁剪后图元列表、插值属性探针、clip/cull 计数 |
 | 主判据 | 裁剪后输出 = ref_model 参考（像素探针零容差） |
 | 本章专有判据 | ① 出界/跨近平面与参考裁剪器一致；② guard band 无裂缝；③ 退化丢弃；④ 多视口索引校验；⑤ Clip/Cull Distance 逐顶点逐图元（`kVgprBaseDistance`=`v[68..75]`，L1 单测）；⑥ 背面剔除在 PA 判定、OM 只保存状态 |
-| 回归项 | A1~A23 全绿；E2/E4（初级 6 平面裁剪基线）不退化 |
+| 回归项 | R24：E2/E4（初级 6 平面裁剪基线）不退化；未列明历史 A 门禁不自动阻断 |
 | 后续补齐 | GS 生成顶点（28）可复用本裁剪；MSAA（27）单独覆盖 |
 
 ---
@@ -199,4 +200,4 @@ scissor 属于光栅（25 章）；这里只做视口与深度范围。
 
 - 多视口索引越界语义：真实 GPU 通常 clamp 到最后一个视口；本期报错取拒绝更利于定位。若 35.2（Vulkan 语义）要求 clamp 行为，需 ADR 记录切换。
 - guard band 具体数值（`guardBandScale=2.0`）是默认值，随 ref_model 容差是否稳定微调；不改变语义只变阈值时直接参照容差表。
-- 距离插值的精度（交点 t 由 f32 计算）可能造成边缘 ±1/16 浮动，先以容差容忍；若 CI 抖动评估提升到 f64 计算插值裁剪。
+- `t` 使用 f32 计算；`±1/16` 仅用于诊断交点参数与 reference 的偏差。输出顶点按既定 viewport 规则量化，像素集合与结构探针要求零容差，禁止将参数容差扩散为像素容差。

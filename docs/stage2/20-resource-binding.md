@@ -1,6 +1,6 @@
 # 第 20 章 资源与绑定
 
-> 项目范围、阶段位置和交付以[任务规划](../CPU模拟GPU教学项目_任务规划与实施规格.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
+> 项目范围、阶段位置和交付以[任务规划](../README.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
 
 > 本章建立图形与计算的统一对象模型：资源（描述存储）与视图（描述用途/切片）分离（ADR-023）、描述符堆（Bindless 一期）、管线对象（图形 stages + 计算 kernel 同构）、root signature 类绑定、资源状态与屏障（粗粒度访问掩码，ADR-024/031）、以及 kernel 参数区封装。它是 21（纹理）、22~26（几何/光栅/OM）与 37/stage3 38~42（计算，原 35.5）的公共底座。
 > 与本章相关的设计说明：`../architecture-design.md` §3.4（HLI 对象面将承此对象模型）、§3.8（`KernelArgsLayout`）；`../design/command-mmio.md` §3（`stateId 3/5` 纹理/绑定/采样器描述符堆基址）；`../design/sync-primitives.md` §2（屏障粗粒度）；ADR-023/024/025（资源视图分离/屏障/能力四档）、ADR-042（地址确定性）。
@@ -121,7 +121,7 @@ public:
 |---|---|---|
 | `EXTENDED`(0x0F) `SubOp=0x0001` → `BIND_DESCRIPTOR_TABLE` | 绑定描述符表基址到槽位 + root slot | `{slot, tableVa, heapIndex}` |
 | `EXTENDED`(0x0F) `SubOp=0x0002` → `SET_KERNEL_ARGS` | 设置 kernel 参数基址/布局到 uniform 区 | `{paramBufVa, size, vgprBase}` |
-| `BARRIER`(0x0E) | 粗粒度资源状态转换 | `{srcStageMask, dstStageMask, accessMask}` |
+| `BARRIER`(0x0E) | 粗粒度资源状态转换 | 3-dword envelope `{kind,scope,memOrder,accessMask; srcStageMask; dstStageMask}`；resource kind=0 |
 
 - **取号纪律（ADR-043/045）**：顶层 `PKT_TYPE` 已冻结，`0x0F` 定义为 `EXTENDED`（1 个顶层号 + 16 bit 子操作码），见 `../design/bit-budget.md` §2.3 与 `../design/command-mmio.md` §2；新绑定类命令**不再抢占顶层包号**，统一走 `EXTENDED` + SubOp 或 `INDIRECT`(0x0C) IB。本节 SubOp 分配须在 `../roadmap.md` §7.3 登记（编号示例 `B-nnn`，先对照 bit-budget 审计再登记）。
 - `BARRIER` 顶部号为 0x0E（`../design/command-mmio.md` §2 已登记，与 32 章共用）；本章实现屏障语义子集（资源状态/布局），队列级 barrier 归 32 章，不争用 0x0F/0x0D。
@@ -152,7 +152,7 @@ struct KernelArgsLayout {
 | `paramOffsets` 严格递增、互不重叠 | 参数 A 占 `[0,16)`，参数 B 也占 `[16,32)` 但 A 实际覆盖到 `[8,24)` → 重叠；或两个偏移相等 | `InvalidArgument` |
 | 按类型自然对齐 | 8 字节参数落在 4 字节对齐偏移 | `InvalidArgument` |
 | `paramVgprBase` 落在 uniform 分区（`v[56..67]`）内且不与其他 ABI 分区冲突 | `paramVgprBase=52`（落入 RT1~3 `v[44..55]`）或 `=76`（临时量区） | `InvalidArgument` |
-| `paramBufByteSize > 0` 且不超参数区容量上限 | `paramBufByteSize == 0` 或超出 uniform 区可容纳范围 | `InvalidArgument`/`OutOfMemory` |
+| `paramBufByteSize > 0` 且不超参数区容量上限 | `paramBufByteSize == 0` 或超过 `kMaxParamBufBytes` 参数区容量上限 | `InvalidArgument`/`OutOfMemory` |
 
 > 非法样例（帮助 35.1/37 实现对照，原 35.5 归 stage3 38~42）：`KernelArgsLayout{va=Mapped, size=64, paramVgprBase=52, offsets={0,16,16}}` → ①A/B 偏移重叠（两个参数都从 `[16,...)` 起）→ `InvalidArgument`；②`paramVgprBase=52` 越出 uniform 分区 → `InvalidArgument`，均不下发硬件、命令流不含 `SET_KERNEL_ARGS`。
 
@@ -208,9 +208,9 @@ DRAW/DISPATCH → 引擎按 stateId 5 基址读描述符
 | T20.11 | ② 主体 | kernel 参数打包：签名 → GART 参数缓冲 → `SET_KERNEL_ARGS` |
 | T20.12 | ② 主体 | 视图/描述符非法：越界、未绑定、重解释非法格式 → 确定报错 |
 | T20.13 | ② 主体 | 管线替换完整性：`Bind` 新 PSO 后旧状态清、新状态生效、删除旧资源引用安全 |
-| T20.14 | ② 主体 | 绑定用例数据面与自检：S4 描述符堆+Bindless、S14 常量/UAV、S18 kernel 参数三组用例与断言（供 ③ 接入） |
-| T20.15 | ③ 接入 | 管线对象在所有 E/S 场景替代 PSO 包整体接入（不改变场景入口） |
-| T20.16 | ④ 验收 | A20：S4/S5/S14/S18 全绿 + 本章专有判据 + 回归 |
+| T20.14 | ② 主体 | 绑定用例数据面与自检：S4 描述符堆+Bindless、S14 常量/UAV 场景；S5 资源视图与 S18 case-0~2 仅作独立绑定/参数布局单测输入（供 ③ 接入，不跑完整场景） |
+| T20.15 | ③ 接入 | 将所有 E/S 场景的直接 PSO 构造改为 Pipeline 对象入口；Pipeline 由 HLI 统一 lowering 到既有 `SHADER_PSO` 包/状态快照，包格式继续作为兼容序列化契约 |
+| T20.16 | ④ 验收 | A20：S4/S14 场景通过；S5 资源视图与 S18 参数布局单测通过；本章专有判据与 R20 通过 |
 
 **章内里程碑（Q-49）**：
 
@@ -235,27 +235,27 @@ DRAW/DISPATCH → 引擎按 stateId 5 基址读描述符
 | D20.7 | `BindRootDescriptors(slot, heapVa, idx)` → 命令流包内容与参数一致；slot 越界拒 | L1 契约 |
 | D20.8 | push constant 越界（超常量区）→ `InvalidArgument`；合法值进入 SB/常量区 | L1 契约 |
 | D20.9 | 资源状态随提交推进（READ→WRITE 需 BARRIER）；非法 subresource 范围报错 | L1 契约 |
-| D20.10 | BARRIER `{src,dst,access}` 触发 12 章 Flush/Invalidate；`READ→WRITE` 后新值读回 | L1 契约 |
+| D20.10 | `BARRIER(kind=resource)` 的唯一 3-dword envelope 触发 12 章 Flush/Invalidate；`READ→WRITE` 后新值读回 | L1 契约 |
 | D20.11 | kernel 参数：每个 `{ptr,bytes}` 按 `paramOffsets` 写入 GART；`paramVgprBase=56` 写 uniform（`v[56..67]`）。**新增 L1 契约单测（正常+非法边界）**：`paramOffsets` 重叠 / `< 前一项` / 未映射 `paramBufVa` / `paramVgprBase` 越出 uniform 区 → 返回 `InvalidArgument`/`NotMapped` 且命令流不含 `SET_KERNEL_ARGS`（`../architecture-design.md` §3.8） | L1 契约 |
 | D20.12 | 越界视图/未绑定描述符 → 确定报错（`NotMapped`/`InvalidArgument`），非静默 0 | L1 契约 |
 | D20.13 | 绑定新 PSO 后旧资源引用不被新提交使用；删除旧资源时提交未引用（引用计数/安全） | L1 契约 |
-| D20.14 | S4/S14/S18：bindless 视图取值正确、push constant 越界报错、kernel 参数定位正确 | L1 + L2 |
-| D20.15 | 全 E/S 场景替换为管线对象仍出图一致（回归零容差） | 横切 |
-| D20.16 | A20 全绿：专有判据（常量/结构化缓冲/SSBO 取值、越界/未绑定报错、视图切片与格式重解释、管线替换完整、push constant 越界、非法子资源屏障报错、描述符堆设备内存语义）+ 回归 | L1 + L2 |
+| D20.14 | S4/S14 场景断言通过；S5 资源视图、S18 case-0~2 参数布局独立单测通过（不验收 S5/S18 端到端场景） | L1 + L2 |
+| D20.15 | 已交付且适用的图形 E0~E5/S0~S17 场景改从 Pipeline 对象入口创建固定状态后，lowering 生成的既有 `SHADER_PSO` 快照与旧直发路径字段一致，输出回归零容差；不把后续计算场景列为本章依赖 | 横切 |
+| D20.16 | A20 全绿：S4/S14 场景、S5 资源视图与 S18 参数布局单测，及专有判据（常量/结构化缓冲/SSBO 取值、越界/未绑定报错、视图切片与格式重解释、管线替换完整、push constant 越界、非法子资源屏障报错、描述符堆设备内存语义）+ R20 | L1 + L2 |
 
 ---
 
 ## 7. 场景与判据（A20）
 
-**绑定场景：S4 `scene_s4_textured_quad`、S5 `scene_s5_model`（资源借用）、S14 `scene_s14_bindless_uav`、S18 `scene_s18_compute_basic`（`case-1` kernel 参数）。**
+**场景与单测：S4 `scene_s4_textured_quad`、S14 `scene_s14_bindless_uav` 为本章场景；S5 `scene_s5_model` 的资源视图断言与 S18 `scene_s18_compute_basic` case-0~2 仅作独立绑定/参数布局单测向量，不运行完整 S5/S18 场景。完整 S5 场景由第 22 章验收，S18 端到端由第 37/42 章验收。**
 
 | 项 | 内容 |
 |---|---|
-| 输入 | S4：2 层数组 + Cubemap + 独立采样器（21 章配色）；S14：常量/结构化/UAV；S18：kernel 参数包 |
+| 输入 | S4：2 层数组 + Cubemap + 独立采样器（21 章配色）；S14：常量/结构化/UAV；S5 资源视图与 S18 kernel 参数布局仅使用独立构造输入 |
 | 产物 | 描述符堆内容、命令包序列、kernel args、RT/UAV 读回 |
 | 主判据 | 绑定/描述符/管线对象接入后全部 E/S 场景输出 = 基线（零容差） |
 | 本章专有判据 | ① 常量/结构化缓冲/SSBO 与 kernel 参数取值正确；② 越界/未绑定返回确定报错；③ 视图切片与格式重解释正确；④ 管线对象替换完整；⑤ push constant 越界报错；⑥ 屏障非法子资源范围报错；⑦ 描述符堆设备内存语义（提交后改 → 下次 draw 生效，命令包不拷快照） |
-| 回归项 | A1~A19 全绿；E0~E5 不因资源/绑定引入变化 |
+| 回归项 | R20：E0~E5 不因资源/绑定引入变化；未列明历史 A 门禁不自动阻断 |
 | 后续补齐 | 独立采样器对象在 21 章；全阶段 UAV 写入路径在 26 章收口；真实 root signature API 特化在 35.2~35.4 |
 
 ---
@@ -268,12 +268,12 @@ DRAW/DISPATCH → 引擎按 stateId 5 基址读描述符
 | 时间无关 | 无墙钟；提交顺序决定下次 draw 生效 |
 | 可观测 | 描述符堆 dump、命令包序列复核、kernel args 快照、`--trace=pal` |
 | 契约影响 | 资源/视图/描述符/管线/kernel args 契约冻结；包族登记扩展 |
-| 简化登记 | 初级 PSO 直发 → 管线对象；无绑定 → 描述符堆 + root signature |
+| 简化登记 | 应用侧 PSO 直发 → HLI Pipeline 对象；既有 `SHADER_PSO` 包保留为驱动/硬件间的序列化契约，不删除或更换其硬件职责 |
 | 计算兼容 | 图形/计算共用资源视图描述符；kernel 参数走统一路径（37/stage3 38~42，原 35.5） |
 | 配置与回退 | `bindless` 为 PAL 能力/视图选项（`ResourceFlags::Bindless`）；`descriptor_heap_capacity` 为 `DescriptorHeapDesc::capacity` 结构字段（非全局配置键） |
 | 调试钩子 | `--trace=pal` 绑定/状态每步一行；`--dump-descriptor-heap` |
 | trace 契约 | 不进入判据 |
-| 契约变更 | 资源/视图/绑定/屏障掩码为冻结项；变更走 ADR 回归 S4/S14/S18 |
+| 契约变更 | 资源/视图/绑定/屏障掩码为冻结项；变更走 ADR 回归 S4/S14 与本章资源视图/参数布局单测，不触发 S18 端到端门禁 |
 | 校验归属 | L1（结构/状态）+ L2（S4/S14 输出比对 ref_model）+ 横切（管线替换） |
 | 双策略 | 描述符堆与屏障语义与执行策略无关；两策略下场景一致 |
 | 阶段衔接 | 为 21（纹理消费描述符）、22~26（管线/固定状态）、35.1（HLI 收口）提供对象与包基础 |

@@ -1,10 +1,10 @@
 # 第 31 章 SE + CU 阵列（策略 B 落地）
 
-> 项目范围、阶段位置和交付以[任务规划](../CPU模拟GPU教学项目_任务规划与实施规格.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
+> 项目范围、阶段位置和交付以[任务规划](../README.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
 
 > 本章把"单线程串行 + 固定轮转"升级为真实硬件并行：SE 屏幕 tile 静态分区（ADR-019）、CU 阵列与波原子领取、线程本地 TLB + 全局失效、三维 workgroup 映射、双执行策略 B（硬件对齐并行）落地，以及 occupancy 资源上限（ADR-038）。`se_count × worker_threads` 全组合硬判据一致是本章（及 D 阶段）的核心专有判据。
 > 与本章相关的设计说明：`../architecture-design.md` §3.3（IEngine 握手）；ADR-006/007/019/038；`../design/execution-parallel.md` §1~§6；`../design/memory-system.md` §7（确定性）；`../design/compute-line.md` §4（三维映射）。
-> 落地模块：`hw_sim/se`、`apps/scene_s11_parallel`、`apps/scene_s18_compute_basic`。
+> 落地模块：`hw_sim/se`、`apps/scene_s11_parallel`；第 31 章只提供可复用的 workgroup 映射单元，不承担 S18 场景主验收。
 
 ---
 
@@ -14,7 +14,7 @@
 
 1. 策略 B 落地：N 工作线程（`worker_threads`，与 `se_count` 独立配置）执行 tile/波。
 2. SE 分区：屏幕按 tile 静态分给 N 个 SE（`se_count`），区内顺序固定；SE 间 tile 不重叠。
-3. CU 阵列波领取：SE 内 CU 波经 ticket 锁领取（`nextTicket/servingTicket`）确定非重叠领取，固定波领取序（Q-68）。
+3. CU 阵列波领取：多个 worker 通过原子 slot claim 并发领取 wave/workgroup；任务身份和 CU 映射固定，不冻结实际调度顺序。
 4. 线程本地 TLB + 全局失效：每线程工作线程本地 TLB，`InvalidateTlb` 全局广播（无脏读）。
 5. 三维 workgroup 映射：`DISPATCH(grid(x,y,z), block(x,y,z))` → work-id 线性化顺序固定；grid 边界部分 workgroup、越界 work-item 确定。
 6. occupancy 上限（ADR-038）：CU 驻留 wave/SGPR/VGPR/LDS 总容量固定且可配置；超限排队等待释放而非报错。
@@ -37,7 +37,7 @@
    │                              │
    ▼                              ▼
  tile 池（静态分区）          CU 阵列（每 SE 多 CU × 每 CU 多 SIMD）
-   每个 tile 一个 work item      │  ticket 锁领取（固定序，Q-68）
+原子 slot claim（不冻结领取/完成顺序）
    （图元 → 指定 SE tile）       ▼
                                 CU 上 SIMD 波（threads 池）
                                    │  线程本地 TLB（读多读少不脏）
@@ -122,15 +122,13 @@ tileQueue[se] 存图元列表（区内升序合并）
 
 - 全 SE 的 tile 并集覆盖整个屏幕、不重叠（静态分区保证）。
 
-### 4.2 波 ticket 锁领取（CU）
+### 4.2 CU slot 并发领取
 
-```
-每 CU 一个 ticket 计数器（nextTicket[cuId] / servingTicket[cuId]）
-波生成 → ticket = fetch_add(nextTicket) → 自旋等待 servingTicket == ticket
-→ 领取并执行；完成后 servingTicket++（固定波领取序，Q-68）
-```
+多个 CPU worker 从 CU 的可运行 wave/workgroup slot 队列并发领取任务。实现使用原子状态转移保证每个任务最多领取一次；不得用持有至 wave 执行完成的全 CU slot 原子领取。任务 ID、CU 归属和输出索引由静态映射确定；实际领取及完成顺序不冻结。
 
-- 领取序由 ticket 锁固定、可复现；该确定性是 S11 硬判据（非软观测，Q-68）。
+- 正确性断言：每个任务恰好执行一次，无遗漏、重复和越界写。
+- 并行性断言：两个独立 slot 可重叠推进；barrier 参与 wave 能交错运行并最终到齐。
+- 确定性断言针对 race-free workload 的结果，不要求调度顺序或原子竞争顺序逐次相同。
 
 ### 4.3 occupancy 上限
 
@@ -162,7 +160,7 @@ grid 边界：work-id >= gridTotal → 越界 → 不执行（提前空转 EXIT�
 | T31.1 | ① 契约 | `ParallelConfig`/ThreadLocalTlb/双策略入口/映射常量落头文件 |
 | T31.2 | ② 主体 | SE 静态 tile 分区器（tile→se 固定表） |
 | T31.3 | ② 主体 | tileQueue 每 SE 管理与区内容并序 |
-| T31.4 | ② 主体 | CU 波 ticket 锁领取（固定波领取序，S11 硬判据，Q-68） |
+| T31.4 | ② 主体 | CU runnable slot 并发领取（原子唯一性，不冻结调度顺序） |
 | T31.5 | ② 主体 | 工作线程池调度循环（worker_threads） |
 | T31.6 | ② 主体 | CU 阵列执行实例化（每 SE 多 CU × 多 SIMD 波） |
 | T31.7 | ② 主体 | 线程本地 TLB + 全局失效 epoch（无脏读） |
@@ -173,8 +171,8 @@ grid 边界：work-id >= gridTotal → 越界 → 不执行（提前空转 EXIT�
 | T31.12 | ② 主体 | `se_count×worker_threads` 全组合一致（{1,2,4,8}×{1,2,4}） |
 | T31.13 | ② 主体 | 并行统计（每线程负载/tile 数，软观测） |
 | T31.14 | ② 主体（收口） | 31 章前 "策略 B 未实现" 行为移除、可并行开关打通 |
-| T31.15 | ③ 接入 | `scene_s11_parallel`、S18 `case-1`（2D）/`case-2`（3D 映射）接入 |
-| T31.16 | ④ 验收 | A31：S11/S18 全绿 + 全组合专有判据 + 回归 |
+| T31.15 | ③ 接入 | `scene_s11_parallel` 接入；以 S18 `case-1` / `case-2` 的输入向量做独立三维映射单测，不运行 S18 端到端验收 |
+| T31.16 | ④ 验收 | A31：S11 全绿 + 三维 workgroup 映射单测 + 全组合专有判据 + R31 回归项 |
 
 **章内里程碑（Q-49）**：
 
@@ -193,33 +191,33 @@ grid 边界：work-id >= gridTotal → 越界 → 不执行（提前空转 EXIT�
 | D31.1 | 接口独立编译；`ParallelConfig` 默认与 §3.1 一致 | L1 契约 |
 | D31.2 | SE 分区：tile 并集=全屏、且互不重叠（脚本遍历验证） | L1 契约 |
 | D31.3 | tileQueue：SE 内图元序升序合并、无丢失 | L1 契约 |
-| D31.4 | 波领取：每波唯一被一个 CU 领取；无遗漏/重复（计数校验）；ticket 领取序确定（Q-68） | L1 契约 |
+| D31.4 | 波领取：每波唯一被一个 CU 领取；无遗漏/重复（计数校验）；领取无重复/遗漏；顺序不作为硬判据 | L1 契约 |
 | D31.5 | worker_threads=2/4 下输出与 serial 一致（探针零容差） | 横切 |
-| D31.6 | 多 CU：每 CU 执行波数分布正确（可观测） | L1 契约 |
+| D31.6 | 多 CU：CU/workgroup slot 执行波数分布正确（可观测） | L1 契约 |
 | D31.7 | 线程本地 TLB 失效 epoch：失效后无脏读（构造"失效后读旧 PA"负例）| L1 契约 |
 | D31.8 | 三维 work-id：`(1,2,3)` 工件 = 线性序正确；lane 序固定 | L1 契约 |
 | D31.9 | 越界 work-id 不执行不写；grid 边界部分 workgroup 数据完整 | L1 契约 |
 | D31.10 | occupancy：超上限波进等待队列、不报错；释放后完成 | L1 契约 |
 | D31.11 | 策略 A/B 探针零容差一致（S11） | 横切 |
-| D31.12 | `se×threads` 全 12 组合每组合探针一致，且 ticket 波领取序逐项一致（S11 硬判据，Q-68） | 横切 |
+| D31.12 | `se×threads` 全 12 组合每组合探针一致，且 调度顺序不冻结；race-free 结果一致且无遗漏/重复 | 横切 |
 | D31.13 | 每线程负载统计输出（软观测） | L1 契约 |
 | D31.14 | `exec_mode=parallel` 不再报"未实现"，正常执行 | L1 契约 |
-| D31.15 | S11/S18 出图与统计均在并行下正确 | L2 + A31 |
-| D31.16 | A31 全绿：全并行组合逐字节一致（se 1/2/4/8 × threads 1/2/4）、线程本地 TLB + 全局失效无脏读、三维 workgroup 映射/边界部分/越界确定 + 回归 | L1 + L2 + 横切 |
+| D31.15 | S11 出图与统计在并行下正确；workgroup 映射输入向量与 ref_model 一致，不在本章验收 S18 端到端路径 | L2 + A31 |
+| D31.16 | A31 全绿：全并行组合逐字节一致（se 1/2/4/8 × threads 1/2/4）、线程本地 TLB + 全局失效无脏读、三维 workgroup 映射/边界部分/越界确定 + R31 回归项 | L1 + L2 + 横切 |
 
 ---
 
 ## 7. 场景与判据（A31）
 
-**绑定场景：S11 `scene_s11_parallel`（并行一致性）、S18 `scene_s18_compute_basic`（`case-1` 2D / `case-2` 3D workgroup 映射）。**
+**绑定场景：S11 `scene_s11_parallel`（并行一致性）。S18 `case-1` / `case-2` 只提供 workgroup 映射单元测试向量，不作为本章端到端场景或门禁；S18 主验收归第 37 章。**
 
 | 项 | 内容 |
 |---|---|
-| 输入 | S11：`se_count ∈ {1,2,4,8}` × `worker_threads ∈ {1,2,4}`；构造多 tile 图形；S18 `case-1`：2D block (8,8,1)；S18 `case-2`：3D block (2,2,2) |
+| 输入 | S11：`se_count ∈ {1,2,4,8}` × `worker_threads ∈ {1,2,4}`；构造多 tile 图形；另以 S18 `case-1` 的 2D block (8,8,1) 和 `case-2` 的 3D block (2,2,2) 做隔离的映射单测向量 |
 | 产物 | 每组合探针、tile 分布、线程负载、occupancy 等待计数 |
-| 主判据 | 全部组合探针零容差一致（与策略 A/基线）；S11 出图 = ref_model |
-| 本章专有判据 | ① 全并行组合逐字节一致（se 1/2/4/8 × worker 1/2/4）；② 线程本地 TLB + 全局失效无脏读；③ 三维 workgroup 映射/grid 边界部分/越界 work-item 确定；④ ticket 锁波领取序确定（S11 硬判据，Q-68） |
-| 回归项 | A1~A30 全绿；D 阶段门禁（S10/S11/S18 全绿 + 并行确定性）达成 |
+| 主判据 | 全部组合探针零容差一致（与策略 A/基线）；S11 出图 = ref_model；映射单测匹配 ref_model |
+| 本章专有判据 | ① 全并行组合逐字节一致（se 1/2/4/8 × worker 1/2/4）；② 线程本地 TLB + 全局失效无脏读；③ 三维 workgroup 映射/grid 边界部分/越界 work-item 确定；④ slot 唯一领取与可并发推进 |
+| 回归项 | R31：D 阶段已交付场景 S10/S11 与 C 阶段图形基线在并行执行下不退化；S18/S19 端到端门禁留在第 37 章；未列明历史 A 门禁不自动阻断 |
 | 后续补齐 | 多引擎/队列在 32/33；故障注入（36）在并行下也可定位 |
 
 - `tile_w/tile_h` 不进入 `se_count × worker_threads` 全组合矩阵；单独以 `8×8` 对默认 `4×4` 做一次探针逐项一致性检查（分块只影响调度与统计，不改变像素结果）。
@@ -230,7 +228,7 @@ grid 边界：work-id >= gridTotal → 越界 → 不执行（提前空转 EXIT�
 
 | 关注点 | 本章回答 |
 |---|---|
-| 确定性 | tile 分区表、ticket 锁波领取序、work-id 线性序固定；并行不引入随机 |
+| 确定性 | tile 分区表、静态任务映射、work-id 线性序固定；并行不引入随机 |
 | 时间无关 | 无墙钟；epoch 为逻辑计数 |
 | 可观测 | 每线程负载、tile 数、occupancy 等待、`--trace=se` |
 | 契约影响 | `ParallelConfig`、三维映射、occupancy 上限冻结 |
@@ -239,10 +237,10 @@ grid 边界：work-id >= gridTotal → 越界 → 不执行（提前空转 EXIT�
 | 配置与回退 | `exec_mode/worker_threads/se_count/simd_per_cu` 为 §5.1 配置键；`tile_w/tile_h` 同；occupancy 上限为 `ParallelConfig` 字段（B-036~B-041），CI 固定 se=1 |
 | 调试钩子 | `--trace=se`（tile/波领取行）；`--trace=tlb`（失效/命中） |
 | trace 契约 | 不进入判据 |
-| 契约变更 | 并行确定性规则、三维映射、occupancy 上限为冻结项；变更走 ADR 回归 S11/S18 |
+| 契约变更 | 并行确定性规则、三维映射、occupancy 上限为冻结项；变更走 ADR 回归 S11 与三维映射单测 |
 | 校验归属 | L1（结构/计数）+ L2（S11 出图）+ 横切（全组合差异） |
 | 双策略 | 本章实现策略 B 并证明 A/B；此后两策略作为标准 CI 矩阵维度 |
-| 阶段衔接 | D 阶段收口（S10/S11/S18 门禁）；为 32（多队列栅栏）、34（查询）提供并行语义 |
+| 阶段衔接 | D 阶段收口只验 S10/S11；S18/S19 端到端由第 37 章 F 门禁验收；本章为 32（多队列栅栏）、34（查询）提供并行语义 |
 
 ---
 
@@ -251,7 +249,7 @@ grid 边界：work-id >= gridTotal → 越界 → 不执行（提前空转 EXIT�
 | 项 | 本章实现 | 替换章 |
 |---|---|---|
 | 执行 | 策略 A 串行 → 策略 B 并行落地 | — |
-| 分区 | 固定轮转 → SE tile 静态分区 + CU ticket 锁领取 | — |
+| 分区 | 固定轮转 → SE tile 静态分区 + CU runnable slot 并发领取 | — |
 | 内存 | 单一 TLB → 线程本地 TLB + 全局失效 | — |
 | 三维 | 1D → 三维 workgroup 映射 | — |
 | occupancy | 无上限 → 资源上限 + 等待队列 | — |
@@ -261,11 +259,11 @@ grid 边界：work-id >= gridTotal → 越界 → 不执行（提前空转 EXIT�
 ## 10. 待定项
 
 - `se_id = tileIndex % seCount` 的取模分区是简化静态方案；若 S11 显示某 SE 空载不均衡，可考虑行色带/哈希，但**不改确定性**（只需保证分区表固定），登记做软观测优化项。
-- ticket 锁固定波领取序：每 CU 的 `nextTicket/servingTicket` 严格单调，跨线程领取顺序可复现；该确定性作为 S11 硬判据（Q-68），不再以"领取结果集合唯一"替代顺序判据。
+- 原子 slot claim 保证唯一领取：每个 runnable slot 通过原子状态转移只允许一个 worker 成功领取；任务集合唯一性与 race-free 结果是硬判据，不冻结调度顺序。
 - occupancy 上限的默认 wave 数（16）与 LDS 容量耦合（第 30 章），若 S18 大 block 触发等待，登记调整默认值但不改变语义。
 
 ---
 
 ## 2026-11-21 评审同步说明
 
-本章的 ticket/servingTicket 包围 CU 执行条款被 `review-sync-20261121.md` §2.7 替代。并行 DoD 应证明 CU/workgroup slot 可并发推进、barrier 可达、race-free 结果稳定；不可只证明静态分配顺序。
+本章旧版“全 CU ticket/servingTicket 锁包围执行”条款被 `review-sync-20261121.md` §2.7 替代。并行 DoD 应证明 CU/workgroup slot 可并发推进、barrier 可达、race-free 结果稳定；不可只证明静态分配顺序。

@@ -1,6 +1,6 @@
 # 命令包、stateId 与 MMIO — 独立模块设计
 
-> 项目目标、范围、阶段与交付以[任务规划](../CPU模拟GPU教学项目_任务规划与实施规格.md)为主干；roadmap展开章级任务，architecture-design定义模块树与层间契约。本文负责本模块的内部技术设计。
+> 项目目标、范围、阶段与交付以[任务规划](../README.md)为主干；roadmap展开章级任务，architecture-design定义模块树与层间契约。本文负责本模块的内部技术设计。
 
 > 定位：定义驱动与硬件之间的唯一命令载体：命令包（`STREAM_HEADER` 版本化包头 + 包类型登记表）、`stateId` 基址索引、以及 MMIO 寄存器分段。CP 按包类型派发，硬件单元只认命令包与自身状态。
 > 落地章：第 1 章冻结包头与版本、第 2 章 CP 最小派发、第 10 章 MMIO/KMD-FW 契约；包类型与 MMIO 段在后续章追加。
@@ -51,9 +51,11 @@
 | `0x0001` | `BIND_DESCRIPTOR_TABLE` | 绑定描述符表基址 | 20 | B-032 |
 | `0x0002` | `SET_KERNEL_ARGS` | 预写 kernel 参数区（paramBufVa/size/paramVgprBase） | 20 契约、37 收口、39 落地 | B-033 |
 | `0x0010` | `DISPATCH_INDIRECT` | 从 GPU 内存读取 28-byte/16-byte-aligned `{grid[3], block[3], reserved0}` | 33、41 | B-034 |
-| `0x0011` | `DRAW_INDIRECT` | 间接绘制 | 33 | B-0nn |
-| `0x0012` | `DMA_COPY` | DMA 引擎块拷贝 | 33 | B-035 |
+| `0x0011` | `DRAW_INDIRECT` | 间接绘制 | 33 | B-044 |
+| `0x0012` | `DMA_COPY` | `{dstVa:u64, srcVa:u64, bytesPerRow:u32, srcStride:u32, dstStride:u32, sliceCount:u32}` 行切片；32 B payload | 33 | B-035 |
 | 其余 | 保留 | 先登记再取号 | — | — |
+
+`DMA_COPY` 行切片约束：`bytesPerRow`、`sliceCount` 非零；两种 stride 均不小于 `bytesPerRow`；任一地址运算溢出或源/目标覆盖区间重叠返回 `InvalidArgument`，任一源/目标行未映射返回 `NotMapped`。执行前须验证完整区间，失败不得部分写入；相同源/目标地址且 stride 相同为 no-op。
 
 ### 2.2 `DISPATCH`（0x04）二进制载荷（dword 索引）
 
@@ -84,6 +86,10 @@
 | 2 | `dstStageMask` | 目标阶段位图 |
 
 未知枚举、保留位或非法组合返回 `InvalidPacket`。Workgroup 执行屏障在 ISA/LDS 同步点实现，不通过该 CP 包模拟；此包仅表达资源、设备、队列可见依赖。20/30/32/41 章不得另定义载荷布局。
+
+### 2.4 `PREDICATE`（0x0D）载荷
+
+固定 8 dword payload：`{u64 predVa, u64 mask, u64 cond, u32 skipDwords, u32 reserved0}`。CP 读取 `value=LoadU64(predVa)`；条件为 `(value & mask) == cond`，并要求 `(cond & ~mask)==0`。条件成立时执行后续命令流；条件不成立时跳过紧随其后的 `skipDwords`，该范围必须完整由命令包组成并落在当前 ring/IB 边界内，否则返回 `InvalidPacket`。`reserved0` 必须为 0。`skipDwords=0` 表示不跳过；不支持嵌套 predicate。
 
 ## 3. stateId 基址索引
 

@@ -1,6 +1,6 @@
 # 第 15 章 控制流 + 波调度
 
-> 项目范围、阶段位置和交付以[任务规划](../CPU模拟GPU教学项目_任务规划与实施规格.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
+> 项目范围、阶段位置和交付以[任务规划](../README.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
 
 > 本章为完整的 SIMT 执行补齐两条纵向能力：分歧控制流（控制流栈 `{pc, mask}` 与重收敛）与多波调度（CU 多 SIMD、就绪波队列、延迟隐藏挂起/唤醒）。初级单波概念在此扩展到"一波较多并发 + 分支轨迹确定"。基线的波执行模型见 `../design/isa-abi.md` §3。
 > 与本章相关的设计说明：`../architecture-design.md` §3.3（`IEngine` 握手与 `IShaderArray`）；`../design/execution-parallel.md` §4~§5（功能级流水线、延迟隐藏 ADR-036）；ADR-006/007（执行与波调度双策略）、ADR-018（warp32、掩码 u32、`{pc,mask}` 栈）。
@@ -108,7 +108,7 @@ while (true):
   ...
 ```
 
-- 栈深上限（如 256）超限 → `OutOfStack` → `InvalidIsa`（可定位 ABORT）。
+- 栈深上限 256；超限唯一返回 `OutOfStack` 并产生可定位 ABORT 记录，不再同时返回 `InvalidIsa`。
 
 ### 4.2 调度与延迟隐藏
 
@@ -137,7 +137,7 @@ Tick:
 | T15.8 | ② 主体 | Divergence 轨迹输出：每波 `{pc, mask}` 序列（调试） |
 | T15.9 | ② 主体 | 策略 A 固定轮转确定：多次运行调度顺序一致 |
 | T15.10 | ③ 接入 | `scene_s3_triangle` 分歧着色器全流程接入（if/else、loop、discard） |
-| T15.11 | ④ 验收 | A15：S3 主判据 + 专有判据（LaneMask 轨迹、调度顺序）+ A1~A14 回归 |
+| T15.11 | ④ 验收 | A15：S3 主判据 + 专有判据（LaneMask 轨迹、调度顺序）+ R15 回归项 |
 
 **章内里程碑（Q-49）**：
 
@@ -157,7 +157,7 @@ Tick:
 | D15.3 | 嵌套 if：内层分裂/合并后外层掩码不被污染（栈 LIFO 正确） | L1 契约 |
 | D15.4 | `CALL/RET`：返回地址正确、`RET` 后 mask 恢复 | L1 契约 |
 | D15.5 | 全 0 掩码波提前 `EXIT`；栈超 256 返回 `OutOfStack`（定位） | L1 契约 |
-| D15.6 | 32 波并发：每 SIMD 执行顺序与固定轮转一致；`Stats.dispatches` 正确 | L1 契约 |
+| D15.6 | 单次 dispatch 的 32 个 wave 均可入队并最终完成；任一 CU 同时驻留不超过 B-037 的 16 waves，超出部分保持 pending 并在资源释放后推进；每 SIMD 顺序符合固定轮转，`Stats.dispatches` 正确 | L1 契约 |
 | D15.7 | 挂起后该 SIMD 执行其他就绪波（`waveSwitch++`）；`Resume` 后波从中断点继续 | L1 契约 |
 | D15.8 | 分歧轨迹两次运行完全一致（`{pc,mask}` 快照序列） | L1 契约 |
 | D15.9 | 策略 A 下多次调度 `dispatches`/顺序位图一致；`exec_mode=parallel` 报"策略 B 未实现" | L1 契约 |
@@ -175,7 +175,7 @@ Tick:
 | 产物 | 分歧轨迹 `{pc,mask}` 快照、调度统计、最终 RT |
 | 主判据 | S3 分支场景输出 = ref_model 期望（探针零容差）；全图掩码差分仅告警 |
 | 本章专有判据 | ① LaneMask 轨迹符合预期（if/else 分裂收敛、discard 置零掩码）；② 多次调度（重启）顺序确定 |
-| 回归项 | A1~A14 全绿；E2（初级无分支）仍逐字节一致 |
+| 回归项 | R15：E2（初级无分支）仍逐字节一致；未列明历史 A 门禁不自动阻断 |
 | 后续补齐 | 第 29/30 章的 subgroup/shared 在 S10/S18 用；第 31 章策略 B 原子领取替换轮转 |
 
 ---

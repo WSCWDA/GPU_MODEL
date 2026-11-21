@@ -1,6 +1,6 @@
 # 第 13 章 Copy Engine + Display
 
-> 项目范围、阶段位置和交付以[任务规划](../CPU模拟GPU教学项目_任务规划与实施规格.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
+> 项目范围、阶段位置和交付以[任务规划](../README.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
 
 > 本章把 `COPY_MEM` 从"CP 同步执行"迁到独立 Copy Engine 引擎实例，并把初级"立即读 RT 上屏"替换为真实显示控制器：逐行扫描、翻转（flip）、vsync。两条线共享同一 `IMemorySubsystem`，都走 `VA → TLB → L2`。
 > 与本章相关的设计说明：`../architecture-design.md` §3.3（`IEngine` 统一签名，Copy 引擎 `sa=nullptr`）；`../design/memory-system.md` §8（Copy/Display 统一走翻译）；`../design/sync-primitives.md` §1（fence）；ADR-015（BGRA 字节序）延续。
@@ -73,7 +73,7 @@ public:
     Result Initialize(const DisplayDesc&);
     Result FlipTo(GpuVAddr newFrontVa);      // 只读指针切换
     Result ScanNextLine();                    // 推进行扫描
-    const u8* FrontBuffer();                  // BW/GC 只读（CPU 侧）
+    const std::vector<u8>& FrontBufferSnapshot() const; // 已经由 IMemorySubsystem 读回的 CPU 副本，只读
     bool     VBlank();                        // 当前在场消隐？
     u32      ScanY() const;                   // 当前扫描行
 };
@@ -132,7 +132,7 @@ ScanNextLine: y=ScanY()
 | T13.6 | ② 主体 | Display 与 `IMemorySubsystem`：读像素走 `Translate`；RT VA 对齐校验 |
 | T13.7 | ② 主体 | Display 输出导出与前端帧一致；`rt_size` 分辨率配置 |
 | T13.8 | ③ 接入 | `scene_s2_clear`：CopyEngine 填充 RT → flip → Display 扫描读回；`scene_e1` 迁到新 Display |
-| T13.9 | ④ 验收 | A13：S2 CopyEngine + Display 全绿 + 专有判据 + 回归 |
+| T13.9 | ④ 验收 | A13：S2 CopyEngine + Display 全绿 + 专有判据 + R13 回归项 |
 
 **章内里程碑（Q-49）**：
 
@@ -153,9 +153,9 @@ ScanNextLine: y=ScanY()
 | D13.4 | `FlipTo` 后下一帧扫描从新 front 读；`VBlank` 窗口内 flip 立即生效，窗口外下一 vsync 生效 | L1 契约 |
 | D13.5 | CopyEngine 在扫描进行中仍可执行（软模拟单线程分片），完成 fence 值单调 | L1 契约 |
 | D13.6 | Display 读像素走翻译：`rtVa` 位于未映射区 → `NotMapped` 报错 | L1 契约 |
-| D13.7 | `rt_size=256x256` 时 Display 输出 256×256 BGRA，与 `FrontBuffer` 一致；`rt_size=1080x720` 同样成立 | L1 契约 + L2 |
+| D13.7 | `rt_size=256x256` 与标准 16:9 `1280x720` 两种输入下，Display 经 `Download` 生成的 CPU 快照尺寸/字节序与对应 GPU front buffer 逐字节一致；不得暴露可绕过翻译的显存指针 | L1 契约 + L2 |
 | D13.8 | `scene_s2_clear`：CopyEngine 填充值 = 出屏扫描结果（首行到末行逐行一致）；`scene_e1` 结果与 8 章一致 | L1 契约 + A13 |
-| D13.9 | A13 全绿：S2 主判据 + 专有判据（CopyEngine 填充=出屏结果、双缓冲无撕裂）+ A1~A12 回归 | L1 契约 |
+| D13.9 | A13 全绿：S2 主判据 + 专有判据（CopyEngine 填充=出屏结果、双缓冲无撕裂） + R13 回归项 | L1 契约 |
 
 ---
 
@@ -169,7 +169,7 @@ ScanNextLine: y=ScanY()
 | 产物 | CopyEngine 填充前后源/目的、Display 扫描帧、flip 快照 |
 | 主判据 | `CopyEngine 填充 = 出屏结果`（逐像素）；S2 全流程输出与 read-back 一致 |
 | 本章专有判据 | ① CopyEngine 填充=出屏扫描结果（首行到末行）；② 双缓冲 flip 无撕裂（每行单一 front 快照） |
-| 回归项 | A1~A12 全绿；`scene_e1` 与第 8 章基线一致（Display 迁移不破基线） |
+| 回归项 | R13：`scene_e1` 与第 8 章基线一致（Display 迁移不破基线）；未列明历史 A 门禁不自动阻断 |
 | 后续补齐 | 多引擎 Copy 并发与 slice 拷贝在第 33 章；display 多 head/缩放范围外 |
 
 ---
@@ -208,6 +208,6 @@ ScanNextLine: y=ScanY()
 
 ## 10. 待定项
 
-- `FrontBuffer()` 的 CPU 可读视图与 `IMemorySubsystem` 的 GPU 语义之间存在"扫描指针快照"模拟：是否需要把 front 的读取也拆成"读翻译 → 存 CPU 缓冲"两段，待 `umd/os` 窗口 blit（35.x）落地时确认接口边界。
+- CPU 读回只通过 `Download(frontVa)` 生成独立 CPU 快照；`FrontBufferSnapshot()` 返回该快照，不暴露 GPU 显存指针。窗口 blit 消费 CPU 快照，不直接读取 GPU VA；GPU 侧访问仍统一走 `IMemorySubsystem` 的翻译路径。
 - vsync 窗口的 flip 生效精确位置（场消隐起始 vs 末尾）只影响软观测的翻转计数，不影响像素正确性；以 D13.3 的"无撕裂"为准，不承诺更细时序。
 - 双缓冲的 front/back 在 `wave` 未排空时 flip 是否允许，受限语义留到第 32 章 fence 真异步后统一。

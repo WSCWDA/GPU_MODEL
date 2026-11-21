@@ -1,6 +1,6 @@
 # GPU 驱动全栈软模型 — 场景规约（scene-specs）
 
-> 项目范围、阶段与展示目标以[任务规划](../CPU模拟GPU教学项目_任务规划与实施规格.md)为主干；本文仍是 E0–E5 / S0–S19 场景输入、探针和判据的唯一技术权威，roadmap 与章节文档只引用并落实这些规约。
+> 项目范围、阶段与展示目标以[任务规划](../README.md)为主干；本文仍是 E0–E5 / S0–S19 场景输入、探针和判据的唯一技术权威，roadmap 与章节文档只引用并落实这些规约。
 
 > 状态：**正式维护（v1，2026-11-19）**。E0~E5 / S0~S19 的**完整测试规约统一收敛在本单份文件**（每场景一节 `Exx` / `Sxx`）；不建 `docs/scene-specs/` 目录（Q-38）。原 `graphics/` 分支参考文档（章节总览概览表与测试用例）已按 Q-40 将数值按 warp32 重算并入本文件后归档删除，精简概览表由本文件 §2/§3 承接。
 > 定位：**场景文档是冻结契约**。修改场景输入、探针集合、阻断判据、KFT 绑定，必须走 `roadmap.md` §7.4 契约变更工作流（新建 ADR）；`apps/scene_*` 严格对齐本文件对应节，不得私自修改输入参数。
@@ -33,7 +33,7 @@
 
 ### 1.2 全局容差口径（唯一）
 
-- 颜色 **±2/通道**、深度 **±1 LSB**、覆盖率 **±1/16 子样本**、计数 / 状态类 **0 容差**（不进探针表、直接用断言）。
+- 颜色 **±2/通道**、深度 **±1 LSB**、覆盖率 **±1/16 子样本**、计算 fp32 **≤1 ULP 为通过、>1 ULP 阻断**、计数 / 状态类 **0 容差**（不进探针表、直接用断言）。
 - 所谓"像素零容差"只适用于 **1x 覆盖率与 L1 结构 / 计数断言**，不适用于浮点滤波后的颜色（Q-60）。
 - 容差集中管理于 `tools/ref_model/tolerances.toml`，禁止散落在场景代码里。
 
@@ -172,7 +172,7 @@
 - 元信息：高级 / 章 12、15、17、18、19、24、25 / 阻断；入口 `apps/scene_s3_triangle`。
 - 输入：3 顶点 RGB + 退化三角形（输入与 E2 同底，**永久冻结**）。
 - 产物：灰底 + 渐变三角。
-- 主判据：探针表 + 全图不变式；手写 / 编译 / LLVM **三路径一致**（逐字节，D4.5/D17/D18/D19）；覆盖 / 颜色容差见 §1.2。
+- 主判据：结构探针（顶点/覆盖/命令语义）按 S3 列表零容差；颜色探针按 §1.2 的 ±2/通道；手写、编译、LLVM 路径均与 `ref_model` 的规范语义输出一致。IR/ABI/ISA 语义必须等价，不要求三后端生成相同 blob 字节。
 - 子 case：`case-0` 手写 ISA；`case-1` 编译产物；`case-2` LLVM 后端产物。
 - 回归矩阵：`serial` / `parallel`；`cache_enable on/off`。
 - 引用：章 15/17/18/19/24/25 DoD、`validation-model.md`。
@@ -288,8 +288,8 @@
 ### S17 `scene_s17_api_equivalence` — API 等价一致性
 
 - 元信息：高级 / 章 35 / 阻断；入口 `apps/scene_s17_api_equivalence`。
-- 输入：同一配置四路径提交（直连 HLI / Vulkan-UMD / D3D12-UMD / GL 子集）。
-- 主判据：直连 HLI / Vulkan-UMD / D3D12-UMD（及 GL 子集）**逐字节一致**（横切，零容差）。
+- 输入：HLI 主路径必测；Vulkan/D3D12/GL 只运行 capability 矩阵声明支持的子集，其余能力断言返回 `NotSupported`。
+- 主判据：HLI 按本场景判据通过；各 adapter 的支持子集满足同一场景语义/探针判据，不支持项返回 `NotSupported`；不要求 API 完整兼容。
 - 回归矩阵：`api_backend ∈ {hli, vulkan, d3d12, gl}`，全组合。
 - 引用：章 35 DoD、`35-api-backend.md`、ADR-022。
 
@@ -300,7 +300,7 @@
 - 主判据：blockIdx / threadIdx 映射正确；越界 work-item 不写；grid 边界 workgroup 部分有效；wave 归约与 CPU 参考一致（L2）。
 - 子 case：`case-0` 1D；`case-1` 2D；`case-2` 3D + 越界；`case-3` 经计算驱动（stage3 双入口主验收，Q-71）；`case-4..12` 绑定业务类 WA-01~WA-09（元素级 / 归约 / scan / 邻域 / GEMM / 直方图 / 排序 / 图像 / 仿真，**2026-11-20 定案**）。子 case 编号以本节 `case-0..12` 为**唯一权威**；WA 业务分类与判据见 `architecture-design.md` §7.9，**输入规模 / 数据类型 / 种子 / 期望产物以本表为唯一权威**（消除循环引用）。
 
-**S18 子 case 输入规格表（2026-11-20 定案，改值走 §7.4）**：数据生成统一 LCG，seed = `0x5EED`（与 `translation.seed` 机制同源可复现）；比对对象为 `tools/ref_model/compute/` 对应参考 kernel（同 op 序 / tiling / 归约序，`validation-model.md` §7）；容差按 §1.2「计算数值口径」（判据 ≤1 ULP，同序 FMA 下期望 0 ULP 仅作告警）。
+**S18 子 case 输入规格表（2026-11-20 定案，改值走 §7.4）**：数据生成统一 LCG，seed = `0x5EED`（与 `translation.seed` 机制同源可复现）；比对对象为 `tools/ref_model/compute/` 对应参考 kernel（同 op 序 / tiling / 归约序，`validation-model.md` §7）；容差按 §1.2「计算数值口径」（≤1 ULP 通过、>1 ULP 阻断；同序 FMA 下 0 ULP 是诊断信息，不改变门槛）。
 
 | 子 case | 覆盖 | 输入规模 | 数据类型 / 格式 | 生成规则 | 期望产物（元素数 · 布局 · 比对对象） |
 |---|---|---|---|---|---|
@@ -322,7 +322,7 @@
 
 | 负向样例 | 输入 | 期望 |
 |---|---|---|
-| D13-a | block 1024（= 32 waves > 16 waves/CU 驻留上限，B-037） | 记录期 `InvalidArgument`（D-13），**不产生 `SET_KERNEL_ARGS`/`DISPATCH` 包** |
+| D13-a | block 513（= 17 waves > 16 waves/CU 驻留上限，B-037） | 记录期 `InvalidArgument`（D-13），**不产生 `SET_KERNEL_ARGS`/`DISPATCH` 包** |
 | D13-b | block 64 + `ldsStaticBytes` = 128 KiB（> 64 KiB/CU，B-036） | 记录期 `InvalidArgument`（D-13），不下发 |
 | D13-c | grid 总量 = 2^20 + 1（> `kMaxWorkgroups`，B-038） | 记录期 `InvalidArgument`（D-02 上限），不下发 |
 
@@ -379,14 +379,14 @@
 | 9 | E5 | 三条 draw 共用一帧；两次运行逐字节一致 |
 | 10 | S1 + S13 | 环回绕正确、包不跨环尾（NOP 填充）；非法包报类型与偏移；`cmd_packet_version` 不匹配拒绝；fence 语义顺序 |
 | 11 | S2 + S0 | 同数据两 VA 读回一致；页表项翻转后原 VA 失效；TLB 命中计数递增 |
-| 12 | S2 + S3 + S11 | 二次读命中率上升；写合并计数符合预期；L1 写穿入 L2、仅脏行替换进写缓冲；`cache_enable` 开关前后一致 |
+| 12 | S2 + S3 + S11 | 缓存/写缓冲数据流与 flush 可见性正确；统计仅作软观测，不以 hit/miss 比例作为通过门槛；`cache_enable` 开关前后一致 |
 | 13 | S2 | CopyEngine 填充 = 出屏结果；双缓冲无撕裂 |
 | 14 | S5 + S11 | 超显存结果一致；逐出前经第 12 章 flush 完成；两上下文互不污染；抢占恢复正确 |
 | 15 | S3 | LaneMask 轨迹符合预期；多次调度顺序确定 |
-| 16 | S0 | 汇编往返二进制相同；全区段编码/解码覆盖无失败（指令语义归第 28、29 章，Q-48） |
-| 17 | S3 + S0 | IR 快照稳定；编译产物与手写 ISA 一致；IO 签名不匹配返回确定错误 |
+| 16 | S0 | 汇编往返二进制相同；全区段编码/解码覆盖无失败（执行语义由 opcode 所属硬件单元负责：ALU/控制流见第 4/5/15 章，Tess/GS 见第 28 章，subgroup 见第 29 章，LDS/原子/barrier 见第 30 章） |
+| 17 | S3 + S0 | IR 快照稳定；前端解析/语义/IO 签名错误与源码位置确定；编译后端执行等价由 18/19 章判定 |
 | 18 | S3 | 优化开/关一致；寄存器溢出统计可输出 |
-| 19 | S3 | 两后端逐字节一致（`blob_LLVM` 由独立于第 18 章的发射实现产生，Q-50） |
+| 19 | S3 | ABI/ISA 合法性与规范程序语义一致（允许合法编码差异） |
 | 20 | S4 + S5 + S14 + S18 | 常量/结构化缓冲/SSBO 与 kernel 参数取值正确；越界与未绑定确定报错；视图切片与格式重解释正确；管线对象替换完整；push constant 越界报错；屏障非法子资源范围报错；描述符堆按设备内存语义实时读取（命令包不拷快照） |
 | 21 | S4 + S14 | LOD/sRGB/寻址正确；数组/Cubemap 层索引与越界行为确定；采样器并入 stateId 5 描述符堆、比较采样正确；SAMPLE 请求为 float2 uv + 导数 |
 | 22 | S5 | 索引与非索引顶点流一致；primitive restart、step rate 正确；`baseVertex`/`baseInstance` 偏移与 `InstanceID` 正确；内建 ID 只读 SGPR/专用寄存器 |
@@ -402,17 +402,17 @@
 | 32 | S12 + S16 + S19 | 三引擎交错依赖正确；timeline semaphore 值序正确；跨队列家族所有权转移正确；计算队列与异步计算不破坏依赖 |
 | 33 | S12 + S19 | IB 链、间接绘制、predication 与直接提交等价（谓词统一 u64 值 + mask/cond 比较）；间接 dispatch 与直接 dispatch 等价；DMA 引擎切片拷贝正确 |
 | 34 | S7 + S2 | 遮挡 query = 0；timestamp 单调不减；统计不参与正确性；查询可作 GPU 侧谓词 |
-| 35 | S17 + S2 + S3 + S4 + S5 | 四路径逐字节一致；UMD 不改写 HLI 包且不自行拼包（含 PAL）；动态状态是命令缓冲快照而非全局状态；能力位只从 HLI 读取且含二期四位（一期恒 false）；计算验收已迁第 37 章（A37：S18 主判据 / S19 回归），35 章本身不再承担计算验收 |
+| 35 | S17 + S2 + S3 + S4 + S5 | HLI 场景通过；adapter capability=true 的子集满足语义判据；UMD 不改写 HLI 包；动态状态是命令缓冲快照而非全局状态；能力位只从 HLI 读取且含二期四位（一期恒 false）；计算验收已迁第 37 章（A37：S18 主判据 / S19 回归），35 章本身不再承担计算验收 |
 | 36 | S13 | 故障定位到单元；reset 后 S2 重跑成功 |
 | 37 | S18、S19 | kernel→参数→dispatch→workgroup/wave→LDS/atomic/barrier→写回→fence 端到端；直连 HLI 计算入口；三维映射 / 越界 / 组驻留（M-03）/ 间接 dispatch 与 33 章等价；A37 主验收（双入口等价归 stage3 42，A-stage3） |
 | 38 | Demo C1 `module_probe` | `MUSA_MODULE_HDR` 字段与 blob 逐字节一致；符号表解析正确（name/entryOffset/paramBytes/vgprCount/ldsBytes）；Function 入口解析 + 4B 对齐；截断/坏 header/越段返回确定错误（`InvalidIsa`/`NotMapped`）且无泄漏 |
-| 39 | S18 case-3、Demo C2 `vector_add` | 参数六条校验全部命中非法样例并返回确定错误、命令流不含 `SET_KERNEL_ARGS`/`DISPATCH`；`v[56..67]` uniform 区 = paramBufVa/grid/block（快照比对）；vector_add 整型逐字节 + fp32 ≤1 ULP（同序 FMA 下期望 0 ULP，告警项不阻断，§1.2）；计算驱动入口命令流与直连 HLI 同参数同顺序零容差一致 |
+| 39 | S18 case-3、Demo C2 `vector_add` | 参数六条校验全部命中非法样例并返回确定错误、命令流不含 `SET_KERNEL_ARGS`/`DISPATCH`；`v[56..67]` uniform 区 = paramBufVa/grid/block（快照比对）；vector_add 整型逐字节 + fp32 ≤1 ULP 通过、>1 ULP 阻断（同序 FMA 下 0 ULP 为诊断信息，§1.2）；计算驱动入口命令流与直连 HLI 同参数同顺序零容差一致 |
 | 40 | S19、Demo C3 `async_pipeline` | event Record/Wait/Query 值序正确、未达值 Query 非阻塞返回未完成；stream 提交顺序=命令流顺序；计算队列与图形队列并发、`WAIT` 前图形不读计算产物；异步交叉下数值等价（serial/parallel 硬判据一致） |
 | 41 | S18、S19、Demo C4/C5 | 三维 block/grid 的 blockIdx/threadIdx = ref_model；grid 边界部分 workgroup 有效、越界 work-item 不写任何内存（M-01/M-02）；跨 wave barrier 只在全部 wave 到达放行（原子计数断言）；workgroup/device 作用域语义确定；归约 ≤1 ULP + 归约顺序断言（强制，identity 正确，§1.2）；`DISPATCH_INDIRECT` 与直接 dispatch 逐值等价；UAV kernel 写回同 `(x,y,format)` 字节布局逐字节一致（对照 20 章 image 描述符 + 26 章格式转换表，ADR-049，不依赖 26 章 OM 写回探针） |
 | 42 | S18、S19（A-stage3） | S18/S19 经计算驱动入口与直连 HLI 入口逐值等价（同参数、同命令流、同探针，零容差）；`serial`/`parallel` 零容差一致；六条校验非法样例/坏 module/未达成值 Query 经计算驱动入口正确映射 `MUSA_ERROR_*`（不吞错、不静默降级）；S10/S11/S12/S16/S17 等 E/S 场景回归不退化；共用单元无"图形专用/计算专用"分支（ADR-032） |
 
 - E 场景绑定章节：E0→1/5；E1→2/3/8；E2→4/5/6；E3→7；E4→3/6；E5→9。
-- S 场景绑定章节：见各场景节"引用"；**多场景章以本表首列场景为主场景**（主判据），其余为专有 / 回归；一 S 号一入口（Q-67），与 `roadmap.md` §8.2 步骤 3 逐行对齐。
+- S 场景绑定章节：见各场景节"引用"；**多场景章以本表首列场景为主场景**（主判据），其余为专有判据或章文档 §7 明确登记的回归；一 S 号一入口（Q-67），与 `roadmap.md` §8.2 步骤 3 逐行对齐。
 - 功能补强项落位（实例化 / Clip-Cull / PS 输出格式转换 / 描述符堆设备内存语义 / 命令包版本等）权威在 `roadmap.md` §2.8。
 
 ## 5. 变更记录

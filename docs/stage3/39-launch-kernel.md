@@ -1,6 +1,6 @@
 # 第 39 章 LaunchKernel——kernel 参数打包与首次派发
 
-> 项目范围、阶段位置和交付以[任务规划](../CPU模拟GPU教学项目_任务规划与实施规格.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
+> 项目范围、阶段位置和交付以[任务规划](../README.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
 
 > 本章是 **stage3 计算驱动开发线（38~42）** 的第二章。在第 38 章 module/function 对象骨架之上，实现计算驱动的**参数打包与首次派发**：应用 `kernel(args...)` → 驱动收集 `ArgPack{ptr,bytes}[]` → 六条校验 → 写 GART `HOST_VISIBLE|HOST_COHERENT` 参数缓冲 → 生成 `KernelArgsLayout` → `IHliPipeline(kernel).SetKernel` → `IHliCommandList.Dispatch(grid,block)` → 队列提交；Compute 引擎派发主路径（CP 解析 `DISPATCH` → Compute 引擎 → 读 `SET_KERNEL_ARGS` → 装载 `paramBufVa/grid/block` 到 VGPR uniform 区 `v[56..67]` → workgroup 展开到 `se`）。以 Demo C2 `vector_add` 双入口（直连 HLI / 计算驱动）等价验证为核心验收。
 > 设计权威：参数打包 ABI 与六条校验见 `../design/compute-driver.md` §5；`KernelArgsLayout` 见 `../architecture-design.md` §3.8；`DispatchDesc` 与 D-01~D-13 见 §3.11；映射公式与 uniform 区见 §3.12、`../design/isa-abi.md` §3；错误码映射见 §3.9；WA-01 见 `../architecture-design.md` §7.9，计算通路见 `../design/compute-line.md` §1/§2。
@@ -77,7 +77,7 @@ struct KernelArgsLayout {
 ### 3.3 DispatchDesc（权威：`architecture-design.md` §3.11）
 
 - 复用 `compute::DispatchDesc{kernelVa, paramBufVa, paramBufByteSize, paramVgprBase, paramOffsets, grid, block, ldsStaticBytes, sgprCount, vgprCount, subgroupSize, indirectArgsVa(=0), flags}`；
-- D-01~D-13 全部生效：block 各维 ≥1 且积 ≤1024（允许非 32 倍数，末波 LaneMask，M-02）；grid 各维 ≥1；`subgroupSize=32`；包不得携带 IA/光栅/OM 状态（D-08）；`flags` 未知位必须 0（D-09）等。
+- D-01~D-13 全部生效：block 各维 ≥1 且积 ≤512（允许非 32 倍数，末波 LaneMask，M-02）；grid 各维 ≥1；`subgroupSize=32`；包不得携带 IA/光栅/OM 状态（D-08）；`flags` 未知位必须 0（D-09）等。
 - D-13 组级静态可调度性（§3.11）：`wavesPerGroup ≤ 16`（B-037）、`ldsStaticBytes ≤ 64 KiB`（B-036）、grid 总量 ≤ 2^20（B-038）；**超限记录期 `InvalidArgument` 拒绝、不产生包、不进入排队**（M-06）；仅"需求可满足但当前被占"才按 ADR-038 排队。
 - 校验在**记录 / 创建期执行**：失败 `InvalidArgument`，不产生包、不下发硬件；执行期只做确定性中止（§3.3 错误流）。
 
@@ -135,7 +135,7 @@ CP 解析 DISPATCH(0x04) → Compute 引擎
 | M39.1 | T39.2 | ② 主体 | `ArgPack[]` → 参数缓冲写入与偏移推导（对齐/簇对齐/重叠检测；失败 `InvalidArgument` 且命令流不含 `SET_KERNEL_ARGS`/`DISPATCH`） |
 | M39.1 | T39.3 | ② 主体 | `LaunchKernel` 主路径：SetKernel → Dispatch → 提交；uniform 装载 `paramBufVa/grid/block` 到 `v[56..67]`（快照比对） |
 | M39.2 | T39.4 | ③ 接入 | Demo C2 `vector_add` 直连 HLI 入口与计算驱动入口双跑；命令流 dump 对齐 |
-| M39.2 | T39.5 | ④ 验收 | A39：vector_add 整型逐字节 + fp32 ≤1 ULP（同序 FMA 下期望 0 ULP，告警项不阻断，scene-specs §1.2）；`v[56..67]` = paramBufVa/grid/block；六条校验非法样例全部命中确定错误且命令流无对应包；计算驱动入口命令流与直连 HLI 同参数同顺序零容差一致 |
+| M39.2 | T39.5 | ④ 验收 | A39：vector_add 整型逐字节 + fp32 ≤1 ULP 通过、>1 ULP 阻断（同序 FMA 下期望 0 ULP 是诊断信息，scene-specs §1.2）；`v[56..67]` = paramBufVa/grid/block；六条校验非法样例全部命中确定错误且命令流无对应包；计算驱动入口命令流与直连 HLI 同参数同顺序零容差一致 |
 
 ### 子里程碑
 
@@ -153,7 +153,7 @@ CP 解析 DISPATCH(0x04) → Compute 引擎
 | D39.1 | `packArg`/`KernelArgsLayout` 头文件独立编译；六条校验单测全绿（正常 + 非法边界：未映射/空缓冲/重叠/越界/未对齐/越区；`paramBufByteSize` 4096 通过 / 4097 拒绝）；D13-a/b/c 记录期 `InvalidArgument` 单测全绿 | L1 契约 |
 | D39.2 | 每 `{ptr,bytes}` 按 `paramOffsets` 写入 GART；重叠/越区/无效参数区/未映射 → 报错且命令流不含 `SET_KERNEL_ARGS` | L1 契约 |
 | D39.3 | `DISPATCH` 驱动 Compute 引擎产出与 29~31 章单测一致结果；`sa` 非空；`v[56..67]` 快照 = paramBufVa/grid/block | L1 契约 |
-| D39.4 | `vector_add`（WA-01）整型逐字节 + fp32 ≤1 ULP（同序 FMA 下期望 0 ULP，告警项不阻断）；计算驱动入口命令流 = 直连 HLI 手动 Dispatch 命令流（同参数、同顺序） | 横切 |
+| D39.4 | `vector_add`（WA-01）整型逐字节 + fp32 ≤1 ULP 通过、>1 ULP 阻断（同序 FMA 下期望 0 ULP 是诊断信息）；计算驱动入口命令流 = 直连 HLI 手动 Dispatch 命令流（同参数、同顺序） | 横切 |
 | D39.5 | A39 全绿：六条非法样例矩阵 + 双入口探针零容差 + S18 `case-3`（经计算驱动）命令流等价、case-0/1 回归不退化 | L1 + L2 + 横切 |
 
 ---
@@ -166,9 +166,9 @@ CP 解析 DISPATCH(0x04) → Compute 引擎
 |---|---|
 | 输入 | `vector_add` kernel（1D grid/block；`a/b/c` 缓冲 + N）；六条校验非法样例集；`api_backend ∈ {hli, compute}` |
 | 产物 | kernel 启动日志、命令包序列、参数缓冲布局、`v[56..67]` 快照、探针表 |
-| 主判据 | `vector_add` 整型逐字节 + fp32 ≤1 ULP（同序 FMA 下期望 0 ULP，告警项不阻断）；计算驱动入口命令流与直连 HLI 同参数同顺序零容差一致（横切） |
+| 主判据 | `vector_add` 整型逐字节 + fp32 ≤1 ULP 通过、>1 ULP 阻断（同序 FMA 下期望 0 ULP 是诊断信息）；计算驱动入口命令流与直连 HLI 同参数同顺序零容差一致（横切） |
 | 本章专有判据 | 六条校验全部命中非法样例返回确定错误且不下发；`v[56..67]` = paramBufVa/grid/block（快照比对）；不新增配置键（`api_backend=compute` 复用） |
-| 回归项 | A1~A38 全绿；S18 case-0/1（1D/2D）在接入后不退化；D13-a/b/c 拒绝边界回归 |
+| 回归项 | R39：S18 case-0/1（1D/2D）在接入后不退化；D13-a/b/c 拒绝边界回归；未列明历史 A 门禁不自动阻断 |
 
 > 场景输入与探针单份规约见 `../design/scene-specs.md` §3（S18 节）与 §4（第 39 行）。
 

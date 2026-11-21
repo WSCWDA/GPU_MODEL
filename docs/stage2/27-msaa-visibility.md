@@ -1,6 +1,6 @@
 # 第 27 章 MSAA + 可见性
 
-> 项目范围、阶段位置和交付以[任务规划](../CPU模拟GPU教学项目_任务规划与实施规格.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
+> 项目范围、阶段位置和交付以[任务规划](../README.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
 
 > 本章在 OM（26）之上补两块：多采样（MSAA：子样本覆盖、每样本深度/颜色、resolve）与可见性单元（early-Z、Hi-Z、fast clear）。early-Z 的"早丢弃"在本章真正生效，且必须与 OM 的"写 UAV 禁用 early-Z"标记配合。MSAA 执行频率分层（PS 每像素、深度/混合每样本）是本章专有判据。
 > 与本章相关的设计说明：`../design/isa-abi.md` §3（PS 输出区）；第 25 章（quad 语义）；第 26 章（OM 状态）；`../design/execution-parallel.md`（occupancy 相关）；第 20 章（UAV）。
@@ -16,7 +16,7 @@
 2. 每样本操作：深度/模板测试与颜色混合每样本独立；PS 默认每像素执行（仅 `perSample` 插值时每样本）。
 3. resolve：多样本 RT → 单样本 RT（平均/多数裁决；本期对颜色取平均、深度取最近）。
 4. early-Z：光栅前或后（光栅后执行前）做深度粗测：`earlyZEnabled` 且无 UAV 写 → 提前拒绝，减少 PS 执行（优化）。
-5. Hi-Z：深度层次（mip 层级测）粗测拒绝；`hiZ` 计数统计。
+5. Hi-Z：以固定 8×8 像素块维护单层 min/max 深度并做保守粗测拒绝；该粒度不依赖第 31 章 SE 执行 tile。`hiZ` 拒绝计数只作软观测。
 6. fast clear：清屏通过元数据（复杂度 O(1)）而非逐像素；clear color 元数据在 resolve 时扩展。
 7. 可见性：`early-Z 不改结果`（正确性判据：early-Z 开 vs 关在探针像素集一致；全图差分仅告警）；`fast clear` 元数据与 `Hi-Z 拒绝计数可输出`。
 
@@ -118,7 +118,7 @@ resolve(sampleRT[n], outputRT):
 ### 4.4 fast clear / Hi-Z
 
 - `Clear` on MSAA RT → 写元数据 `{isClear=true, color}`，version 递增；随后 first-touch resolve 物化。
-- Hi-Z：维护深度粗测（每 tile 最近小 min/max），早拒绝 `rejectedPrims++`（软观测）。
+- Hi-Z：按固定 8×8 像素块维护单层 min/max 深度，早拒绝 `rejectedPrims++`（软观测）；该块与第 31 章调度 tile 独立。
 
 ---
 
@@ -135,7 +135,7 @@ resolve(sampleRT[n], outputRT):
 | T27.7 | ② 主体 | Hi-Z 粗测拒绝统计 |
 | T27.8 | ② 主体 | fast clear 元数据 + O(1) clear + version |
 | T27.9 | ③ 接入 | `scene_s9_msaa`（多样本 + resolve）、`scene_s7_occlusion`（early-Z 开/关 + 计数） |
-| T27.10 | ④ 验收 | A27：S7/S9 全绿 + 专有判据 + A26 回归 |
+| T27.10 | ④ 验收 | A27：S7/S9 全绿 + 专有判据 + R27 回归项 |
 
 ---
 
@@ -146,7 +146,7 @@ resolve(sampleRT[n], outputRT):
 | D27.1 | 接口独立编译；样本表固定；`samples ∈ {1,2,4,8}` | L1 契约 |
 | D27.2 | 覆盖率：4x 子样本覆盖（部分像素）与 `ref_model` ±1/16 一致 | L2 解析 |
 | D27.3 | 每样本 depth：混合深度不同时 resolve 取最近；blend 每样本输出正确 | L1 + L2 |
-| D27.4 | PS 执行次数：默认 δ（像素）；perSample 时 ×samples（`stats.psExecCount`） | L1 契约 |
+| D27.4 | PS 执行次数：默认每个有覆盖的像素一次；声明 `perSample` 时每个有覆盖的样本一次（`stats.psExecCount`） | L1 契约 |
 | D27.5 | resolve 后单样本 RT 的指定探针像素 = ref_model（平均/最近），零容差；全图差分仅告警（§1.4） | L1 + L2 |
 | D27.6 | early-Z 开/关在探针像素集逐字节一致（含 UAV 场景：关时 UAV 后写仍在）；全图差分仅告警 | L1 契约 |
 | D27.7 | Hi-Z 拒绝计数：构造被 early-Z/Hi-Z 拒绝的图元 → `rejectedPrims>0` | L1 契约 |
@@ -167,7 +167,7 @@ resolve(sampleRT[n], outputRT):
 | 产物 | 覆盖掩码、resolve RT、early-Z 计数、`{isClear}` 元数据 |
 | 主判据 | S7/S9：L1 契约（coverage/psExecCount/元数据/计数）+ L2 探针（覆盖 ±1/16、颜色 ±2/通道、深度 ±1、resolve 指定像素零容差）一致；全图差分仅告警（§1.4） |
 | 本章专有判据 | ① coverage/resolve 正确；② early-Z 不改结果（开/关探针一致；全图差分仅告警）；③ fast clear 元数据与 Hi-Z 拒绝计数可输出 |
-| 回归项 | A1~A26 全绿；S3 光栅 1x 覆盖基线不因 MSAA 引入变化 |
+| 回归项 | R27：S3 光栅 1x 覆盖基线不因 MSAA 引入变化；未列明历史 A 门禁不自动阻断 |
 | 后续补齐 | 深度压缩格式（范围外）；resolve 专用硬件（本期经 OM 语义） |
 
 ---

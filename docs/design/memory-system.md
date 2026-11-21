@@ -1,6 +1,6 @@
 # 内存系统 — 独立模块设计
 
-> 项目目标、范围、阶段与交付以[任务规划](../CPU模拟GPU教学项目_任务规划与实施规格.md)为主干；roadmap展开章级任务，architecture-design定义模块树与层间契约。本文负责本模块的内部技术设计。
+> 项目目标、范围、阶段与交付以[任务规划](../README.md)为主干；roadmap展开章级任务，architecture-design定义模块树与层间契约。本文负责本模块的内部技术设计。
 
 > 定位：定义 GPU 内存模型的所有权归属：三类内存地址与唯一访问通道、两级页表 / TLB、三堆（VRAM/GART/System）与分配器、缓存与写缓冲、驻留与上下文，以及主机-GPU 缓存同步、分配确定性与内存 Sanitizer。
 > 落地章：第 3 章平坦内存（初级）、第 11 章地址翻译 + 堆、第 12 章缓存 + 写缓冲、第 14 章驻留 + 上下文；Copy 引擎与 Display 统一走本模型。
@@ -48,7 +48,7 @@
 - GART 不做碎片整理；跨帧复用缓冲必须按上下文常驻，不每帧分配（工程红线 §7.4 #4）。
 - 分配失败返回 `OutOfMemory`，不允许静默回退。
 - 计算线的 unified / pinned 内存映射到 GART/System 域的 `HOST_VISIBLE` / `HOST_COHERENT` 组合，不新增第四类堆。
-- **计算 scratch**（P1-8，**2026-11-20 定案**）：per-thread 栈 / 寄存器溢出落 GART，per-thread base 由驱动经参数区传入（随 §3.13 uniform）；分配走第 11 章确定性分配器，同 `translation.seed` 下布局可复现；口径：**每线程 ≤ 4 KiB、4 B 对齐、不清零**（初始内容未定义，kernel 必须显式初始化后读）。
+- **计算 scratch**（P1-8，**2026-11-20 定案**）：per-thread 栈 / 寄存器溢出落 GART，per-thread base 由驱动经参数区传入；每线程 ≤4 KiB、4 B 对齐、不清零；每 wave 上限 128 KiB，每 dispatch 按有效线程数计算需求并受 GART 可用容量约束，分配失败在提交前返回 `OutOfMemory`。scratch 不占 CU 的 LDS/VGPR/SGPR 驻留预算；分配器按 `translation.seed` 保持地址布局可复现。
 - **统一内存域**（`roadmap.md` §2.8）：图形与计算共用同一虚拟地址空间，资源零拷贝共享；ASID 为上下文粒度；GART/VRAM/System 对计算同样可见。
 - 全部堆支持输出快照 dump。
 

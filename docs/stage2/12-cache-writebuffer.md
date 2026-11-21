@@ -1,6 +1,6 @@
 # 第 12 章 缓存 + 写缓冲
 
-> 项目范围、阶段位置和交付以[任务规划](../CPU模拟GPU教学项目_任务规划与实施规格.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
+> 项目范围、阶段位置和交付以[任务规划](../README.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
 
 > 本章在翻译层之上落地 L1/L2 缓存与写缓冲：L1 每 CU 16 KiB 写穿入 L2、L2 全局 256 KiB 写回，仅 L2 脏行替换才进写缓冲（按 64 B 合并），I-Cache 命中统计。`cache_enable` 开关只影响统计与路径，不影响结果；缓存一致性由屏障与 fence 维护，不依赖时间或线程顺序（`../design/memory-system.md` §4）。
 > 教学重点是缓存/写缓冲在 GPU 数据通路中的位置、读写与排空、flush/invalidate 后的数据可见性，以及生产者到消费者的数据流和复用。hit/miss 与 I-Cache 计数只作软诊断，不作为主要验收目标。GS/Tessellation 的 patch/control-point 缓冲属于阶段局部暂存，不等同于 L1/L2。
@@ -88,7 +88,7 @@ public:
 ### 3.2 I-Cache（只统计）
 
 - 取指路径挂 I-Cache：`iHits/iMisses` 计数。
-- 不提供读缓冲，直接经翻译读指令；`icache_enable` 与 `cache_enable` 联动（两者都开才统计）。
+- 不提供独立指令读缓冲；I-Cache 只记录取指统计，并随 `cache_enable` 一起启停，不新增 `icache_enable` 配置键。
 
 ### 3.3 屏障集成
 
@@ -157,14 +157,14 @@ FlushBank(begin,end) → 写缓冲中被选区间全部落存储 → wbFlushes++
 | DoD | 判据（机器可判） | 级别 |
 |---|---|---|
 | D12.1 | `CacheConfig` 常量 `static_assert`（16KiB/64B/256KiB/64B）；接口独立编译 | L1 契约 |
-| D12.2 | 连续读同页 32 次：`l1Hits` 随访问增长、`l1Misses` 有限；替换后旧行失效 | L1 契约 |
+| D12.2 | 顺序读同一 4 KiB 页内 8 条不同 64 B cache line 两轮，再访问另一页并制造容量替换；数据始终正确，统计只作诊断且应反映第二轮复用与替换失效，不以固定 hit/miss 数作通过门槛 | L1 契约 |
 | D12.3 | L2 写回：写 1 KB 后 `FlushBank`，存储可读回；未 flush 前存储不变（写回延迟语义） | L1 契约 |
 | D12.4 | 写缓冲：向同一 64B 行写 4 次部分覆盖 → `wbMerges`=3 次合并、最终存储为最后一次完整行 | L1 契约 |
 | D12.5 | 跨行访问（如 va=0x3F8, bytes=16）正确拆分为两行 | L1 契约 |
 | D12.6 | `SetEnabled(false)` 后读/写直接存储，`Stats` 返回 0（或冻结 0）| L1 契约 |
 | D12.7 | `FlushBank` 后写缓冲计数清空对应区间；`Invalidate` 后 L1 命中该区间为 0 | L1 契约 |
 | D12.8 | `cache_enable=on` 与 `off` 全场景逐字节一致（S2/S3/S11 退化）；单元里所有 `Read/Write` 过缓存 | L1 契约 + 横切 |
-| D12.9 | A12 全绿：S2 主判据 + 专有判据（二次读命中率上升、写合并计数符合预期、cache_enable 开关前后一致）+ S3/S11 退化子集 | L1 契约 + L2 |
+| D12.9 | A12 全绿：S2 主判据 + 缓存/写缓冲读写、flush/invalidate 可见性边界正确；统计仅作软观测；`cache_enable` 开关前后一致 + S3/S11 退化子集 | L1 契约 + L2 |
 
 ---
 
@@ -178,7 +178,7 @@ FlushBank(begin,end) → 写缓冲中被选区间全部落存储 → wbFlushes++
 | 产物 | 缓存统计快照（L1/L2 hit-miss、写合并）、`cache_enable` 前后输出、屏障后可见性 |
 | 主判据 | `cache_enable=on/off` 开关前后所有场景输出逐字节一致；屏障后 Producer 数据对 Consumer 可见 |
 | 本章专有判据 | ① 二次读同页命中率 `l1Hit` 上升（第一次 miss、第二次 hit）；② 写合并计数 `wbMerges` 符合预期模式；③ L1 写穿入 L2、仅脏行替换进写缓冲（写穿不产生脏行、L2 脏行才逐出）；④ `cache_enable` 开关前后一致（零容差） |
-| 回归项 | A1~A11 全绿；S3 统计只在软观测，不阻断开销 |
+| 回归项 | R12：S3 统计只在软观测，不阻断开销；未列明历史 A 门禁不自动阻断 |
 | 后续补齐 | 多引擎缓存一致性与屏障频率统计在第 32、33 章；缓存在 `parallel` 下每线程本地无需拷贝（只共享存储） |
 
 ---

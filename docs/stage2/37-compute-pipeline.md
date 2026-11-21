@@ -1,8 +1,8 @@
 # 第 37 章 计算管线（CS 计算管线；直连 HLI 入口验收，不含 MUSA 计算驱动对象模型）
 
-> 项目范围、阶段位置和交付以[任务规划](../CPU模拟GPU教学项目_任务规划与实施规格.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
+> 项目范围、阶段位置和交付以[任务规划](../README.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
 
-> 本章是计算线**直连 HLI 入口的收口章**（ADR-013 修订 / ADR-048，2026-11-19/20）：把散落在第 20（kernel 参数）、29~31（波内/组内/并行协作）、32（异步计算）、33（间接派发）、34（查询统计）中的**计算专属开发任务**整合为一条完整、可独立验收的"计算管线"主线；共用硬件单元（subgroup / LDS / atomic / barrier / occupancy / 三维 workgroup 硬件映射 / 队列 / IB / 查询）仍在原章作为**图形 + 计算共用能力**落地（ADR-032），本章只在其上收口计算专属的调度、作用域、间接与统计，并以**直连 HLI 入口**（A37）验收 S18/S19。原 35.5 的 MUSA 计算驱动对象模型**不并入本章**，整体归 stage3 38~42 承载（ADR-047，`../design/compute-driver.md`）。
+> 本章定义 Compute 硬件从已冻结的 HLI 命令包到 Compute engine、workgroup/wave 执行与内存写回的主通路，并以直连 HLI 场景验收硬件入口。第 29–34 章负责共用的 SIMT、LDS/atomic/barrier、队列、IB、query 等模块机制；第 37 章复用这些模块，不再复制一套实现。Host 参数打包和 LaunchKernel 归第 39 章，stream/event 归第 40 章，驱动侧协作/indirect/UAV/query 包装归第 41 章，双入口端到端对照归第 42 章（ADR-047/048）。
 > 设计权威：通路与对象模型见 `../design/compute-line.md`；kernel 参数契约见 `../architecture-design.md` §3.8（KernelArgsLayout 六条校验规则）；计算 pipeline 对象面见 `architecture-design.md` §3.4；同步原语与内存作用域见 `../design/sync-primitives.md` §3；执行与并行模型见 `../design/execution-parallel.md`；Wave/Workgroup 拆分与 ABI 分区见 `../design/isa-abi.md` §2/§3。
 > 编号纪律：本章**不新增包类型 / opcode / stateId / MMIO 槽**，全部复用既有登记（`DISPATCH`=0x04、`SET_KERNEL_ARGS`=0x0F/0x0002、`DISPATCH_INDIRECT`、`BARRIER`=0x0E、`PREDICATE`=0x0D）；开工前仍须对照 `../design/bit-budget.md` 审计复用号的所有权（`../roadmap.md` §7.3/§7.4、ADR-043/045）。
 
@@ -56,7 +56,7 @@ S18 / S19 探针表比对（ref_model 生成期望，37 章主验收）
 说明：
 
 - 本章的"单元"主要是**组装与驱动**：硬件执行单元都是既有共用单元，本章不复制实现；每个收口点都对应一个"驱动/入口侧"任务，硬件侧任务在原章 DoD 中仍是权威落点。
-- `DISPATCH` 包、`SET_KERNEL_ARGS` 包、`KernelArgsLayout` 契约在第 20 章形成（图形/计算共用）；本章在**驱动与验收侧**收口，不重新定义包布局。
+- `DISPATCH` 包、`SET_KERNEL_ARGS` 包、`KernelArgsLayout` 契约在第 20 章形成（图形/计算共用）；本章只负责 Compute 硬件管线消费已冻结的包布局；计算驱动的参数打包和 API 对象包装分别由第 39–41 章负责。
 
 ---
 
@@ -82,7 +82,7 @@ struct KernelArgsLayout {
 5. `paramVgprBase` 默认 56，必须落在 uniform 分区 `v[56..67]` 且不与其他 ABI 分区冲突（如落入 RT1~3 `v[44..55]` 或临时量区 `v[76..]` 均拒绝）；
 6. 校验只做静态结构校验，不断言参数语义（值域由 kernel 自证）。
 
-### 3.2 计算管线对象（权威：`architecture-design.md` §3.4）
+### 3.2 计算管线接口（权威：`architecture-design.md` §3.4）
 
 | 对象 | 本章用法 | 落点 |
 |---|---|---|
@@ -91,15 +91,9 @@ struct KernelArgsLayout {
 | `IHliQueue.Submit(SIGNAL/WAIT)` | stream/event 的底层载体 | stage3 38~42 复用 32 章原语 |
 | `IHliQueryPool` | 计算统计与谓词回读 | 37.3 |
 
-### 3.3 计算驱动对象（**归 stage3 38~42 实现**；权威 `../design/compute-driver.md`；本章只作概念引用，A37 验收不走计算驱动入口）
+### 3.3 计算驱动边界（归 stage3 38~42）
 
-- `context` = HLI device + KMD context（ASID），一期 1:1:1；销毁前所有 stream 必须已同步。
-- `module` = 自有头 `MUSA_MODULE_HDR` + 代码段 + 符号表（`name / entryOffset / paramBytes / vgprCount / ldsBytes`），常驻 GART；不引入 ELF/COFF，不做重定位。
-- `function` = module 内入口（`codeBaseVa + entryOffset` + 参数布局）；分支用 pc 相对偏移，加载不需地址修补。
-- `stream` = 1:1 映射一个 HLI 队列；stream 内顺序 = 队列顺序；不允许多队列，优先级创建时声明、不可变。
-- `event` = 独立对象 `{queueId, timelineValue, state}`；Record 插 `SIGNAL`、Wait 插 `WAIT`、Query 非阻塞读；值域复用队列 timeline，不复用 fence 对象。
-- kernel 参数由驱动打包：应用按签名提交 `ArgPack{ptr, bytes}[]`，驱动按 §3.1 六条规则校验并写入 GART `HOST_VISIBLE | HOST_COHERENT` 参数缓冲、生成 `KernelArgsLayout`；`LaunchWithParamBuffer`（应用直给参数 VA）留二期。
-
+本章不定义或实现 `Context/module/function/stream/event` 的对象生命周期、模块格式、参数打包 ABI 或驱动 API；这些契约的唯一来源是 `../design/compute-driver.md`，实现与验收归 stage3 38~42。此处只规定硬件消费已冻结的 `DISPATCH` / `SET_KERNEL_ARGS` 描述符，并通过既有 `IShaderArray::Dispatch` 执行 workgroup/wave。stage3 只能组合已冻结的 HLI 接口，不新增硬件包、opcode、MMIO 或 HLI 接口。
 ### 3.4 输入校验（驱动 / HLI 创建侧执行，与第 20 章一致）
 
 - 未映射 / 未驻留参数缓冲 → `NotMapped` / `NotResident`；
@@ -115,7 +109,7 @@ struct KernelArgsLayout {
 
 ```
 hli 计算入口（SetKernel → Dispatch/ DispatchIndirect）
-  ├─ 校验 §3.4 → 打包 ArgPack[] → 写 GART 参数缓冲 → KernelArgsLayout
+  ├─ HLI/计算驱动（39）负责校验 §3.4 → 打包 ArgPack[] → 写 GART 参数缓冲 → KernelArgsLayout
   ├─ IHliPipeline(kernel).SetKernel
   ├─ IHliCommandList.Dispatch(grid, block)〔或 DispatchIndirect〕
   └─ HLI 队列 Submit → fence / 查询
@@ -148,27 +142,27 @@ CP 解析 DISPATCH(0x04) → Compute 引擎
 
 | 子里程碑 | 任务 | 段 | 内容（吸收来源） |
 |---|---|---|---|
-| M37.1 | T37.1 | ① 契约 | 计算入口契约集中：`Stage::Compute` 派发、`DISPATCH`→Compute 引擎主路径对接、计算管线对象（kernel）统一表、`SET_KERNEL_ARGS` 消费封装、`KernelArgsLayout` 六条校验单测 + D13-a/b/c 拒绝边界单测落头文件（吸收 20 章契约面；35.5 对象契约归 stage3 38~42） |
-| M37.1 | T37.2 | ② 主体 | kernel 参数打包与校验：`ArgPack[]` → 写 GART `HOST_VISIBLE\|HOST_COHERENT` 参数缓冲 → 生成 `KernelArgsLayout`；六条规则集中执行，非法样例不下发（吸收 20 章驱动侧打包 + 35.5 launch config） |
+| M37.1 | T37.1 | ① 契约 | 冻结 Compute 引擎消费所需的 DISPATCH/SET_KERNEL_ARGS 硬件载荷字段与入口；参数打包、KernelArgsLayout 记录期校验由架构 ABI 与第 39 章负责 |
+| M37.1 | T37.2 | ② 主体 | 硬件侧消费 `SET_KERNEL_ARGS`：按已冻结的 `KernelArgsLayout` 读取 GART 参数区、检查映射/边界并装载 uniform；不负责 `ArgPack[]` 解释或 Host 参数缓冲打包（归第 39 章） |
 | M37.1 | T37.3 | ② 主体 | Compute 引擎派发主路径：CP 解析 `DISPATCH` → Compute 引擎 → `IShaderArray::Dispatch`（复用 29~31 共用单元；非着色引擎 `sa` 规则不适用，Compute 必填） |
 | M37.1 | T37.4 | ② 主体 | `DISPATCH` 统一区装载：`paramBufVa` / grid / block 写入 VGPR uniform 区 `v[56..67]`（isa-abi §3 权威分区） |
 | M37.1 | T37.5 | ② 主体 | 直连 HLI 计算入口打通：`IHliPipeline(kernel)` + `IHliCommandList.Dispatch` → S18/S19（HLI 入口）闭环（M37.1 收口） |
-| M37.2 | T37.6 | ② 主体 | 三维 workgroup/grid 映射**驱动侧封装**：blockIdx/threadIdx 语义、grid 边界部分 workgroup、越界 work-item 不写（硬件映射在 31 章；本章收口为 kernel 入口语义） |
-| M37.2 | T37.7 | ② 主体 | 组内 barrier 与内存作用域收口：组内全部 wave 到达放行（跨 wave）、workgroup/device 作用域在 kernel 启动面的语义（同步原语在 30 章；`sync-primitives.md` §3） |
+| M37.2 | T37.6 | ② 主体 | 硬件侧按 DISPATCH grid/block 展开 workgroup/wave，并复用第 31 章索引映射；驱动侧不复制 blockIdx/threadIdx 算法（计算驱动只消费统一定义） |
+| M37.2 | T37.7 | ② 主体 | 计算引擎用第 30 章 ISA/LDS 同步原语运行跨 wave barrier 用例；本章只验收硬件执行路径可达，不重做 barrier 或驱动作用域 API（归 30/41 章） |
 | M37.2 | T37.8 | ② 主体 | 计算内建 id（THREAD/GROUP/WAVE）编译器前端映射与 kernel 侧暴露（内建寄存器面在 15/17 章；本章收口计算侧） |
 | M37.2 | T37.9 | ② 主体 | 计算统计口径：每 dispatch wave 数、每 workgroup 波数、occupancy 占用观测（软观测，ADR-038；31 章统计的计算侧口径） |
-| M37.3 | T37.10 | ② 主体 | 异步计算：计算队列与图形队列并发提交、计算 → 图形 fence 依赖、`SIGNAL/WAIT` 值序（队列机制在 32 章；本章收口计算/图形互操作的入口语义） |
-| M37.3 | T37.11 | ② 主体 | 间接派发计算侧：`DISPATCH_INDIRECT` 从显存读 `{gridX,Y,Z}`，与直接 dispatch 结果等价（间接层在 33 章；本章收口计算侧场景 S19） |
+| M37.3 | T37.10 | ② 主体 | Compute engine 消费已冻结的 queue/fence/SIGNAL/WAIT 命令并按 32 章调度；本章仅验证硬件命令执行和依赖，不实现 stream/event API（归第 40 章） |
+| M37.3 | T37.11 | ② 主体 | Compute engine 解释第 33 章登记的 `DISPATCH_INDIRECT` 与 28 B 参数结构，执行与直接派发语义等价的硬件路径；驱动侧参数构造/校验由第 41 章负责 |
 | M37.3 | T37.12 | ② 主体 | 计算查询与统计：dispatch 计数、timestamp 单调、查询可作 GPU 侧谓词（查询单元在 34 章；本章收口计算口径） |
-| M37.3 | T37.13 | ③ 接入 | 全阶段 UAV kernel 写回收口接入 S19 `case-4`：kernel 经 UAV 视图写全局/图像内存（视图在 20 章、格式转换表在 26 章；本章收口 kernel 侧主路径） |
+| M37.3 | T37.13 | ③ 接入 | Compute shader 对已绑定的全局/图像资源执行写回，验证硬件 memory/image store 通路；UAV view 创建、描述符打包与驱动调用包装归第 41 章 |
 | M37.4 | T37.14 | ④ 验收 | 直连 HLI 计算入口接 S18/S19：`A37` 全绿（S18/S19 双策略硬判据一致、直连 HLI 计算入口跑通、受影响 S 场景回归）；双入口等价（原 35.5 计算驱动吸收点）归 stage3 42（A42） |
 
 ### 子里程碑（本章 ≤ 6 任务/块）
 
 | 子里程碑 | 范围 | 承载任务号 |
 |---|---|---|
-| M37.1 计算通路与派发 | 入口契约、参数打包校验、Compute 引擎派发、uniform 装载、直连 HLI 接入 | T37.1~T37.5 |
-| M37.2 计算调度与协作收口 | 三维映射驱动侧、组内 barrier 作用域、内建 id、统计口径 | T37.6~T37.9 |
+| M37.1 计算通路与派发 | 入口载荷、Compute 引擎派发、uniform 装载、直连 HLI 硬件路径 | T37.1~T37.5 |
+| M37.2 计算调度与协作集成 | 复用三维映射与 barrier 原语，验证内建 id 和资源调度路径 | T37.6~T37.9 |
 | M37.3 计算系统收口 | 异步计算、间接派发、查询统计、UAV 写回 | T37.10~T37.13 |
 | M37.4 端到端验收 | 直连 HLI 计算入口接 S18/S19、A37 | T37.14 |
 
@@ -178,9 +172,9 @@ CP 解析 DISPATCH(0x04) → Compute 引擎
 
 | DoD | 判据（机器可判） | 级别 |
 |---|---|---|
-| D37.1 | 计算入口相关头文件独立编译；`KernelArgsLayout` 六条规则单测全绿（正常 + 非法边界，含 `paramBufByteSize` 4096 通过 / 4097 拒绝）；D13-a/b/c（block 513 / LDS 128 KiB / grid 2^20+1）记录期 `InvalidArgument` 单测全绿 | L1 契约 |
-| D37.2 | 每 `{ptr,bytes}` 按 `paramOffsets` 写入 GART；重叠 / 越区 / 无效参数区 / 未映射 → 报错且命令流不含 `SET_KERNEL_ARGS` | L1 契约 |
-| D37.3 | `DISPATCH` 能驱动 Compute 引擎产出与 29~31 章单测一致的结果；`sa` 非空 | L1 契约 |
+| D37.1 | Compute 引擎载荷头独立编译；合法 DISPATCH 字段能被解析；包长、版本、保留位和引擎类型错误在提交期返回确定错误；不重复执行第 39 章的 ArgPack/KernelArgsLayout/D13 记录期校验 | L1 契约 |
+| D37.2 | 硬件消费已提交参数描述符时，未映射/越界参数区产生确定错误；合法参数正确装入 uniform。Host `ArgPack[]` 的布局/重叠校验与禁止下发由 D39.1/D39.2 验收 | L1 契约 |
+| D37.3 | `DISPATCH` 能驱动 Compute 引擎产出与 29~31 章单测一致的结果；派发入口必须持有非空 `IShaderArray* sa` 并对每个有效 wave 调用 `IShaderArray::Dispatch`，缺失 `sa` 在执行前返回 `InvalidArgument` | L1 契约 |
 | D37.4 | `DISPATCH` 后 VGPR uniform 区 `v[56..67]` 内容 = `paramBufVa/grid/block`（快照比对） | L1 契约 |
 | D37.5 | 直连 HLI 计算入口下 `scene_s18_compute_basic` 探针通过（整数/索引零容差；含 fp32 归约的 case 按 ≤1 ULP + 顺序断言） | L2 + A37 |
 | D37.6 | 三维 block/grid 的 blockIdx/threadIdx=ref_model；grid 边界部分 workgroup 有效、越界 work-item 不写任何内存 | L2 |
@@ -204,8 +198,8 @@ CP 解析 DISPATCH(0x04) → Compute 引擎
 | 输入 | S18：1D/2D/3D grid + block、kernel 参数、越界 work-item；S19：LDS / 原子 / barrier + 间接 dispatch + 异步计算；两者跑 `api_backend=hli`（直连）；（`api_backend=compute` 计算驱动入口归 stage3 42 双入口等价验收） |
 | 产物 | kernel 启动日志、命令包序列、RT/UAV/参数缓冲读回、S18/S19 探针表 |
 | 主判据 | S18/S19 的 blockIdx/threadIdx/越界/计数/shared/barrier/内存序 = ref_model（整数/索引零容差）；fp32 归约 ≤1 ULP + 归约顺序断言（`scene-specs.md` §1.2）；间接 dispatch 与直接等价；计算→图形 fence 后结果可见 |
-| 本章专有判据 | ① S18/S19 在 `serial` / `parallel` 下硬判据逐项一致（整数/索引零容差；fp32 归约 ≤1 ULP + 归约顺序断言）；② 直连 HLI 计算入口跑通（双入口等价归 stage3 42 / A42 主验收）；③ 共用单元无图形/计算特化分支；④ 六条参数校验全部命中非法样例返回确定错误且不下发，D13-a/b/c 与组驻留（M-03，16 waves/CU，B-037）、参数区 4 KiB（B-041）、grid ≤ 2^20（B-038）上限断言命中 |
-| 回归项 | A1~A36 全绿；S10（波内/组内归约计算侧）、S11（并行）、S12（多引擎）、S16（所有权）在计算线接入后不退化 |
+| 本章专有判据 | ① S18/S19 在 `serial` / `parallel` 下硬判据逐项一致（整数/索引零容差；fp32 归约 ≤1 ULP + 归约顺序断言）；② 直连 HLI 计算入口跑通（双入口等价归 stage3 42 / A42 主验收）；③ 共用单元无图形/计算特化分支；④ D13-a/b/c 在 HLI/计算驱动记录期拒绝（由第 39 章验收）；Compute engine 对有效提交执行正确，wave/CU 与资源驻留边界无死锁 |
+| 回归项 | R37：S10（波内/组内归约计算侧）、S11（并行）、S12（多引擎）、S16（所有权）在计算线接入后不退化；未列明历史 A 门禁不自动阻断 |
 | 后续补齐 | `LaunchWithParamBuffer`、动态并行、可变 subgroup、真实 occupancy 调优 —— 均二期 / 范围外，只留 capability bit 或文档登记 |
 
 > 场景输入与探针单份规约见 `../design/scene-specs.md` §3（S18/S19 节）与 §4 章节验收判据表（第 37 行）。

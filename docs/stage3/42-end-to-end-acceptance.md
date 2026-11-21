@@ -1,6 +1,6 @@
 # 第 42 章 双入口等价与端到端验收
 
-> 项目范围、阶段位置和交付以[任务规划](../CPU模拟GPU教学项目_任务规划与实施规格.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
+> 项目范围、阶段位置和交付以[任务规划](../README.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
 
 > 本章是 **stage3 计算驱动开发线（38~42，ADR-047）** 的收口 / 验收章。把 stage3 全部能力（对象骨架 / LaunchKernel / stream-event 异步 / 组内协作与间接/UAV 写回）经**计算驱动入口**（`umd/compute`，`api_backend=compute`）与**直连 HLI 计算入口**（`api_backend=hli`）双跑：S18 `scene_s18_compute_basic`（blockIdx/threadIdx、越界 work-item 不写、grid 边界部分 workgroup、wave 归约与 CPU 参考一致）+ S19 `scene_s19_compute_memory`（LDS/原子/barrier、间接 dispatch、异步计算、作用域语义、计算→图形 fence 后结果可见）。主判据：**双入口探针零容差等价（同参数、同命令流、同探针）**；A-stage3（A38~A42）全绿；E/S 场景回归不退化；`serial`/`parallel` 双策略一致。
 > 设计权威：stage3 全链路契约见 `../design/compute-driver.md`；WA 目录见 `../architecture-design.md` §7.9，计算通路见 `../design/compute-line.md` §1/§2；kernel 参数与 `DispatchDesc` 见 `../architecture-design.md` §3.8/§3.11；映射与作用域见 §3.12/§3.13；错误码映射见 §3.9；场景与判据唯一权威 `../design/scene-specs.md` §3（S18/S19）、§4（第 42 行）。
@@ -46,7 +46,7 @@ A-stage3 验收表：A38~A42 全绿 + 双入口等价 + 回归不退化
 说明：
 
 - 双入口等价的**判定基准**是直连 HLI（黄金入口）：计算驱动入口不得产生与直连不同的命令流或数值（`compute-driver.md` §10 验收要点）。
-- S18 `case-3`（经计算驱动，= case-1 同参数）为本章主验收子 case；S19 按 `case-0`（作用域/barrier）、`case-2`（异步）、`case-3`（间接 dispatch + 谓词）分列验收（`scene-specs.md` §3）。
+- S18 `case-3`（经计算驱动，= case-1 同参数）为本章主验收子 case；S19 `case-0..4` 全部进入双入口矩阵：作用域/barrier、gather/scatter、异步、间接 dispatch + 谓词、图形↔计算 UAV 互操作（`scene-specs.md` §3）。
 
 ---
 
@@ -57,7 +57,7 @@ A-stage3 验收表：A38~A42 全绿 + 双入口等价 + 回归不退化
 | 维度 | 判据 |
 |---|---|
 | 命令流 | 计算驱动入口生成命令包序列与直连 HLI 手动 Dispatch **同参数、同顺序、同值**（`SET_KERNEL_ARGS`/`DISPATCH`/`SIGNAL`/`WAIT` 逐条可比） |
-| 探针 | S18/S19 探针表两入口**逐值零容差**一致 |
+| 探针 | S18 `case-0..3` / S19 `case-0..4` 探针表两入口**逐值零容差**一致 |
 | 配置矩阵 | `api_backend ∈ {hli, compute} × exec_mode ∈ {serial, parallel}` 全组合一致 |
 
 ### 3.2 错误路径映射（权威：`architecture-design.md` §3.9 + `compute-driver.md` §9）
@@ -115,7 +115,7 @@ A-stage3 = A38（对象/装载）∧ A39（打包/派发）∧ A40（stream/even
 | M42.1 | T42.1 | ① 契约 | 双入口等价验收的探针/判据单测与配置矩阵（`api_backend ∈ {hli,compute} × exec_mode ∈ {serial,parallel}`） |
 | M42.1 | T42.2 | ② 主体 | 把 39~41 的 demos 全部接到计算驱动入口（`LaunchKernel` 统一路径），与直连 HLI 手动 Dispatch 命令流逐条对齐 |
 | M42.2 | T42.3 | ② 主体 | 错误路径回归：六条校验非法样例、坏 module/function、未达成值 Query 经计算驱动入口正确映射 `MUSA_ERROR_*`（不吞错、不静默降级） |
-| M42.2 | T42.4 | ③ 接入 | S18/S19 经计算驱动入口跑通本章覆盖子集（S18 `case-0~3`、S19 `case-0~3`；`case-3` 主验收） |
+| M42.2 | T42.4 | ③ 接入 | S18/S19 经计算驱动入口跑通本章覆盖子集（S18 `case-0~3`、S19 `case-0~4`；S18 `case-3` 主验收） |
 | M42.2 | T42.5 | ④ 验收 | A42/A-stage3 全绿：S18/S19 双入口逐值等价（L2 + 横切）、`serial`/`parallel` 零容差一致、E/S 场景不退化、共用单元无"图形专用/计算专用"分支审查（ADR-032） |
 
 ### 子里程碑
@@ -131,11 +131,11 @@ A-stage3 = A38（对象/装载）∧ A39（打包/派发）∧ A40（stream/even
 
 | DoD | 判据（机器可判） | 级别 |
 |---|---|---|
-| D42.1 | 等价矩阵单测全绿（4 组合 × 本章覆盖子集：S18 `case-0~3` / S19 `case-0~3`）；配置键不新增 | L1 契约 |
+| D42.1 | 等价矩阵单测全绿（4 组合 × 本章覆盖子集：S18 `case-0~3` / S19 `case-0~4`）；配置键不新增 | L1 契约 |
 | D42.2 | 计算驱动入口命令流 = 直连 HLI 手动 Dispatch 命令流（同参数、同顺序）；`v[56..67]` / SIGNAL-WAIT 快照一致 | 横切 |
-| D42.3 | S18 `case-3` 探针与直连 HLI 逐值零容差一致；S19 `case-0`（作用域/barrier）、`case-2`（异步）、`case-3`（间接 dispatch + 谓词）经计算驱动入口与直连 HLI 等价；计算→图形 fence 后结果可见 | L2 + 横切 |
+| D42.3 | S18 `case-3` 探针与直连 HLI 逐值零容差一致；S19 `case-0..4`（作用域/barrier、WA-10 gather/scatter、异步、间接 dispatch + 谓词、图形↔计算 UAV 互操作）经计算驱动入口与直连 HLI 等价；计算→图形 fence 后结果可见 | L2 + 横切 |
 | D42.4 | 错误路径全部命中正确 `MUSA_ERROR_*`，无吞错/降级；二次非法调用不崩溃 | L1 |
-| D42.5 | A-stage3 全绿：A38~A41 + 本章 A42（D42.1~D42.4）汇总 + `serial`/`parallel` 零容差 + S10/S11/S12/S16/S17 回归 + ADR-032 分支审查 | L1 + L2 + 横切 |
+| D42.5 | A-stage3 全绿：A38~A41 + 本章 A42（D42.1~D42.4）汇总 + E1~E5/S0~S17 全部适用回归（E0 单独 L1 自检）+ 适用场景 `serial`/`parallel` 零容差 + ADR-032 分支审查 | L1 + L2 + 横切 |
 
 ---
 
@@ -145,11 +145,11 @@ A-stage3 = A38（对象/装载）∧ A39（打包/派发）∧ A40（stream/even
 
 | 项 | 内容 |
 |---|---|
-| 输入 | S18（1D/2D/3D grid+block、kernel 参数、越界 work-item，本章覆盖 `case-0~3`）；S19（LDS/原子/barrier + 间接 dispatch + 异步计算，本章覆盖 `case-0~3`）；`api_backend ∈ {hli, compute} × exec_mode ∈ {serial, parallel}` |
+| 输入 | S18（1D/2D/3D grid+block、kernel 参数、越界 work-item，本章覆盖 `case-0~3`）；S19（LDS/原子/barrier + gather/scatter + 间接 dispatch + 异步计算 + UAV 互操作，本章覆盖 `case-0~4`）；`api_backend ∈ {hli, compute} × exec_mode ∈ {serial, parallel}` |
 | 产物 | 双入口命令包序列比对、S18/S19 探针表（双入口）、A-stage3 汇总表、错误映射日志 |
-| 主判据 | S18/S19 经计算驱动入口与直连 HLI 入口逐值等价（同参数、同命令流、同探针，零容差；`case-3` 主验收）；`serial`/`parallel` 零容差一致 |
+| 主判据 | S18/S19 全部纳入双入口矩阵；探针逐值等价（同参数、同命令流、同探针，零容差；S18 `case-3` 为驱动入口主验收）；`serial`/`parallel` 零容差一致 |
 | 本章专有判据 | 六条校验非法样例 / 坏 module / 未达成值 Query 经计算驱动入口正确映射 `MUSA_ERROR_*`（不吞错、不静默降级）；共用单元无特化分支（ADR-032） |
-| 回归项 | A1~A41 全绿；S10（波内/组内归约计算侧）、S11（并行）、S12（多引擎）、S16（所有权）、S17（API 等价）在计算驱动接入后不退化 |
+| 回归项 | R42：E1~E5 与 S0~S17 不退化（E0 单独执行 L1 自检）；所有适用场景运行 `serial`/`parallel`，S10/S11/S12/S16/S17 重点复核；未列明历史 A 门禁不自动阻断 |
 | 后续补齐 | `LaunchWithParamBuffer`、动态并行、可变 subgroup、真实 occupancy —— 二期 / 范围外，仅留 capability bit / 文档登记 |
 
 > 场景输入与探针单份规约见 `../design/scene-specs.md` §3（S18/S19 节）与 §4（第 42 行）；A-stage3 汇总以本节 + §4 表为唯一权威。

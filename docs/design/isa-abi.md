@@ -1,6 +1,6 @@
 # ISA 与 Shader ABI — 独立模块设计
 
-> 项目目标、范围、阶段与交付以[任务规划](../CPU模拟GPU教学项目_任务规划与实施规格.md)为主干；roadmap展开章级任务，architecture-design定义模块树与层间契约。本文负责本模块的内部技术设计。
+> 项目目标、范围、阶段与交付以[任务规划](../README.md)为主干；roadmap展开章级任务，architecture-design定义模块树与层间契约。本文负责本模块的内部技术设计。
 
 > 定位：定义 GPU 虚拟 ISA 的 64 bit 定长编码、opcode 区段与着色器寄存器 ABI 分区，是全栈共享（解释器、汇编器、反汇编器、编译器、LLVM 对照）的唯一权威。
 > 落地章：第 5 章初版（最小 ISA）、第 16 章冻结（完整编码与汇编器）；编译器 17~19 只消费本 ABI，不共享内部数据结构。
@@ -35,9 +35,14 @@
 | 0x00 | 空操作 | `NOP` |
 | 0x01~0x0F | 特殊/保留 | — |
 | 0x10~0x1F | ALU / 谓词 | `ADD/SUB/MUL/DIV/AND/OR/XOR/NOT/CMP/MOV/MAD/SETP` |
-| 0x20~0x2F | 内存 / 纹理 / 片上 | `LD/ST/SAMPLE/LDS/STS` |
+| 0x20 | `LD` | 常量/全局读 |
+| 0x21 | `ST` | 全局写 |
+| 0x22 | `SAMPLE` | 纹理采样 |
+| 0x23 | `LDS` | workgroup LDS 读（B-043） |
+| 0x24 | `STS` | workgroup LDS 写（B-043） |
+| 0x25~0x2F | 保留/后续纹理操作 | 未登记前必须拒绝 |
 | 0x30~0x3F | 控制流 | `BR/BRC/CALL/RET/SYNC_PUSH/SYNC_POP/RECONVERGE` |
-| 0x40~0x4F | 同步 / 原子 | `BARRIER/ATOMIC_ADD/ATOMIC_CAS` |
+| 0x40~0x4F | 同步 / 原子 | `BARRIER/ATOMIC_ADD/ATOMIC_CAS`；LDS/STS 默认 Workgroup scope，global atomic 默认 Device scope |
 | 0x50~0x5F | 内建 ID | `GET_THREAD_ID/GET_GROUP_ID/GET_VERTEX_ID/GET_PIXEL_POS/GET_INSTANCE_ID` |
 | 0x60~0x6F | 曲面 / 几何 | `TSETUP/EVAL/EMIT/RESTART` |
 | 0x70~0x7D | subgroup（第 29 章） | `BALLOT/SHFL/BROADCAST/REDUCE/DERIV` |
@@ -50,7 +55,13 @@
 
 - 谓词统一为 **u64 值 + mask/cond 比较**（Q-70）：`SETP` 写完整 u64 谓词值，分支与选择按 mask/cond 解释；bool 仅为其特例，不再单独定义 bool 寄存器具名。
 
-## 3. Shader ABI（第 16 章冻结）
+## 3. Shader ABI 与执行作用域默认值
+
+- `LDS/STS` 地址始终属于当前 workgroup 的 LDS，默认且唯一 scope=`Workgroup`。
+- `ATOMIC_ADD/CAS` 对 global 地址默认 scope=`Device`；只在指令显式携带 `Workgroup` scope 且目标为 LDS 时缩小到组内。
+- `BARRIER` 指令的 scope 和 memOrder 必须显式编码；未编码时按 `Workgroup + AcqRel` 处理。命令包 `BARRIER` 仍使用 `command-mmio.md` §2.3 固定 envelope。
+
+### Shader ABI（第 16 章冻结）
 
 | 项 | 约定 |
 |---|---|
@@ -60,7 +71,7 @@
 | 控制流栈 | `struct { u32 pc; LaneMask mask; }`，不做位域打包 |
 | 输入属性 | `kVgprBaseAttrib`（`v[0..15]`），由 IA 按 `VertexInputLayout` 装配（`architecture-design.md` §3.7） |
 | VS 输出 | `kVgprBaseVsOut`（`v[16..27]`） |
-| HS 因子 | `kVgprBaseTessFactor`（`v[28..35]`）：`(inner,e0,e1,e2)` 四项结构共 8 个槽 |
+| HS 因子 | `kVgprBaseTessFactor`（`v[28..35]`）：`factor[0..7]`；`[0]=inner0`、`[1]=inner1`、`[2..5]=outer0..3`、`[6..7]=reserved=0`，由 TessDomain 选择有效因子 |
 | PS 输出 | RT0 `v[36..39]`；深度 `v[40..43]`；RT1~3 `v[44..55]`（RT0 起分区整体后移） |
 | uniform | `v[56..67]`，只放小体积高频标量；大块常量走常量区 + `LD` |
 | 距离区 | `kVgprBaseDistance`（`v[68..75]`）：先 clip 后 cull，`clipCount + cullCount ≤ 8`，count 由 PSO 声明；未声明时该区仍保留 |
@@ -87,7 +98,7 @@
 ## 5. 与编译器 / LLVM 对照的关系
 
 - 编译器（`../docs/design/compiler.md`）与 `hw_sim` 的唯一连接是 `common` 的 ISA 定义与 Shader ABI，不共享内部数据结构。
-- SSA ↔ LLVM IR 对照（第 19 章）以"两后端逐字节一致"为唯一判据，底层就是本文件编码必选一致。
+- SSA ↔ LLVM IR 对照（第 19 章）验证本文件编码/ABI 与规范程序语义；后端生成不同合法指令序列是允许的。
 
 ## 6. 契约变更
 

@@ -1,6 +1,6 @@
 # 第 17 章 编译器前端
 
-> 项目范围、阶段位置和交付以[任务规划](../CPU模拟GPU教学项目_任务规划与实施规格.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
+> 项目范围、阶段位置和交付以[任务规划](../README.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
 
 > 本章把"手写 ISA"替换为真实编译器：GLSL-like 子集源文 → 词法/语法/语义 → AST → SSA IR + CFG → 发散分析（一致值 SGPR / 发散值 VGPR）。前端不产出最终 ISA（后端第 18 章），但产出可快照、可重放、可对照 IR。IO 签名校验是本单元特有的树篱判据。设计说明见 `../design/compiler.md` §1~§3。
 > 与本章相关的设计说明：`../design/compiler.md`（前端/S3 场景/IR 快照）；ADR-034（发散分析）；`../design/isa-abi.md` §3（ABI 分区，编译器不共享 hw_sim 内部结构）。
@@ -75,6 +75,8 @@ struct FrontendOutput {
 Result CompileShader(const ShaderSource&, const ShaderIo& expectIo, FrontendOutput* out);
 ```
 
+`CompileShader` 的双返回契约：API `Result` 只表示调用参数/输出缓冲是否有效；编译器诊断的唯一细节位于 `FrontendOutput`。参数非法或 `out==nullptr` → `Result::InvalidArgument`（无有效输出）；有效调用完成后函数返回 `Result::Success`，由 `out->result` 表示 `Ok/ParseError/SemanticError/IoMismatch/OutOfMemory`，具体源码位置与说明写入 `out->error`。前端编译错误不得再映射为第二套 `Result` 错误码。
+
 - `expectIo`：由 PSO 描述提供（第 20 章管线）。io 校验：inputs/outputs 属性数量、语义名、类型必须与着色器声明一致；不匹配 → `IoMismatch`。
 - `stage` 标明属性所属阶段；`location` 为阶段内槽位，按 stage 基址换算（VS 输入 `v[0..15]`、PS 输出 `kVgprBasePsOut`（`v[36..]`）等），不写裸号（Q-54）。
 
@@ -82,7 +84,7 @@ Result CompileShader(const ShaderSource&, const ShaderIo& expectIo, FrontendOutp
 
 ```cpp
 struct BasicBlock { u32 id; std::vector<u32> preds, succs; std::vector<Insn*> body; BlockKind kind; };
-struct SsaValue { u32 id; TypeRef type; Ukind uniform; };   // uniform = 发散标注
+struct SsaValue { u32 id; TypeRef type; u8 kind; };   // uniform = 发散标注
 struct PhiNode  { u32 dst; std::vector<std::pair<u32,u32>> incoming; }; // (BB,val)
 struct IrModule { std::vector<Function> funcs; GlobalTable globals; };
 ```
@@ -132,7 +134,7 @@ tokens → parser（Pratt precedence）→ AST（表达式带类型标注）
 | T17.12 | ② 主体 | 内置函数子集（`floor/frac/clamp/min/max/smoothstep` 等）实现为 IR 原语 |
 | T17.13 | ② 主体 | 编译自检样本集与驱动：多源码（正确/错误）样本 + 自检断言（供 `scene_s0_selftest` 调用） |
 | T17.14 | ③ 接入 | `scene_s0_selftest` 自检与 S3 编译着色器链路接入：源码 → IR 快照 → 后端（18 章）→ 执行 |
-| T17.15 | ④ 验收 | A17：S3 编译场景 + 专有判据（IR 快照稳定、产物与手写一致、IO 签名错误确定）+ A16 回归 |
+| T17.15 | ④ 验收 | A17：S3 编译场景 + 专有判据（IR 快照稳定、产物与手写一致、IO 签名错误确定）+ R17 回归项 |
 
 **章内里程碑（Q-49）**：
 
@@ -161,8 +163,8 @@ tokens → parser（Pratt precedence）→ AST（表达式带类型标注）
 | D17.11 | 深递归（>200 帧）编译返回 `SemanticError` 并自终止 | L1 契约 |
 | D17.12 | 内置函数编译为 IR 原语；无未知内建 `SemanticError` | L1 契约 |
 | D17.13 | S0 编译器自检：正确样本全部 Ok；错误样本得到对应错误类 | L1 契约 |
-| D17.14 | S3 编译管线端到端：编译产物执行 = 手写 ISA 期望（一致性由第 18 章收口） | L2 解析 + A17 |
-| D17.15 | A17 全绿：IR 快照稳定、产物与手写 ISA 一致（本单章判据 + 后端接入回证）、IO 签名不匹配返回确定错误 | L1 + L2 |
+| D17.14 | S0 前端用例全绿：合法源码生成规范化 IR 快照，非法语法/语义/IO 签名返回明确错误与源码位置；不要求本章产物执行或出图 | L1 + L2 |
+| D17.15 | A17 全绿：前端 IR、语法/语义错误、源码位置与 IO 签名单测通过；A17 不依赖第 18/19 章后端 | L1 + L2 |
 
 ---
 
@@ -174,9 +176,9 @@ tokens → parser（Pratt precedence）→ AST（表达式带类型标注）
 |---|---|
 | 输入 | S3：预置若干 GLSL-like VS/PS 源码（含分支）；S0：正确/错误样本集（每语法/语义类各一） |
 | 产物 | IR 快照、编译产物 `.bin`（后端出）、错误报告 `{file:line:col, code}` |
-| 主判据 | S3：编译管线端到端出图 = ref_model 期望；S0：编译器自检全绿 |
-| 本章专有判据 | ① IR 快照稳定（同源码两次逐字节一致）；② 编译产物与手写 ISA 执行结果一致（此判据在 18 章回证，17 章先保证 IR 面稳定）；③ IO 签名不匹配返回确定错误 |
-| 回归项 | A1~A16 全绿；E0~E5（手写 ISA 路径仍可用）不退化 |
+| 主判据 | 本章只判源码解析、语义检查、规范化 IR 与 IO 签名；S0 前端自检全绿。S3 编译产物出图归第 18 章 A18 / 第 19 章 A19 收口 |
+| 本章专有判据 | ① IR 快照稳定（同源码两次逐字节一致）；② 错误源码返回确定的 `CompilerResult` 和源码位置；③ IO 签名不匹配返回确定错误。编译产物与手写 ISA 的执行等价由 18/19 章验收 |
+| 回归项 | R17：E0~E5（手写 ISA 路径仍可用）不退化；未列明历史 A 门禁不自动阻断 |
 | 后续补齐 | 后端寄存器分配/发射（18）；优化 pass（18.1）；LLVM 对照（19）把 IR 快照作为对照输入 |
 
 ---

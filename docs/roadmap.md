@@ -1,6 +1,6 @@
 # GPU 驱动全栈软模型 — 总开发计划（Roadmap）
 
-> 定位：章级任务分解与执行路线图。它将 [CPU 模拟 GPU 教学项目任务规划与实施规格](CPU模拟GPU教学项目_任务规划与实施规格.md) 中的正式阶段和工作包展开为章号、任务、依赖与门禁，不另行决定项目总体范围或产品顺序。
+> 定位：章级任务分解与执行路线图。它将 [项目总体设计与任务规划](README.md) 中的正式阶段和工作包展开为章号、任务、依赖与门禁，不另行决定项目总体范围或产品顺序。
 > 文档职责：项目范围、阶段和最终交付以任务规划为主干；本文件维护章号、章级任务、依赖、ADR、配置键及逐章验收；`architecture-design.md` 维护模块树与层间契约；`docs/design/` 维护模块内部机制；`scene-specs.md` 是场景输入与判据的唯一权威；各章文档细化实现。
 > 配套：`architecture-design.md`（分层、模块树、接口契约与 ABI）；`docs/design/`（独立模块设计文档）；`docs/stage1/`、`docs/stage2/`（章文档）；`docs/design/scene-specs.md`（单份场景规约，E/S 场景输入与判据的唯一权威）；`docs/adr/`（决策记录）。
 
@@ -55,7 +55,7 @@
 | ADR-013 | 计算线在高级阶段引入，随 29~34 章内落地，不新增章号 | **原文（保留，只增不改号）**：计算能力按 20、29~31、33~34、35.5 落到章内（图形+计算共用单元），不新增章号。**修订记录**：① 2026-11-19 修订——"第 37 章收口"条款废止，计算专属的管线收口任务单列独立第 37 章（35.5 管线部分并入）；② 2026-11-20 修订（D11）——"35.5" 表述废止：37 章只做计算管线（派发/调度/组驻留/作用域/间接/统计），MUSA 风格计算驱动对象模型与实现归 **stage3 38~42（ADR-047）**。两案分工以 ADR-048 为准 |
 | ADR-014 | 串行推进 | 单任务、单章、单阶段依次通过，不并行开发；§3.1 |
 | ADR-015 | RT 字节序统一 BGRA | `R8G8B8A8_UNORM`，内存 `[B,G,R,A]`，Clear/光栅/OM/Present/校验全栈一致 |
-| ADR-016 | 片上存储承载 HS/DS patch 载荷 | `LDS/STS` 访问，不走 VA/PA；第 28 章 |
+| ADR-016 | Tess/GS patch 的地址空间 | HS/DS patch 载荷走专用 stage-local buffer，不走通用 VA/L1/L2；v1 不并入 workgroup LDS。workgroup LDS 只由 `LDS/STS` 访问，见 ADR-050/第 30 章 |
 | ADR-017 | 几何前端切片 | draw 语义归引擎、**切片容量归第 23 章前端派发器、VGT 只产顶点流**；`IEngine::Execute` 末参为 `IShaderArray*`；应用不拆批；第 23 章 |
 | ADR-018 | warp32 与 `LaneMask=u32` | `WARP_SIZE=32` 固定不开放；掩码取反必须与全集相与；控制流栈用 `{pc, mask}` 结构体 |
 | ADR-019 | SE 分区并行 | 屏幕 tile 静态分给 N 个 SE，SE 内 VS/PS 波由 CU 原子领取；任意 `se_count × worker_threads` 硬判据一致；第 31 章 |
@@ -89,6 +89,9 @@
 | ADR-047 | 计算驱动开发线 = stage3 新章 38~42（2026-11-19 新增） | 在 1~37 章基础之上，以独立 **stage3 计算驱动开发线（docs/stage3/，新章 38~42）** 承载 MUSA 风格计算驱动（`umd/compute`：context/module/function/stream/event、LaunchKernel、参数打包）的落地与 demo；不新增包号/opcode/stateId/MMIO/配置键（复用 `DISPATCH`=0x04 等，ADR-043）；不新增 `hw_sim` 单元/目录（ADR-009）；驱动对象与 ABI 迁出到 `docs/design/compute-driver.md`；主验收 S18/S19 经计算驱动入口与直连 HLI 入口双入口等价（A42）；落点本文 §0.2/§2.1/§2.2、`docs/design/compute-driver.md` |
 | ADR-048 | 37 章独立（计算管线）与 stage3 38~42（计算驱动）的分工依据（2026-11-20 新增，D2/D11） | 第 37 章**只做计算管线**：Compute 引擎派发、kernel 参数打包与校验（六条，`architecture-design.md` §3.8）、三维映射/组驻留、作用域、间接派发、统计与查询；**不含计算驱动对象模型**（原 M37.4/T37.14~17 废止，roadmap §2.1 F 组为 **14 任务（T37.1~T37.14）/ M37.1~M37.4**）。MUSA 风格计算驱动（对象/ABI/实现/demo/双入口等价 A42）整体归 stage3 38~42（ADR-047），对象契约权威 `docs/design/compute-driver.md`；37 的 HLI 计算入口（`SetKernel/Dispatch/DispatchIndirect`）是 stage3 计算驱动的下游接口，37 先冻结该接口、stage3 经它下发。本 ADR 取代 ADR-013 中"35.5"与"37 含计算驱动对象模型"的全部表述（ADR-013 只增不改号，见其修订记录） |
 | ADR-049 | S19 纳入计算↔图形互操作 `case-4`（2026-11-20 新增，P1-9 定案） | S19 新增 `case-4`：图形写 RT → fence → 计算 image load → **UAV store 路径**写回 → 比对；判据 = 同一 `(x,y,format)` 字节布局逐字节一致；判据对照对象为 20 章 image 描述符 + 26 章格式转换表，**不依赖 26 章 OM 写回探针**；WA 归属 = WA-08 扩展子 case（`architecture-design.md` §7.9）；不新增包号/opcode/stateId/MMIO/配置键 |
+| ADR-050 | Tess/GS patch staging 与确定性细分公式（2026-11-21，P1-27/32/33） | Tessellation patch 在 v1 使用独立 stage-local buffer，不并入 workgroup LDS；factor ABI 为 `factor[0..7]`；tri/quad/isoline 的有效因子、clamp/ceil、顶点计数与非法输入按 `stage2/28-tess-gs.md` §3~§4 唯一执行；patch 不跨切片 |
+| ADR-051 | PREDICATE 载荷与跳过边界（2026-11-21，P1-37/38） | `PREDICATE` 唯一载荷 `{predVa,mask,cond,skipDwords,reserved0}`；不匹配时仅跳过 `skipDwords` 指定的完整命令包序列，并校验目标边界；载荷详见 `command-mmio.md` §2.4 |
+| ADR-052 | Compute context/event/reset 生命周期（2026-11-21，P1-41/42/43/45） | 一设备多 context、context:ASID 1:1；Event 自有 timeline semaphore，可跨 queue wait；context 销毁与 stream drain 分工见 stage3 38/40；复位丢弃 in-flight、复位中拒绝新提交，应用重建对象后显式重提，不隐式重放 | |
 
 ### 0.4 异常处理简化（ADR-011）
 
@@ -296,8 +299,8 @@
 | 35 | 35.2 Vulkan-UMD | Vulkan 后端封装 | T35.06~T35.10 |
 | 35 | 35.3 D3D12-UMD | D3D12 后端封装 | T35.11~T35.15 |
 | 35 | 35.4 OpenGL-UMD | OpenGL 后端封装 | T35.16~T35.20 |
-| 37 | M37.1 计算通路与派发 | 计算入口契约、参数打包校验、Compute 引擎派发、uniform 装载、直连 HLI 接入 | T37.1~T37.5 |
-| 37 | M37.2 计算调度与协作收口 | 三维映射驱动侧、组内 barrier 作用域、内建 id、统计口径 | T37.6~T37.9 |
+| 37 | M37.1 计算硬件通路 | DISPATCH 载荷、Compute 引擎派发、SET_KERNEL_ARGS 消费、uniform 装载、直连 HLI 硬件路径 | T37.1~T37.5 |
+| 37 | M37.2 计算调度与协作收口 | 复用三维 workgroup 映射、组内 barrier 作用域、内建 id、统计口径 | T37.6~T37.9 |
 | 37 | M37.3 计算系统收口 | 异步计算、间接派发、查询统计、全阶段 UAV 写回 | T37.10~T37.13 |
 | 37 | M37.4 端到端验收 | 直连 HLI 计算入口接 S18/S19、A37（双入口等价归 stage3 42） | T37.14 |
 | 38 | M38.1 对象骨架 | umd/compute 头文件、Context 创建销毁、MUSA_MODULE_HDR 解析、Function 入口 | T38.1~T38.4 |
@@ -322,7 +325,7 @@
 | B 执行 | 15~19 | 60 | 12 | 13.4% | S0、S3 | 分歧、完整 ISA、编译器三件套、LLVM 对照 |
 | C 图形 | 20~28 | 113 | 23 | 25.2% | S3~S9、S14 | 资源绑定、纹理、完整几何前端、光栅、OM、MSAA、Tess/GS |
 | D 并行 | 29~31 | 40 | 8 | 8.9% | S10、S11 | 波内/组内协作、SE 分区（共用执行单元） |
-| E 系统 | 32~36 | 57 | 12 | 12.7% | S12、S13、S15、S16、S17 | 多队列/多引擎/查询/HLI/三套图形 UMD/复位 |
+| E 系统 | 32~36 | 57 | 12 | 12.7% | S12、S13、S15、S16、S17 | 多队列/多引擎/查询/HLI/可选图形 API-inspired adapter/复位 |
 | F 计算 | 37 | 14 | 4 | 3.1% | S18、S19 | 计算管线收口、直连 HLI 计算入口跑通（双入口等价归 G） |
 | G 计算驱动（stage3） | 38~42 | 30 | 10 | 6.7% | S18、S19（双入口等价） | 计算驱动对象模型落地（context/module/function/stream/event）、LaunchKernel/参数打包、stream/event 异步、组内协作/间接派发/UAV 写回、双入口等价验收 |
 | **合计** | **42 章** | **449** | **98** | **100%** | — | — |
@@ -340,9 +343,9 @@
 | B | S0、S3 全绿 | ISA 编码与 Shader ABI 冻结 | S1、S2 不退化 |
 | C | S3~S9、S14 全绿 | 描述符/绑定/纹理/几何前端契约冻结 | B 阶段场景不退化 |
 | D | S10、S11 全绿 | 并行确定性规则、三维 workgroup 映射、workgroup 组驻留与计算作用域契约冻结（`architecture-design.md` §3.12、§3.13） | C 阶段场景在 `parallel` 下不退化 |
-| E | S12、S13、S15、S16、S17 全绿 | 队列/屏障/查询/错误/HLI ABI 契约冻结（含 `DISPATCH` 载荷与间接参数） | 全部 E/S 场景在双策略下不退化 |
-| F | S18、S19 全绿 + 直连 HLI 计算入口跑通（**双入口等价归 G 门禁**，42 章） | 计算管线契约冻结（CS 计算管线：派发/调度/组驻留/作用域/间接/统计；驱动对象模型归 stage3 38~42） | 全部 E/S 场景在双策略下不退化 |
-| G（stage3 计算驱动） | A38~A42 全绿；S18/S19 经计算驱动入口与直连 HLI 入口逐值等价（A42） | 计算驱动对象模型与参数打包 ABI 冻结（`docs/design/compute-driver.md`）；不新增包号/opcode/stateId/MMIO/配置键（ADR-043/047） | 全部 E/S 场景在双策略下不退化 |
+| E | S12、S13、S15、S16、S17 全绿 | 队列/屏障/查询/错误/HLI ABI 契约冻结（含 `DISPATCH` 载荷与间接参数） | E1~E5/S0~S17 已交付且适用场景在 `serial`/`parallel` 下不退化（E0 单独 L1 自检；S18/S19 不属于本阶段门禁） |
+| F | S18、S19 全绿 + 直连 HLI 计算入口跑通（**双入口等价归 G 门禁**，42 章） | 计算管线契约冻结（CS 计算管线：派发/调度/组驻留/作用域/间接/统计；驱动对象模型归 stage3 38~42） | E1~E5/S0~S17 已交付且适用场景，以及 S18/S19，在 `serial`/`parallel` 下不退化（E0 单独 L1 自检） |
+| G（stage3 计算驱动） | A38~A42 全绿；S18/S19 经计算驱动入口与直连 HLI 入口逐值等价（A42） | 计算驱动对象模型与参数打包 ABI 冻结（`docs/design/compute-driver.md`）；不新增包号/opcode/stateId/MMIO/配置键（ADR-043/047） | E1~E5/S0~S19 适用场景在 `serial`/`parallel` 下不退化（E0 单独 L1 自检） |
 
 ### 2.4 任务拆分模板（四段式）
 
@@ -365,7 +368,7 @@
 | 2 | 2、3、5、7、9、12、13、22、29、34 | 10 | 环回绕边界、分配不重叠、LOD/寻址、归约顺序 | S1 用 N > 环容量压测；E0 全指令 smoke；归约顺序写死 |
 | 3 | 4、6、16、21、23、24、25、26、27、32、33、36 | 12 | 掩码位宽、共享边、裁剪退化、格式转换、依赖顺序 | `LaneMask` 统一 u32；成对三角形专测；屏障/信号值序显式断言 |
 | 4 | 10、11、15、17、18、20、28、35 | 8 | KMD/FW 边界、页表/TLB、IR 正确性、描述符跨章契约、API 语义面 | 接口先冻结再实现；IR 快照；HLI 先于 UMD |
-| 5 | 14、19、30、31 | 4 | 抢占恢复、LLVM ABI、内存序与原子、并行确定性 | 状态快照比对；两后端逐字节一致；固定归约；S11 全组合矩阵 |
+| 5 | 14、19、30、31 | 4 | 抢占恢复、LLVM ABI、内存序与原子、并行确定性 | 状态快照比对；两后端语义一致；固定归约；S11 全组合矩阵 |
 
 ### 2.6 可行性与总量
 
@@ -432,7 +435,7 @@
 | 内存序映射 | 30、31、37 | acquire/release + workgroup/device；`docs/design/sync-primitives.md`；37 章收口 kernel 侧作用域 |
 | 三维 workgroup | 31、37 | `DISPATCH(grid, block)`；31 章硬件映射、37 章驱动侧封装 |
 | GPU 侧谓词 | 33、34、37 | `PREDICATE` 包 + 查询回读；37 章收口计算侧谓词 |
-| 完整 Tess / GS | 28 | **自建 patch 缓冲**，C 阶段不依赖 LDS（Q-59）；LDS 化留待第 30 章后评估 |
+| 完整 Tess / GS | 28 | 自建 stage-local patch 缓冲，v1 不并入 LDS（ADR-050），不留后续合并评估项 |
 | 多视口 | 24 | 视口索引与 guard band |
 | 间接 dispatch（计算侧） | 37（间接层 33 共用） | 与直接 dispatch 结果等价（S19） |
 | 命令包版本号 | 1、10 | 首包 `STREAM_HEADER` 携带 `version/engine/flags`；**高级 `version=2` 且拒绝 v1**（Q-28）；`docs/design/command-mmio.md` §1 |
@@ -488,7 +491,7 @@ E0~E5 / S0~S19 的完整规约集中在**单份 `docs/design/scene-specs.md`**�
 ### 3.1 串行推进（ADR-014）
 
 1. **任务级**：`T<x>.n` 的 `D<x>.n` 全部勾选后才开下一条任务；同一章内也不并行。
-2. **章级**：`A<x>` 全绿（场景主判据 + 专有判据 + 回归）后才开下一章；不允许"先写代码后补验收"。
+2. **章级**：依赖图列出的硬依赖与上游契约满足后方可开工；本章 `A<x>` 是本章收口条件，不自动成为所有后续章节的全量回归集。仅当依赖图明确要求某项上游能力时，才检查对应 DoD；历史判据被 ADR 标记 `SUPERSEDED` 后不得阻断。开发顺序仍按依赖图串行推进，不允许"先写代码后补验收"。
 3. **阶段级**：§2.3 三列门禁全绿后才进入下一阶段。
 4. **不设并行分支**：单人串行开发；需要试错时在当章内用临时分支，合回即删。
 5. **契约先行**：任何跨章契约变更，先改 ADR 与架构文档，再改代码。
@@ -507,7 +510,7 @@ E0~E5 / S0~S19 的完整规约集中在**单份 `docs/design/scene-specs.md`**�
 ### 3.3 章号顺序的例外说明
 
 - **4/15 与 5/16**：初级第 4、5 章用"内存内指令结构 + 语义"实现执行与最小 ISA；高级第 15、16 章才补齐分歧、控制流栈与完整二进制编码。初级验收看"语义与寄存器终态"，高级验收看"往返二进制一致"。
-- **17、18、19**：第 18 章必须先把手写后端定稿（含寄存器分配与发射），第 19 章才能以"逐字节一致"作为唯一判据；19 未过不进入 20，否则后端缺陷会被数据通路掩盖。
+- **17、18、19**：第 18 章必须先把手写后端定稿（含寄存器分配与发射），第 19 章按 ABI/ISA 合法性与规范程序语义对照验收；不要求 blob 逐字节一致，也不阻塞 20，否则后端缺陷会被数据通路掩盖。
 - **20 与 16**：资源与绑定依赖 ISA/ABI 冻结，但可以先于几何前端实现；第 21 章纹理接在其后。
 - **35 与 20~34**：API 后端必须在 HLI 接口面稳定后做映射；35 只做对象模型与语义映射，不引入新硬件能力。35.1 先行冻结包格式；计算驱动由第 37 章收口、stage3 38~42 承载实现（ADR-013/047）。
 - **36 贯穿全程**：10~35 各章在实现时保留错误码与"单元 + 包类型 + dword 偏移"定位钩子；第 36 章最后统一收口 watchdog、复位与故障注入，不把错误处理推迟到 36 才从零补。
@@ -577,7 +580,7 @@ E0~E5 / S0~S19 的完整规约集中在**单份 `docs/design/scene-specs.md`**�
 | `tile_h` | 正整数，≤ `rt_size` 高 | 4 | SE 屏幕分块高；仅 `parallel` 生效，与 2×2 quad 解耦；同上 |
 | `warp_size` | 固定 32 | 32 | 不开放，避免基线漂移 |
 | `cache_enable` | `on` / `off` | `on` | 只影响统计，不影响结果 |
-| `rt_size` | `256x256` / `1080x720` / 自定义 | `256x256` | 场景底板尺寸 |
+| `rt_size` | `256x256` / `1280x720` / 自定义 | `256x256` | 场景底板尺寸 |
 | `api_backend` | `hli` / `vulkan` / `d3d12` / `gl` | `hli` | 只换入口层，硬判据一致（S17） |
 | `trace` | `off` / `<unit>` | `off` | 单步打印指定单元输入输出，仅供人工 |
 | `dump_raw_output` | `off` / `on` | `off` | 校验失败时自动导出原始 raw 帧，CI 诊断制品 |
@@ -766,9 +769,9 @@ Mesa（图形）与 MUSA（计算）分层借鉴的对应表见 `docs/design/com
 
 **专项用例（负向与边界必须真实覆盖）**：
 
-1. 组驻留边界：`block=1024` 且 LDS 接近上限 → 组整体排队但**不死锁**（watchdog 不触发）；
+1. 组驻留边界：`block=512` 且 LDS 接近上限 → 组整体排队但**不死锁**（watchdog 不触发）；
 2. 部分波：`block=100` → 4 个波、末波 4 lane 有效，波数断言 = `ceil(100/32)`；
-3. 跨 wave barrier：`block=1024`（32 波）barrier 放行正确（S18 case-08 类）；
+3. 跨 wave barrier：`block=512`（16 波）barrier 放行正确（S18 case-08 类）；
 4. 非一致 barrier：barrier 处于分歧控制流 → 必须 `InvalidIsa` 中止（负向用例）；
 5. 间接参数越界：`grid=0` 或超 `kMaxWorkgroups` → 确定性中止且可定位；
 6. 双入口等价：同一 WA 在 `hli` 与 `compute` 两入口输出逐字节一致；
@@ -779,7 +782,7 @@ Mesa（图形）与 MUSA（计算）分层借鉴的对应表见 `docs/design/com
 | 风险 | 触发点 | 缓解 | 判据 |
 |---|---|---|---|
 | 组驻留预算算错 → barrier 死锁 | 31 章 occupancy 账本 | 组整体排队规则（§3.12 M-03）+ 专项用例 1 | 不死锁、watchdog 不触发 |
-| LDS bank 冲突被误判为正确性问题 | 30 章 LDS 布局 | 冲突只进软观测，结果按 ≤1 ULP 判（同序 FMA 下期望 0 ULP，告警不阻断，scene-specs §1.2） | 冲突计数仅记录 |
+| LDS bank 冲突被误判为正确性问题 | 30 章 LDS 布局 | 冲突只进软观测，fp32 结果 ≤1 ULP 通过、>1 ULP 阻断；同序 FMA 下 0 ULP 仅为诊断信息（scene-specs §1.2） | 冲突计数仅记录 |
 | 内存序遗漏（device 作用域未 flush） | 30、31、33 章 | 一致性矩阵逐格用例 + barrier 前后中间值快照 | 矩阵每格可复现 |
 | 末波 `LaneMask` 处理错误 | 4、31 章 | 专项用例 2（block=100） | 波数与 lane 有效性断言 |
 | 间接参数执行中被重读 | 33 章 | 展开前读一次的契约（D-10） | 参数改动不改变本次结果 |
@@ -829,7 +832,7 @@ Mesa（图形）与 MUSA（计算）分层借鉴的对应表见 `docs/design/com
 | 章号、章名 | 本文件 §2.1；场景号 → `docs/design/scene-specs.md`；配置键 → 本文件 §5.1 | 章号 1~42 不补零；场景号在场景规约登记；配置键新增先改本表 |
 | `T` / `D` / `A` / `M` | 本文件 §2.1 + 章文档 | 章文档开工时登记，不允许跨章借号 |
 | 包类型 `PKT_TYPE` | `docs/design/command-mmio.md` §2 | **先对照 `bit-budget.md` 审计**再取号；优先载荷 `SubOp`/`EXTENDED`/`INDIRECT`，禁止新增顶层号硬编码（ADR-043） |
-| `EXTENDED` / 包内 `SubOp` 子操作码 | `docs/design/command-mmio.md` §2.1 | 先对照 `bit-budget.md` 审计再取号；已登记 `0x0002 SET_KERNEL_ARGS`（B-033）、`0x0010 DISPATCH_INDIRECT`（B-034）、`0x0011 DRAW_INDIRECT`、`0x0012 DMA_COPY`（B-035） |
+| `EXTENDED` / 包内 `SubOp` 子操作码 | `docs/design/command-mmio.md` §2.1 | 先对照 `bit-budget.md` 审计再取号；已登记 `0x0002 SET_KERNEL_ARGS`（B-033）、`0x0010 DISPATCH_INDIRECT`（B-034）、`0x0011 DRAW_INDIRECT`（B-044）、`0x0012 DMA_COPY`（B-035） |
 | `stateId` / MMIO 段 | `docs/design/command-mmio.md` §4 | **先对照 `bit-budget.md` 审计**再登记；段内偏移由章文档定；`stateId 0~7` 冻结、`0x50~0x7F` 临时、>32 走内存状态表 |
 | opcode 区段 | `docs/design/isa-abi.md` §2 | 第 16 章冻结后细化到具体指令；7 bit 内重编号、`0x80~0xFD` 按 `bit-budget.md` §6 落表 |
 | 探针表 | `tools/ref_model` 生成，`tools/ref_model/probes/` 存放 | 改动必须在同一次提交内更新 |
@@ -847,6 +850,8 @@ Mesa（图形）与 MUSA（计算）分层借鉴的对应表见 `docs/design/com
 | B-035 | `DMA_COPY` | DMA 引擎块拷贝 | PKT_TYPE `EXTENDED` → SubOp | `0x0F/0x0012` | 33 | ADR-043 | **2026-11-20 定案** |
 | B-036~B-041 | ADR-038 硬件上限六件套（CU LDS / CU 驻留波数 / `kMaxWorkgroups` / FIFO 深度 / 描述符堆项数 / `kMaxParamBufBytes`） | 上限与参数区容量登记 | `bit-budget.md` §7.1 登记位 | CU LDS 64 KiB/CU · 驻留 16 waves/CU · `kMaxWorkgroups` 2^20 · FIFO 8 项 · 描述符堆 64K 项 · `kMaxParamBufBytes` 4 KiB | 31、37 | ADR-038/043 | **2026-11-20 定案** |
 | B-042 | MMIO 偏移口径执行项 | 代码统一 dword 索引：重排 `mmio.h` stateId/PSO/多上下文并回写第 2/10 章 | MMIO（`hw_sim/include/hw_sim/mmio.h`） | 执行项（裁定值见 `bit-budget.md` §9 第 6 项） | 2、10 | ADR-043 | **2026-11-20 裁定并前置**：A 阶段**前置任务**，随第 10 章开工首任务（T10.1）完成，A 门禁**无豁免** |
+| B-043 | LDS/STS ISA opcode 分配 | `LDS=0x23`、`STS=0x24`；超出本表分配的 opcode 仍保留/拒绝 | opcode | 0x23/0x24 | 30 | ADR-043 | 永久 |
+| B-044 | `DRAW_INDIRECT` 子操作码 | `EXTENDED/0x0011` | PKT_TYPE `EXTENDED` → SubOp | `0x0F/0x0011` | 33 | ADR-043 | 永久 |
 | `C1`~`C5` | 计算驱动 demo 入口 | stage3 收尾 demo（module_probe / vector_add / async_pipeline / reduce / indirect_dispatch） | 应用目录 `apps/demo_c*`；权威位置 `docs/stage3/` 章文档 + `compute-driver.md` §10（输入规格见 `scene-specs.md` S18/S19 输入规格表） | — | 38~42 | ADR-047 | 永久 |
 
 登记后该编号即成为该分配项的审计锚点，改动必须先改本表。
@@ -894,11 +899,11 @@ Mesa（图形）与 MUSA（计算）分层借鉴的对应表见 `docs/design/com
 | 1 | 跑本章绑定的场景 | 场景主判据全绿 |
 | 2 | 跑探针/基线比对 | 初级全图逐字节；高级探针表逐点通过（L2）；判定类型按场景 spec 四分类（§2.9） |
 | 3 | 跑本章专有判据 | `docs/design/scene-specs.md` §4 第 N 行逐条断言通过（42 章总表） |
-| 4 | 跑上一章场景 | 无回归 |
+| 4 | 跑本章 §7 登记的 `R_n` 回归集 | 所列受影响场景与判据无退化；不默认重跑上一章全部 A 门禁 |
 | 5 | 双策略（若本章在 §5.3 要求） | 探针点零容差一致 |
 | 6 | 填横向关注点 | 无空缺、无未登记待定项 |
 
-> 多场景章以章表（`docs/design/scene-specs.md` §4）**首列场景为主场景**，其余为专有/回归；硬判据一律阻断，不存在"辅判据只报告"；按失败归属区分责任。
+> 多场景章以章表（`docs/design/scene-specs.md` §4）**首列场景为主场景**，其余为专有判据或本章 `R_n` 中明确登记的回归；硬判据一律阻断，不存在"辅判据只报告"；按失败归属区分责任。
 
 ### 8.3 场景验收
 
@@ -947,6 +952,8 @@ Mesa（图形）与 MUSA（计算）分层借鉴的对应表见 `docs/design/com
 依据 `docs/设计文档问题评审-20261120.md` 与 `docs/GPU 软模型设计评审改进建议文档.txt` 完成的跨章裁决与修订记录，见 [design/review-sync-20261121.md](design/review-sync-20261121.md)。该记录明确 Result/MMIO/BARRIER/block 与 indirect ABI、DoD 退役流程，以及第 35/37/39–42 章任务边界。
 
 ### DoD 修订与 SUPERSEDED 流程
+
+每章回归范围记为 `R_n`，在对应 stage 文档 §7 的「回归项」列出；仅纳入本章变更直接影响、仍有效且未被标记为 `SUPERSEDED` 的前序场景/判据。`A1~A(n-1)` 不得作为无差别全量门禁；历史 A 仅作验收记录，契约变更通过 ADR 更新受影响集和旧判据状态。
 
 后续章节可以修订前序契约或判据，但必须依次完成：①记录 ADR 与变更理由；②更新 design 唯一登记表及受影响章节；③登记 `旧判据 → SUPERSEDED → 新判据`，保留旧判据供审计但不再作为阻断门禁；④更新契约快照及本章范围内的回归。未完成以上步骤的新增契约不得进入实现。每章只对该章登记的偏移、编号、能力与场景断言；不得将尚未分配的保留空间当作全局不支持行为做硬判据。
 

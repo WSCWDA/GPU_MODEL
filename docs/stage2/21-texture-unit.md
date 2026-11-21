@@ -1,6 +1,6 @@
 # 第 21 章 纹理单元
 
-> 项目范围、阶段位置和交付以[任务规划](../CPU模拟GPU教学项目_任务规划与实施规格.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
+> 项目范围、阶段位置和交付以[任务规划](../README.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
 
 > 本章把初级"nearest 单层 RGBA8"的纹理采样替换为完整硬件纹理单元：格式解码（含 sRGB）、线性/tile 两种布局、mip/LOD/过滤、数组/Cubemap 寻址、独立采样器对象、以及异步纹理采样（延迟隐藏，ADR-036）。设计说明见 `../design/texture-unit.md` §1~§4。
 > 与本章相关的设计说明：`../design/texture-unit.md`（M21.1~M21.3 / 错误语义 / 延迟隐藏）；ADR-036（波挂起唤醒）；`../design/memory-system.md` §8（采样走 IMemory + 缓存）；`../design/command-mmio.md` §3（`stateId 3/5` 纹理/采样器描述符堆基址；采样器并入 `stateId 5`）。
@@ -14,7 +14,7 @@
 
 1. 格式解码：一期支持 `RGBA8/BGRA8/R8/RG8/D24S8`；sRGB 采样时解码到线性空间、分值重编码回 sRGB。
 2. 布局：线性与 tile 两种；tile 尺寸由格式与 mip 决定，寻址对上层透明（`tile` 模式 `2x1` 或 `2x2` 按格式）。
-3. mip/LOD：LOD 由 `float2 uv` 与 `dPdx/dPdy` 及采样器状态计算（Q-53）；相邻 mip 三线性过滤；越界 clamp 到有效层。
+3. mip/LOD：`uv` 与导数均为归一化纹理坐标；纹理单元按纹理宽高将导数换算为 texel 空间，计算 rho 与 LOD，再按采样器 bias 与有效 mip 范围裁剪；相邻 mip 三线性过滤（Q-53）。
 4. 过滤：nearest、bilinear、trilinear；各向异性只留 capability bit，一期拒参（返回 `NotSupported`，Q-79）。
 5. 寻址：`wrap/clamp/mirror/border`；数组层 `layer` 与 Cubemap 面显式选择。
 6. 比较采样：`SAMPLE_CMP` 返回比较结果；shadow 路径不改变格式解码。
@@ -121,9 +121,9 @@ ReceiveRequest → AddressCalc(寻址模式→像素坐标)
 
 ### 4.2 LOD 计算
 
-- LOD 由纹理单元根据 `SAMPLE` 请求携带的 `float2 uv` 与 `dPdx/dPdy`（25 章 quad 提供导数）及采样器 bias/clamp 计算：
-  `lod = log2(max(|∂u∂x|,|∂v∂x|,|∂u∂y|,|∂v∂y|)) + bias`，clamp 到 `[minLod,maxLod]`、合法 mip 范围。
-- 单像素导数缺失时（点/线路径）用默认 `lod=0`（第 25 章 quad 保证边缘同样提供）。
+- `uv`、`dPdx`、`dPdy` 均使用归一化纹理坐标；导数换算到 texel 空间：`rhoX = sqrt((dudx * width)^2 + (dvdx * height)^2)`，`rhoY = sqrt((dudy * width)^2 + (dvdy * height)^2)`，`rho = max(rhoX, rhoY)`。
+- `lod = log2(max(rho, 2^-24)) + mipLodBias`，再裁剪到 `[max(0,minLod), min(maxLod,mipLevels-1)]`；合法区间为空或导数为 NaN/Inf 时返回 `InvalidArgument`。三线性过滤使用 `floor(lod)` 与下一 mip，并按小数部分插值。
+- 点/线等无导数路径使用 `lod=0`；25 章 quad 路径必须为边缘 lane 提供确定导数。
 
 ### 4.3 数组/Cubemap 寻址
 
@@ -161,7 +161,7 @@ SAMPLE → 波发出请求 → SendSample(req) → 波 Suspend（进挂起队列
 | T21.12 | ② 主体 | `SAMPLE_CMP` 比较采样 |
 | T21.13 | ② 主体 | 异步采样接入：Suspend/OnSampleReturn/waveSwitch |
 | T21.14 | ③ 接入 | `scene_s4_textured_quad`（数组/Cubemap/LOD）、`scene_s14_bindless_uav`（bindless 中纹理）+ S4 采样器 |
-| T21.15 | ④ 验收 | A21：S4/S14 全绿 + 本章专有判据 + A20 回归 |
+| T21.15 | ④ 验收 | A21：S4/S14 全绿 + 本章专有判据 + R21 回归项 |
 
 **章内里程碑（Q-49）**：
 
@@ -191,7 +191,7 @@ SAMPLE → 波发出请求 → SendSample(req) → 波 Suspend（进挂起队列
 | D21.12 | `SAMPLE_CMP` 与 `ref` 比较 `{Less,Leq,Greater,Geq,Equal,NotEqual,Always,Never}` | L1 契约 |
 | D21.13 | 异步开启前后同输入采样结果逐像素一致；`waveSwitch` 计数增加（软观测） | 横切零容差 |
 | D21.14 | S4：数组/Cubemap/LOD 全覆盖 + 独立采样、S14：bindless 纹理路径 | L2 + A21 |
-| D21.15 | A21 全绿：LOD/sRGB/寻址正确、数组/Cubemap 层索引与越界确定、独立采样器、SAMPLE_CMP 正确 + 回归 | L1 + L2 |
+| D21.15 | A21 全绿：LOD/sRGB/寻址正确、数组/Cubemap 层索引与越界确定、独立采样器、SAMPLE_CMP 正确 + R21 回归项 | L1 + L2 |
 
 ---
 
@@ -205,7 +205,7 @@ SAMPLE → 波发出请求 → SendSample(req) → 波 Suspend（进挂起队列
 | 产物 | 采样后端 RT/UAV、采样器绑定记录、LOD 探针 |
 | 主判据 | S4/S14：可寻址采样后的 RT 输出 = ref_model 期望（覆盖角点与 LOD 边界探针） |
 | 本章专有判据 | ① LOD/sRGB/寻址正确；② 数组/Cubemap 层索引与越界确定；③ 独立采样器对象（并入 `stateId 5`）与比较采样正确；④ SAMPLE 请求携带 float2 uv + 导数（dPdx/dPdy），LOD 由纹理单元计算；⑤ 异步采样挂起/唤醒后结果一致且 `waveSwitch` 计数 > 0（延迟隐藏生效） |
-| 回归项 | A1~A20 全绿；初级 E3 nearest 基线不退化 |
+| 回归项 | R21：初级 E3 nearest 基线不退化；未列明历史 A 门禁不自动阻断 |
 | 后续补齐 | 各向异性只留 capability bit；深度纹理/比较在 26/27 章 OM/可见性消费断章 |
 
 ---

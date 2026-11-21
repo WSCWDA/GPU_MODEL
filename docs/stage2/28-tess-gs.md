@@ -1,9 +1,9 @@
 # 第 28 章 Tess + GS
 
-> 项目范围、阶段位置和交付以[任务规划](../CPU模拟GPU教学项目_任务规划与实施规格.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
+> 项目范围、阶段位置和交付以[任务规划](../README.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
 
-> 本章补齐几何阶段的曲面细分（HS → Tessellator → DS）与几何着色器（GS）。patch 载荷经本章**自建 patch 缓冲**跨阶段传递，C 阶段不依赖 LDS（Q-59）；HS 输出四因子（inner/e0/e1/e2，ABI `v[28..35]`）驱动 Tessellator 内核；GS 可 emit/restart 生成多图元并改变图元模式。第 28 章是 C 阶段收口章（S6 接入验收）。
-> 与本章相关的设计说明：Q-59（自建 patch 缓冲，C 阶段不依赖 LDS；与第 30 章 LDS 的合并评估后置）；ADR-034（发散分析）、ADR-033（距离区）；`../design/isa-abi.md` §3（VS out 区预留 HS 四因子）；opcode 区段 0x60~0x6F（曲面/几何，7 bit 重编号）。
+> 本章补齐几何阶段的曲面细分（HS → Tessellator → DS）与几何着色器（GS）。patch 载荷经专用 stage-local buffer 跨 HS→DS 传递，v1 不并入 workgroup LDS（Q-59）；HS 按 `factor[0..7]` ABI 输出 TessFactor，GS 可 emit/restart 生成多图元并改变图元模式。第 28 章是 C 阶段收口章（S6 接入验收）。
+> 与本章相关的设计说明：Q-59（patch payload 使用专用 stage-local buffer，v1 不并入第 30 章 LDS）；ADR-034（发散分析）、ADR-033（距离区）、ADR-050（细分因子与域公式）；`../design/isa-abi.md` §3（HS 因子区布局）；opcode 区段 0x60~0x6F（曲面/几何）。
 > 落地模块：`hw_sim/geometry/{hs,tessellator,ds,gs}`、`apps/scene_s6_tess`（含 GS 子 case）。
 
 ---
@@ -13,7 +13,7 @@
 ### 1.1 目标
 
 1. patch 化：`DRAW` 支持 `patchTopology` + `patchControlPoints`（如 3）；IA 以 patch 为单位装配。
-2. HS：输入 patch 控制点 → 输出 `inner & outer tess factor`（`v[28..35]` = `(inner, e0, e1, e2)`）+ 可选 patch 数据（经自建 patch 缓冲）。
+2. HS：输入 patch 控制点 → 输出 `factor[0..7]`（按 TessDomain 解释）+ 可选 patch 数据（经专用 stage-local patch buffer）。
 3. Tessellator：按三图元模式（`triangles/quads/isolines`）与因子计算细分网格；顶点带重心/参数坐标（经过 DS）。
 4. DS：输入每个细分域顶点 → 按 patch 与域坐标求值（∟坐标/quad/line 插值）→ 输出位置/属性。
 5. GS：输入图元（点/线/三角形/patch 域），可 `EMIT` 顶点、`RESTART` 条带；输出图元可改变原语模式（三图元模式输入/输出声明）。
@@ -75,10 +75,10 @@ struct HsOutput {
 ```
 输入：TessFactor(inner[1], outer[3])，TessMode(tri/quads/iso)，LOD 相关
 输出：域顶点列表 + 每顶点域坐标（bary 或 uv），用于 DS
-公式：细分度为 max(outer) 等；位置由 DS 求值
+因子输入必须为有限正数，先 clamp 到 [1,16] 再 ceil 得整数分段数；triangles 使用 N=ceil(max(inner0,outer0,outer1,outer2))，顶点数=(N+1)(N+2)/2；quads 使用 Nu=ceil(max(inner0,outer1,outer3))、Nv=ceil(max(inner1,outer0,outer2))，顶点数=(Nu+1)(Nv+1)；isolines 使用 lineCount=ceil(outer0)、segments=ceil(outer1)，顶点数=lineCount×(segments+1)。非法 NaN/Inf/非正因子返回 InvalidArgument。位置由 DS 求值。
 ```
 
-- 模式判定与因子到细分步长：`ceil`/固定函数（以 `ref_model` 对齐为准）。
+- 模式判定与因子到细分步长唯一按上表；factor 先 clamp 再 ceil，`ref_model` 与实现共用同一组整数分段公式。
 - 每域顶点一个 DS 波；域坐标确定性由内核次序定。
 
 ### 3.4 DS
@@ -121,11 +121,11 @@ DS wave：每域顶点求值（读自建 patch 缓冲）→ 位置/属性
 
 ### 4.2 三图元模式的表
 
-| 模式 | 因子 | 域坐标 |
+| 模式 | `factor[0..7]` 有效字段 | 分段数/域坐标 |
 |---|---|---|
-| Triangles | inner + outer×3 | bary (u,v,w)；inner 决定中心细分 |
-| Quads | inner[2] + outer[4] | (u,v) 网格 |
-| Isolines | outer[0/1] | 线织 |
+| Triangles | `inner0`, `outer0..2` | `N=ceil(clamp(max(valid factors),1,16))`；barycentric grid，顶点数 `(N+1)(N+2)/2` |
+| Quads | `inner0..1`, `outer0..3` | `Nu=ceil(clamp(max(inner0,outer1,outer3),1,16))`；`Nv=ceil(clamp(max(inner1,outer0,outer2),1,16))`；`(u,v)` grid，顶点数 `(Nu+1)(Nv+1)` |
+| Isolines | `outer0=lineCount`, `outer1=segments` | 两者各自 clamp+ceil；顶点数 `lineCount×(segments+1)` |
 
 - 每模式细分网格顶点数可通过 `factor` 表达式重推（可断言）。
 
@@ -150,7 +150,7 @@ DS wave：每域顶点求值（读自建 patch 缓冲）→ 位置/属性
 | T28.13 | ② 主体 | 与 `ref_model` 的 tess/gs 模块对照（细分网格坐标） |
 | T28.14 | ② 主体 | 切片边界 patch/DS 完整性回归（并入 23 章切片语义） |
 | T28.15 | ③ 接入 | `scene_s6_tess` 接入（细分子 case + GS 子 case） |
-| T28.16 | ④ 验收 | A28：S6 全绿 + 专有判据 + A27 回归盘点 |
+| T28.16 | ④ 验收 | A28：S6 全绿 + 专有判据 + R28 回归项盘点 |
 
 **章内里程碑（Q-49）**：
 
@@ -170,7 +170,7 @@ DS wave：每域顶点求值（读自建 patch 缓冲）→ 位置/属性
 | D28.2 | patch 化：3 控制点=1 patch；非 patch 拓扑不误入 | L1 契约 |
 | D28.3 | HS 每 patch 1 次；因子写 ABI；`patchDataSize` 与写一致 | L1 契约 |
 | D28.4 | Tessellator：tri/quads/iso 网格顶点与 `ref_model` 公式一致（域坐标逐点） | L2 解析 |
-| D28.5 | factor=1 → 1 顶点（边）；factor=K → 细分步长按公式 | L2 解析 |
+| D28.5 | tri/quad/isoline 的 factor=1、非整数 factor、factor=16、非法 NaN/Inf/非正输入，域顶点数和序列逐项符合 §4.2 公式；非法输入为 `InvalidArgument` | L2 解析 |
 | D28.6 | DS：`(u,v,w)` → 位置按 patch 求值 = 参考；属性插值正确 | L2 解析 |
 | D28.7 | patch 载荷无丢失：HS 写 200 项 patch 属性，DS 读回全部一致（自建 patch 缓冲，C 阶段不依赖 LDS） | L1 契约 |
 | D28.8 | GS 每图元一次；EMIT 输出顶点序正确 | L1 契约 |
@@ -179,9 +179,9 @@ DS wave：每域顶点求值（读自建 patch 缓冲）→ 位置/属性
 | D28.11 | GS 输出切片与 VGT 切片同序 | L1 契约 |
 | D28.12 | patch/域顶点/GS 顶点数统计两次运行一致 | L1 契约 |
 | D28.13 | 20 细分 case 与 `ref_model` 对照通过 | L2 解析 |
-| D28.14 | 切片边界 patch/DS 完整（无半 patch） | L1 契约 |
+| D28.14 | patch draw 切片容量为 patchControlPoints 整数倍，patch 不跨片；HS 输出与对应 DS 输入一一配对，无半 patch | L1 契约 |
 | D28.15 | S6 出图 = ref_model（细分网格/GS 多点探针） | L2 + A28 |
-| D28.16 | A28 全绿：patch 载荷无丢失（自建 patch 缓冲，C 阶段不依赖 LDS）、三图元模式正确、细分因子与模式符合公式、输出域属性完整 + 回归 | L1 + L2 |
+| D28.16 | A28 全绿：patch 载荷无丢失（自建 patch 缓冲，C 阶段不依赖 LDS）、三图元模式正确、细分因子与模式符合公式、输出域属性完整 + R28 回归项 | L1 + L2 |
 
 ---
 
@@ -195,7 +195,7 @@ DS wave：每域顶点求值（读自建 patch 缓冲）→ 位置/属性
 | 产物 | 域网格坐标、patch 载荷快照、GS 输出图元、RT |
 | 主判据 | S6 细分/GS 输出 = ref_model（含细分网格与块点） |
 | 本章专有判据 | ① patch 载荷无丢失（自建 patch 缓冲全程，C 阶段不依赖 LDS）；② 三图元模式（tri/quads/iso）正确；③ 细分因子与模式符合公式（factor→细分数可再推）；④ 输出域属性完整；⑤ GS mode 独立枚举与映射正确 |
-| 回归项 | A1~A27 全绿；E2/E4（非 patch 基线）不退化 |
+| 回归项 | R28：E2/E4（非 patch 基线）不退化；未列明历史 A 门禁不自动阻断 |
 | 后续补齐 | 动态细分范围外；GS 与 31 章 tile 交互由 31 章 §10 复核 |
 
 ---

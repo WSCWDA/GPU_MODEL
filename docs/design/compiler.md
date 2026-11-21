@@ -1,6 +1,6 @@
 # 编译器管线 — 独立模块设计
 
-> 项目目标、范围、阶段与交付以[任务规划](../CPU模拟GPU教学项目_任务规划与实施规格.md)为主干；roadmap展开章级任务，architecture-design定义模块树与层间契约。本文负责本模块的内部技术设计。
+> 项目目标、范围、阶段与交付以[任务规划](../README.md)为主干；roadmap展开章级任务，architecture-design定义模块树与层间契约。本文负责本模块的内部技术设计。
 
 > 定位：定义着色器源码（GLSL-like 子集）到 ISA blob 的完整编译管线：前端（词法/语法/语义 + SSA IR + 分歧分析）、后端（优化 + 寄存器分配 + 指令选择与发射）、以及 SSA ↔ LLVM IR 对照后端。
 > 落地章：第 17 章编译器前端（M17.1~M17.3）、第 18 章后端（M18.1~M18.3）、第 19 章 LLVM 对照后端。
@@ -19,7 +19,7 @@
   → 线性扫描寄存器分配（18）
   → 指令选择 + 64 bit 发射（18）
   → ISA blob（16 编码）
-  →（对照）SSA ↔ LLVM IR → JIT → 逐字节比对（19）
+  →（对照）SSA ↔ LLVM IR → JIT → 规范程序语义比对（19）
 ```
 
 ## 2. 阶段与硬约束
@@ -32,11 +32,11 @@
 | 分歧 | SSA | 分歧标注 | 只标注，不重写控制流 |
 | 寄存器分配 | SSA | 物理寄存器 | 不覆盖 ABI 固定分区（`../docs/design/isa-abi.md` §3） |
 | 发射 | 分配后 IR | ISA | 编码与第 16 章逐位一致 |
-| LLVM 对照 | SSA | LLVM IR | 只做对照，不替换手写后端；`blob_LLVM` 由独立于第 18 章的发射实现产生 |
+| LLVM 对照 | SSA | LLVM IR | 只做对照；允许合法编码与寄存器分配差异，以 ABI/ISA 合法性和规范程序语义验收 |
 
 规则：
 
-1. 第 18 章手写后端必须先定稿（含寄存器分配与发射），第 19 章才能以"逐字节一致"为唯一判据；第 19 章未过不进入第 20 章。第 19 章 `blob_LLVM` 由**独立于第 18 章**的发射实现产生，不调用手写后端 emit，两后端逐字节判据保留（Q-50）。
+1. 第 19 章对照相同规范 IR 的 ABI、指令合法性与执行语义；两后端可以有不同的指令选择、寄存器分配和 blob 字节序列，不以逐字节一致作为阻断判据，不阻塞第 20 章。
 2. **不分歧优化**：分歧分析只标注、不重写控制流；一致值走 SGPR、发散值走 VGPR（ADR-034）。
 3. 编译器与 `hw_sim` 的唯一连接是 `common` 的 ISA 定义与 Shader ABI，不共享内部数据结构；不引入真机 / 外部编译后端作参照。
 4. `umd/graphics/api`（35.2~35.4）与 `umd/compute`（第 37 章收口、stage3 38~42）只消费已编译的 ISA/blob，**不重复实现编译器**（`architecture-design.md` §2.3 分层职责表）。
@@ -51,7 +51,7 @@
 | 18 | M18.1 | 优化（常量折叠/死代码/CSE/复制传播；不含 LICM，禁止循环变换） | 优化开/关一致；寄存器溢出统计可输出 |
 | 18 | M18.2 | SGPR/VGPR 分配、溢出 | S3 |
 | 18 | M18.3 | 指令选择、发射顺序 | 编码逐位一致 |
-| 19 | — | SSA ↔ LLVM IR 对照 | **两后端逐字节一致**（S3）；十九未过不进入 20 |
+| 19 | — | SSA ↔ LLVM IR 对照 | ABI/ISA 合法性与规范程序语义一致；不阻塞第 20 章 |
 
 ## 4. 与 Mesa NIR 的关系
 
@@ -59,7 +59,7 @@
 
 ## 5. 与一致性验收的关系
 
-- 三路径一致是核心判据：手写 ISA / 编译产物 / LLVM 对照必须输出一致（S3）。
+- 三路径需满足同一 ABI 与规范程序语义判据；手写 ISA、编译产物、LLVM 路径可使用不同合法编码。
 - 初级不引入编译器，全部手写 ISA（初级简化登记，`architecture-design.md` §7.5），高级第 5→16/17~19 替换。
 - 计算 kernel 由同一编译器产出（`Stage::Compute` 前端不假设图形语义，`../docs/design/compute-line.md`）。
 
@@ -67,9 +67,10 @@
 
 - `Stage::Compute` 前端不假设图形语义：内建 ID 走计算命名（`GET_THREAD_ID / GET_GROUP_ID` 等，`isa-abi.md` §2 内建区段），`LDS/STS` 走 shared 区，原子与组内 barrier（`BARRIER`）沿用 29/30 章共用实现（不新增计算特化分支，ADR-032）；
 - 编译器按 `architecture-design.md` §3.12（M-01~M-08）识别 `tid/gtid/waveId/blockIdx`：`blockIdx` 由驱动经参数区传入，`gtid` 由 block 推导，**不引入图形顶点/像素内建**；
-- **溢出落点**：寄存器溢出与 private 数组下沉到 GART scratch（per-thread，`architecture-design.md` §3.13、`memory-system.md` §3），per-thread base 由驱动经参数区传入；scratch 口径 **2026-11-20 定案（D8）：每线程 ≤ 4 KiB、4 B 对齐、不清零**（初始内容未定义，kernel 必须显式初始化后读）。
+- **溢出落点**：寄存器溢出与 private 数组下沉到 GART scratch（per-thread，`architecture-design.md` §3.13、`memory-system.md` §3），per-thread base 由驱动经参数区传入；每线程最多 4 KiB、4 B 对齐、不清零，因此每 wave（32 lane）最多 128 KiB；每 dispatch 按有效线程数分配 scratch，受 GART 可用容量约束，分配失败在 dispatch 前返回 `OutOfMemory`。该 scratch 不占用 CU 的 LDS/VGPR/SGPR 驻留预算，也不改变 occupancy。
 
 ## 6. 契约变更
 
+- `CompileShader` 双返回契约见第 17 章 §3.1：`Result` 只表示调用有效性，解析/语义/IO 编译结果唯一写入 `FrontendOutput.result/error`。
 - IR 形态、IO 签名语义、ABI 分区均属冻结契约，变更走 `roadmap.md` §7.4。
 - opcode / ABI 分区来自 `../docs/design/isa-abi.md`，此处不重复定义。

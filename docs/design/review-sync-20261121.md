@@ -54,9 +54,64 @@
 
 下列评审问题纳入本次同步，不得默认为已实现；受影响章节提交实现前必须按这里收口：
 
-- P1-01/02/05/10–12/14–20/34–45：配置键、stateId、opcode、缓存、容量、语义和 DoD 的修订以第 1 章、bit-budget 及对应单章契约为准；将每条判据写成可机器判定且只覆盖本章登记集合。
-- P1-06/21–33、P2-03/06/09–11/13：固定功能与描述符、LOD 尺寸、索引越界、patch 切片、容差、LDS/STS 和 DMA stride 的章节内定义须补全后方可进入对应阶段；旧判据与新口径并存时标记 SUPERSEDED。
-- P1-03/07–09/13/17–19/40–45、P2-02/04/14–18：前向依赖必须在 roadmap 标注硬依赖或软依赖；端到端门禁依赖未交付模块时不得挂在前序章；S18/S19 case 只在 scene-specs 设锚定定义；A42 覆盖范围与目标一致。
-- P2-01/05/07/08/12/15：过期章数、双错误映射、类型笔误、后端判据级别、递减 fence 语义及空指针契约在相应章节修订时一并清理。
+本轮已将原评审里仍残留在章节正文的判据回写责任章节。实施顺序仍以 roadmap 依赖图为准；审查状态与风险如下：
 
 本同步记录本身不能替代各章节的详细输入、输出、错误码和测试向量。第 1 章、MMIO/bit-budget、stage 章节中的旧条款若与上述决策冲突，旧条款状态为 `SUPERSEDED`，实现与评审使用本文件给出的唯一口径。代码实现状态仍需独立验证。
+
+
+## 4. 结构重整后的 P0 复核（2026-11-21）
+
+本节对原评审中 11 项 P0 按当前正文是否存在可执行的互斥要求复核。这里的“已闭环”须以权威正文已改写为准；仅追加说明、未删除旧 DoD 不计闭环。
+
+| 问题 | 复核结果 | 主要同步位置 |
+|---|---|---|
+| P0-01 Result 冻结与扩展 | 已闭环：16 值为唯一一期集合，旧 11 值 DoD 已标退役 | stage1/01、architecture-design、roadmap §7.4 |
+| P0-02 MMIO 地址表 | 已闭环：使用统一偏移表；stage1/02 只测本章登记子集，旧保留段断言退役 | design/command-mmio、stage1/02、stage2/10 |
+| P0-03 冻结/扩展与前序 DoD | 文档侧已闭环：各章已改用明确 `R_n`，roadmap 不再把任一历史 `A<x>` 作为后续章的无差别全量门禁；旧 DoD 可经 ADR 标记 `SUPERSEDED`。实现侧 CI 影响集验证尚未执行 | README §17.2、roadmap §7.4、stage1~stage3 §7 |
+| P0-04 BARRIER 多载荷 | 已闭环：包级 BARRIER 固定 3-dword envelope；ISA Workgroup BARRIER 明确为另一种执行原语 | design/command-mmio、stage2/20/30/32、stage3/41 |
+| P0-05 block 上限 | 已闭环：maxThreadsPerGroup=512；513 及以上在记录期拒绝 | architecture-design §3.11、scene-specs D-13、stage2/37、stage3/39 |
+| P0-06 间接参数布局 | 已闭环：唯一 28-byte/16-byte-aligned {grid[3],block[3],reserved0}；旧 12-byte grid-only 表述退役 | architecture-design、stage2/33、stage3/41、design/command-mmio |
+| P0-07 37 与 39–41 重复工作 | 已收窄：37 只验硬件解析/执行，39 做 host 参数打包，40 做 stream/event API，41 做驱动协作包装；集成 DoD 验证组合路径 | stage2/37、stage3/39–41 |
+| P0-08 LLVM 双后端逐字节判据 | 已闭环：改为 ABI/ISA 合法性与规范程序语义，允许合法编码差异，19 不阻塞 20 | stage2/19、design/compiler、design/isa-abi、roadmap |
+| P0-09 CU ticket 锁串行化 | 已闭环：移除包围执行的 ticket 锁要求，改为原子唯一 slot claim、多个 worker 并发、race-free 结果一致 | stage2/31、design/execution-parallel |
+| P0-10 同步模型无 watchdog tick | 已闭环：每 wave 退休指令预算 2^24 触发 Timeout；墙钟/tick 不参与判定；工作组完成只作进展观测 | stage2/36、design/boot-reset、design/review-sync |
+| P0-11 第 35 章工作量 | 已收窄：HLI 核心对象面必需；三套 API-inspired adapter 按 capability 选择用例且可选，不要求完整 E/S 或厂商兼容 | README WP6、stage2/35、roadmap §0.5 |
+
+
+## 5. 两份评审文档对新结构的逐项复核（2026-11-21）
+
+复核范围：`设计文档问题评审-20261120.md` 中 P0/P1/P2 与任务分工建议，以及 `GPU 软模型设计评审改进建议文档.txt` 的契约治理、MMIO、计算分层、编译器、并行、资源绑定、阶段门禁和错误复位建议。结论：**新目录和主干分工大体合理，但重组本身没有消除章节正文里的旧冲突。** 本轮仍找到查询口径、LOD、Context/Event 生命周期、reset replay、A42 case 覆盖等残留问题，并已回写。
+
+### 5.1 P1 复核结果
+
+| 评审项 | 复核结论 | 主要落点 |
+|---|---|---|
+| P1-01~20 | 已回写可裁决项：配置/stateId/opcode、Submit/CP、front 快照、缓存验收、容量/责任边界、CompilerResult 映射与 scratch 上限。 | `README.md`、`architecture-design.md`、stage1/02/05/08、stage2/10~20、design/compiler、memory-system |
+| P1-21~30 | 已明确纹理尺寸参与 LOD、索引边界、IA/VGT 分工、完整图元/patch 切片、距离 ABI 与结构/颜色探针容差。 | stage2/21~28、`isa-abi.md`、`scene-specs.md` |
+| P1-31~40 | 已固定 8×8 Hi-Z 块、Tess 因子与 patch staging、LDS/STS 和 SubOp 登记、作用域、PREDICATE 跳过范围、深度通过 sample 查询口径与 ULP 阻断规则。 | stage2/27~34、`command-mmio.md`、`isa-abi.md`、`roadmap.md` |
+| P1-41~45 | 已裁决多 Context/ASID、Context 与 Stream 销毁边界、Event 自有 timeline semaphore、A42 覆盖 S19 case-0..4、reset 不隐式 replay。 | `compute-driver.md`、stage3/38/40/42、`boot-reset.md`、stage2/36 |
+
+### 5.2 对《GPU 软模型设计评审改进建议文档》的问题域复核
+
+| 问题域 | 新结构中的判断 | 说明与边界 |
+|---|---|---|
+| 契约治理 | 文档侧已闭环 | `Result` 终版与集中登记规则已写入；跨章变更走 ADR、权威契约、影响集更新和 `SUPERSEDED`；各章改用 `R_n`，roadmap 只按硬依赖检查前序 DoD，不自动继承所有历史 A 门禁。实现侧的编号审计仍待代码落地。 |
+| MMIO / stateId | 主要冲突已闭环 | 唯一寄存器/包契约与 bit-budget、stage1/stage2 引用统一；`stateId 0~7` 冻结，扩展状态走内存间接表。未采用 512 dword / 双 BAR 重构，这是软模型一期的范围选择。 |
+| 计算分层 | 已按任务表硬切分 | 29~34 只做可复用共用硬件单元的局部用例，不提前验收 S18/S19；37 收口 Compute 硬件通路；38~42 负责计算驱动对象、ABI 与双入口验收，不新造 HLI/硬件接口。 |
+| 编译器双后端 | 冲突已消除 | 19 章比较 ABI/ISA 合法性和规范程序语义，不要求二进制相同；第 20 章可依据冻结的手写后端/ABI 契约并行开工。 |
+| 并行执行 | 旧 ticket 串行化方案已移除 | 以唯一 slot claim 和多个 worker 并行；硬判据限定 race-free 负载与明确定义的原子语义，不要求未定义竞争程序有固定结果。 |
+| 资源绑定 | 一期无互斥定义，保留扩展取舍 | 根槽与内存间接描述符满足本期能力；统一 Bindless 全 VA 化、资源列表屏障未作为一期交付，属于后续架构选项，不再与当前能力并列作为硬要求。 |
+| 阶段门禁 | 历史全量 A 门禁问题已在文档侧修订 | 前序验收集按 `R_n` 和受影响场景明确；D 门禁收口 S10/S11，F 门禁主验收 S18/S19；19 不阻塞 20；E 阶段不要求尚未交付的 S18/S19。roadmap 依赖表仍需在实现前转成 CI 检查。 |
+| 错误与复位 | 保留必要支撑能力，不作为主展示线 | 指令预算、确定性中止和显式重建/重提已定义；不采纳完整 RAS/故障注入系统作为一期主任务。错误路径不替代图形/计算 UMD、FW 衔接与内存管理的主线。 |
+
+### 5.3 新结构中的剩余风险
+
+- 项目文档中的 `R_n` 与 ADR 流程已明确，但代码、CI 是否按影响集运行回归尚未验证。
+- 一期资源描述符容量和 API-inspired adapters 仍有限；这属于声明过的能力边界，新增能力需另行登记，不能默认扩展为厂商兼容。
+- 并行结果一致性仅对 race-free 用例与已定义原子/同步语义成立，不能把任意竞争程序要求为确定结果。
+
+### 5.4 P2 复核
+
+本轮同时清理过期章数、Doorbell 图示、AS6 与 SSA 字段笔误、ISA 语义责任、切片占位文字、dontCare 越界条件、Hi-Z/PS 执行频率术语、递减 SIGNAL 行为、DMA 独立源/目标步长与失败原子性、case 锚定引用和 A42 回归范围；并将发现的 P2 口径逐项回写至权威章节。其他局部事项仍按 `scene-specs.md` 和模块契约在实现前复核。
+
+本节是文档审查与同步，不代表实现完成或测试通过；代码状态由对应章 DoD 单独验证。

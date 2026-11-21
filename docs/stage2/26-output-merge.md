@@ -1,6 +1,6 @@
 # 第 26 章 输出合并（OM）
 
-> 项目范围、阶段位置和交付以[任务规划](../CPU模拟GPU教学项目_任务规划与实施规格.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
+> 项目范围、阶段位置和交付以[任务规划](../README.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
 
 > 本章把初级"单一深度比较 + 截断写 BGRA"扩展为完整输出合并：深度/模板测试、背面剔除、颜色混合（含双源混合与逻辑 Op）、MRT、PS 输出到 RT 的格式转换（UNORM/SNORM/UINT/SINT/sRGB）、写 UAV 时 early-Z 禁用语义，以及 LoadOp/StoreOp 载入/存储操作。
 > 与本章相关的设计说明：`../architecture-design.md` §3.4（HLI 对象改）、ADR-015（BGRA 内存序）；`../design/isa-abi.md` §3（PS out `v[36..39]`/RT1~3 `v[44..55]`/深度 `v[40..43]`）；`../design/memory-system.md` §8（写走 IMemory，BGRA）。
@@ -146,7 +146,7 @@ OM 状态初：若 pipeline 声明写 UAV → earlyZ 标记禁用（27 章据此
 | T26.11 | ② 主体 | 统计：depth/stencil 通过/失败、像素写计数 |
 | T26.12 | ② 主体 | 与 `ref_model` 的 OM 模块对照（blend/公式） |
 | T26.13 | ③ 接入 | `scene_s7_occlusion`（混合/MRT/格式）、`scene_s8_blend_mrt`（Load/Store）、`scene_s14_bindless_uav`（UAV 写路径） |
-| T26.14 | ④ 验收 | A26：S7/S8/S14 全绿 + 专有判据 + A25 回归 |
+| T26.14 | ④ 验收 | A26：S7/S8/S14 全绿 + 专有判据 + R26 回归项 |
 
 **章内里程碑（Q-49）**：
 
@@ -170,12 +170,12 @@ OM 状态初：若 pipeline 声明写 UAV → earlyZ 标记禁用（27 章据此
 | D26.6 | 双源混合/逻辑 Op：`AND` 等逻辑输出与按位期望一致 | L1 契约 |
 | D26.7 | MRT：4 RT 各写不同格式，读回各自正确 | L1 契约 |
 | D26.8 | 格式转换：0.5→R8 UNORM=128；-0.5→R8 SNORM=192；UINT/SINT 取整正确；sRGB 重编码 ±1 LSB | L2 解析 |
-| D26.9 | LoadOp=load 读旧值、clear 清、dontCare 未定义但不崩；StoreOp=store 写、dontCare 不保证写 | L1 契约 |
+| D26.9 | LoadOp=load 读旧值、clear 写指定值；load/store 的 `dontCare` 不读取或承诺目标内容，测试不比对其值，但所有访存必须在资源范围内且 `mem_sanitizer` 零越界 | L1 契约 |
 | D26.10 | PS 写 UAV → pipeline.earlyZ=false（27 章据此禁用 early-Z）；非 UAV → true | L1 契约 |
 | D26.11 | depthTestFail/stencilFail/写计数两次运行一致 | L1 契约 |
 | D26.12 | 混合/格式 20 例与 `ref_model` 对照 | L2 解析 |
 | D26.13 | S7/S8/S14 出图 = ref_model | L2 + A26 |
-| D26.14 | A26 全绿：深度/模板/混合/MRT/剔除正确、LoadOp/StoreOp 正确、双源混合与逻辑 Op、PS 输出格式舍入确定、写 UAV 时 early-Z 禁用 + 回归 | L1 + L2 |
+| D26.14 | A26 全绿：深度/模板/混合/MRT/剔除正确、LoadOp/StoreOp 正确、双源混合与逻辑 Op、PS 输出格式舍入确定、写 UAV 时 early-Z 禁用 + R26 回归项 | L1 + L2 |
 
 ---
 
@@ -189,7 +189,7 @@ OM 状态初：若 pipeline 声明写 UAV → earlyZ 标记禁用（27 章据此
 | 产物 | RT 多张读回、深度快照、blend 探针 |
 | 主判据 | S7/S8/S14：L1 契约（深度/模板/blend/MRT/格式舍入断言）+ L2 探针（颜色 ±2/通道、深度 ±1 LSB、指定像素）一致；全图差分仅告警（§1.4） |
 | 本章专有判据 | ① depth/stencil/blend/MRT 正确，cull 状态由本章保存、由 24 章判定；② LoadOp/StoreOp 正确；③ 双源混合与逻辑 Op；④ PS 输出 UNORM/SNORM/UINT/SINT/sRGB 舍入确定；⑤ 写 UAV 时 early-Z 禁用 |
-| 回归项 | A1~A25 全绿；E2/E4 基线不退化 |
+| 回归项 | R26：E2/E4 基线不退化；未列明历史 A 门禁不自动阻断 |
 | 后续补齐 | early-Z/Hi-Z/fast clear（27 章）；MSAA resolve（27） |
 
 > 容差口径同 Q-60：覆盖 ±1/16、颜色 ±2/通道、深度 ±1 LSB；**探针比对为阻断判据，全图逐字节差分仅告警（`roadmap.md` §1.4）**；零容差仅限 1x 覆盖率与 L1 结构/计数断言。
@@ -231,4 +231,4 @@ OM 状态初：若 pipeline 声明写 UAV → earlyZ 标记禁用（27 章据此
 
 - 模板操作 `opMask` 与三 op 的组合语义（尤其 depthFail≠stencilFail 时）SM 撮合，先按 D24S8 独立字节模拟；若 35.2（Vulkan stencil 语义）需更细，走 ADR。
 - 逻辑 Op 与 blend 仅启用二者之一（真实 GPU 亦互斥）；一期按互斥处理，不实现同时启用错误检测（校验留 35.2）。
-- `dontCare` 的 store/load 最终语义依赖第 27 章 fast clear 基线（是否清零），本期留未定义但保安全（不崩溃）。
+- `dontCare` 的 load 不保证旧内容可用，store 不保证写入任何特定值；引用结果不得参与数值比对，但地址计算仍须合法且不得越界。

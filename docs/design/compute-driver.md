@@ -1,6 +1,6 @@
 # 计算驱动对象模型与 ABI — 独立模块设计
 
-> 项目目标、范围、阶段与交付以[任务规划](../CPU模拟GPU教学项目_任务规划与实施规格.md)为主干；roadmap展开章级任务，architecture-design定义模块树与层间契约。本文负责本模块的内部技术设计。
+> 项目目标、范围、阶段与交付以[任务规划](../README.md)为主干；roadmap展开章级任务，architecture-design定义模块树与层间契约。本文负责本模块的内部技术设计。
 
 > 定位：定义 **stage3 计算驱动开发线（新章 38~42，`docs/stage3/`）** 的驱动专属设计——`umd/compute` 的 MUSA 风格对象模型（context / module / function / stream / event）、`MUSA_MODULE_HDR` 二进制布局与装载、kernel 参数打包 ABI、stream/event 同步、生命周期与错误码映射。它是 stage3 各章文档的设计权威。
 > 落地章：38（对象骨架与 Module 装载）、39（LaunchKernel 与参数打包）、40（Stream/Event 与异步）、41（组内协作/间接/UAV 写回）、42（双入口等价与验收）。
@@ -21,17 +21,17 @@
 
 | 对象 | 职责 | 一期属性 | 映射到 HLI / KMD |
 |---|---|---|---|
-| `Context` | 设备、内存域、module/stream 的容器与生命周期根 | HLI device + KMD context（ASID），1:1:1；销毁前所有 stream 必须已同步 | `IHliDevice` + 资源表 |
+| `Context` | 设备、内存域、module/stream 的容器与生命周期根 | 一个 HLI device 支持 N 个 Context；每个 Context 绑定唯一 KMD context/ASID（Context:ASID=1:1）。销毁不隐式同步；仍有子对象或硬件引用时返回 `Busy` | `IHliDevice` + 资源表 |
 | `Module` | 一份 ISA blob（自有头 + 代码段 + 符号表） | 常驻 GART（`HOST_VISIBLE`）；不引入 ELF/COFF；不做重定位 | `IHliPipeline`（compute）+ `umd/os` 内存分配 |
 | `Function` | module 内一个 kernel 入口 + 参数布局 | `codeBaseVa + entryOffset`；分支用 pc 相对偏移，加载不需地址修补 | `IHliPipeline` + `KernelArgsLayout` |
-| `Stream` | 顺序提交队列 | 1:1 映射一个 HLI 队列；优先级创建时声明、不可变；不允许多队列 | `IHliQueue` |
-| `Event` | 完成标记 | `{queueId, timelineValue, state}`；值域复用队列 timeline，不复用 fence 对象 | timeline fence 值 |
+| `Stream` | 顺序提交队列 | 1:1 映射一个 HLI 队列；`Synchronize` 显式 drain；有 in-flight 时 Destroy 返回 `Busy`；Context 销毁时仍有 stream 子对象返回 `Busy`；优先级不可变 | `IHliQueue` |
+| `Event` | 跨队列完成标记 | 自有 timeline semaphore 与单调 `u64` value；Record 绑定发信号的 stream，Wait 可在任意 stream 上等待已记录值 | Event timeline semaphore |
 
 **状态机（简化为三态，能定位即可）**：
 
 - `Module`：`Loaded`（blob 解析通过）→ `Resident`（GART 常驻并可被 CP 访问）→ `Bound`（至少一个 Function 被 `SetKernel` 引用）；销毁或 context 销毁回到释放。
 - `Function`：`Resolved`（符号表解析出入口）→ `Launched`（至少一次 `Dispatch` 引用）；入口解析失败为错误终态（`InvalidIsa` / `NotMapped`）。
-- `Stream`：`Idle` → `Pending`（有 in-flight 提交）→ 完成回到 `Idle`；`Event` 的 `state` 由所监视 timeline 值决定（未达 = NotReached，达到 = Reached）。
+- `Stream`：`Idle` → `Pending`（有 in-flight 提交）→ 完成回到 `Idle`；`Event` 状态由其自有 semaphore 的完成值与最近记录值比较（未达 = NotReached，达到 = Reached）。
 
 **生命周期（权威 `architecture-design.md` §3.10，ADR-041）**：
 
@@ -102,12 +102,12 @@ module blob 布局（little-endian，字段 4 B 对齐；`entryOffset`/`codeBase
 
 ## 6. Stream 与 Event
 
-- `Stream` = 1:1 映射一个 HLI 队列（`IHliQueue`）；stream 内提交顺序 = 命令流顺序；**不允许多队列**，优先级创建时声明、不可变（改动视为 `InvalidArgument`）。
-- `Event` = 独立对象 `{queueId, timelineValue, state}`：
-  - `Record(stream)`：在命令流插入 `SIGNAL(timelineValue)`；
-  - `Wait(stream)`：插入 `WAIT(timelineValue)`；
-  - `Query()`：非阻塞读 `state`（未达值返回"未完成"；不阻塞、不查询卡死）；
-  - 值域**复用队列 timeline**（第 32 章 timeline semaphore），**不复用 fence 对象**。
+- `Stream` = 1:1 映射一个 HLI 队列（`IHliQueue`）；stream 内提交顺序 = 命令流顺序；不同队列可各自创建 stream，但同一队列不重复包装；优先级创建时声明且不可变。
+- `StreamSynchronize` 是唯一阻塞 drain 操作；`StreamDestroy` 存在 in-flight 提交时返回 `Busy`，不隐式同步；`ContextDestroy` 存在任一子对象（含 Stream）或硬件引用时返回 `Busy`。
+- `Event` 是拥有独立 timeline semaphore 的对象，不复用任何队列的 fence/timeline 值域：
+  - `Record(stream)`：为该 Event 预留严格递增的 `u64` 值，并在该 stream 命令流插入 `SIGNAL(eventSemaphore,value)`；
+  - `Wait(stream)`：快照 Event 最近一次已记录值，在该 stream 插入 `WAIT(eventSemaphore,value)`；未记录过的 Event 返回 `InvalidArgument`。等待可跨队列；
+  - `Query()`：非阻塞读取 semaphore 的已完成值，与最近一次已记录值比较；未达到返回 `NotReached`，不隐式同步。
 - 异步计算语义：计算队列与图形队列以 `SIGNAL/WAIT` 定义依赖（不依赖提交次序）；计算→图形可见性 = 队列家族所有权转移（第 32 章）+ fence + device barrier（§3.13 一致性矩阵"图形 ↔ 计算"行）。
 
 ## 7. Runtime API 面（alloc / memcpy / launch）
@@ -148,7 +148,7 @@ module blob 布局（little-endian，字段 4 B 对齐；`entryOffset`/`codeBase
 
 - **验收（stage3 A38~A42，唯一权威 `scene-specs.md` §4 38~42 行）**：
   - Demo C1 `module_probe`：`MUSA_MODULE_HDR` 逐字节一致、符号表解析正确、异常输入确定错误（A38）；
-  - Demo C2 `vector_add`（WA-01）：六条校验全命中、`v[56..67]` 快照一致、整型逐字节 + fp32 ≤1 ULP（同序 FMA 下期望 0 ULP，告警项不阻断，`scene-specs.md` §1.2）、命令流与直连 HLI 零容差一致（A39）；
+  - Demo C2 `vector_add`（WA-01）：六条校验全命中、`v[56..67]` 快照一致、整型逐字节 + fp32 ≤1 ULP 通过、>1 ULP 阻断（同序 FMA 下期望 0 ULP 是诊断信息，`scene-specs.md` §1.2）、命令流与直连 HLI 零容差一致（A39）；
   - Demo C3 `async_pipeline`（WA-11）：event 值序、非阻塞 Query、异步交叉数值等价（A40）；
   - Demo C4 `reduce` / Demo C5 `indirect_dispatch`（WA-02 / WA-12）：归约 ≤1 ULP + 顺序断言（强制）、间接等价（A41）；
   - S18/S19 经计算驱动入口与直连 HLI 入口逐值等价（A42 / A-stage3）。

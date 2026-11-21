@@ -1,10 +1,10 @@
 # 第 29 章 波内协作
 
-> 项目范围、阶段位置和交付以[任务规划](../CPU模拟GPU教学项目_任务规划与实施规格.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
+> 项目范围、阶段位置和交付以[任务规划](../README.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
 
 > 本章引入波内（subgroup）协作原语：`ballot/shuffle/broadcast/reduction/deriv`，对应 ISA 区段 0x70~0x7D（opcode 7 bit 重编号，ADR-043，`../design/isa-abi.md` §2）。wave 内 lane 间按固定 lane 序协作（ADR-018）；归约顺序固定（lane 升序）；结果为确定值。它是计算线（S10/S18）波内共享的第一步，也为第 30 章组内协作提供波内基础。
 > 与本章相关的设计说明：`../design/isa-abi.md` §2（subgroup opcode 0x70~0x7D，7 bit 重编号）、§3（lane 序、mask）；ADR-034（发散分析）；`../design/execution-parallel.md` §5.5（归约顺序固定）；`../design/compute-line.md` §4（共用单元不特化）。
-> 落地模块：`hw_sim/shader/subgroup`、`apps/scene_s10_reduce`、`apps/scene_s18_compute_basic`。
+> 落地模块：`hw_sim/shader/subgroup`、`apps/scene_s10_reduce`；计算波内行为由本章单元用例覆盖，S18 场景主验收归第 37 章。
 
 ---
 
@@ -109,8 +109,8 @@
 | T29.6 | ② 主体 | `DERIV`：quad 相邻差分 |
 | T29.7 | ② 主体 | 编译器前端映射：内建 → subgroup opcode（17 章扩展） |
 | T29.8 | ② 主体 | 波内统计：`ballot/reduce` 调用计数 |
-| T29.9 | ③ 接入 | `scene_s10_reduce`（ballot/shuffle/reduce/deriv）+ S18 `scene_s18_compute_basic` 波内共享接入 |
-| T29.10 | ④ 验收 | A29：S10/S18 全绿 + 专有判据 + A28 回归 |
+| T29.9 | ③ 接入 | `scene_s10_reduce`（ballot/shuffle/reduce/deriv）接入；另以固定 wave 输入向量单测计算侧 subgroup 内建，不运行 S18 端到端场景 |
+| T29.10 | ④ 验收 | A29：S10 全绿 + subgroup 单元用例 + 专有判据 + R29 回归项 |
 
 ---
 
@@ -126,21 +126,21 @@
 | D29.6 | `Deriv`：quad 内相邻差 = v[+1]-v[-1]（屏幕导数）| L1 契约 |
 | D29.7 | 编译 `SubgroupReduce` 等内建成功并映射到对应 opcode | L1 契约 + L2 |
 | D29.8 | S10 探针：ballot 模式、shuffle 顺序、reduce 值 = ref_model | L2 解析 |
-| D29.9 | A29 全绿：ballot/shuffle/归约/导数结果确定；计算 subgroup 内建与 CPU 参考一致 + 回归 | L1 + L2 |
+| D29.9 | A29 全绿：ballot/shuffle/归约/导数结果确定；计算 subgroup 内建与 CPU 参考一致 + R29 回归项 | L1 + L2 |
 
 ---
 
 ## 7. 场景与判据（A29）
 
-**绑定场景：S10 `scene_s10_reduce`、S18 `scene_s18_compute_basic`（计算波内共享）。**
+**绑定场景：S10 `scene_s10_reduce`。计算侧 wave 输入向量只用于 subgroup 单元测试，不运行 S18 端到端场景；S18 主验收归第 37 章。**
 
 | 项 | 内容 |
 |---|---|
-| 输入 | S10：PS 中用 `ballot/SubgroupReduce/Shuffle` 探针；S18：kernel 内 `SubgroupReduce` 波内归约 |
+| 输入 | S10：PS 中用 `ballot/SubgroupReduce/Shuffle` 探针；计算单测：固定 32-lane wave 输入验证 `SubgroupReduce`、mask 与 lane 顺序 |
 | 产物 | ballot mask、reduce 值、shuffle 结果、导数 |
-| 主判据 | S10/S18 输出 = ref_model（ballot 模式、归约值零容差） |
+| 主判据 | S10 输出与固定 wave 单测均符合 ref_model（ballot 模式、归约值零容差） |
 | 本章专有判据 | ① ballot/shuffle/归约/导数结果确定（两次一致）；② 计算 subgroup 内建与 CPU 参考一致 |
-| 回归项 | A1~A28 全绿；UR（无 subgroup 的 E 类）不退化 |
+| 回归项 | R29：E1–E5 图形基线（无 subgroup shader）不退化；未列明历史 A 门禁不自动阻断 |
 | 后续补齐 | 第 30 章 shared/barrier 在波之上做组内；第 31 章策略 B 可并行化 subgroup |
 
 ---
@@ -154,12 +154,12 @@
 | 可观测 | subgroup 指令计数、`--trace=subgroup` |
 | 契约影响 | subgroup 指令/内建/掩码语义冻结 |
 | 简化登记 | 无波内协作 → ballot/shuffle/归约/导数 |
-| 计算兼容 | subgroup 是共用能力；计算/图形同波（S18 消费） |
+| 计算兼容 | subgroup 是图形/计算共用硬件能力；计算驱动在第 37 章之后消费 |
 | 配置与回退 | warp 大小固定 32（`WARP_SIZE` 编译期常量，非配置键）；无其他开关 |
 | 调试钩子 | `--trace=subgroup`：每指令一行 `{op, lane, in, out}` |
 | trace 契约 | 不进入判据 |
-| 契约变更 | subgroup 指令/内建/归约序为冻结项；变更走 ADR 回归 S10/S18 |
-| 校验归属 | L1（结构/掩码/值）+ L2（S10/S18 与 ref_model） |
+| 契约变更 | subgroup 指令/内建/归约序为冻结项；变更走 ADR 回归 S10 和计算 wave 单测 |
+| 校验归属 | L1（结构/掩码/值）+ L2（S10 与 wave 单测对 ref_model） |
 | 双策略 | 归约序在两策略下一致（波内原子性天然确定） |
 | 阶段衔接 | 为第 30 章组内协作提供"wave 内已完成"的事实；第 31 章策略 B 可并行化 subgroup |
 

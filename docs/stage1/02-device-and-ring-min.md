@@ -1,6 +1,6 @@
 # 第 2 章 设备 + 单环
 
-> 项目范围、阶段位置和交付以[任务规划](../CPU模拟GPU教学项目_任务规划与实施规格.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
+> 项目范围、阶段位置和交付以[任务规划](../README.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
 
 > 本章建立"提交 → 取指 → 派发 → 完成"的最小闭环：设备对象与 MMIO 寄存器块、单个命令环的读写指针、doorbell、CP 状态机、fence 写值与完成通知。本章结束时，一条只含 `STREAM_HEADER`/`NOP`/`FENCE` 的命令流可以从薄门面提交并确定性地完成。
 > 与本章相关的设计说明：`../architecture-design.md` §3.2（薄提交门面）、§3.3（`IEngine` 握手签名）、§3.10（回调链）；`../design/command-mmio.md` §1~§2、§4（包头、包类型、MMIO 分段）；`../design/sync-primitives.md` §2（fence 规则）；`../design/logging.md` §3（硬件行为校验）。
@@ -16,7 +16,7 @@
 2. 单环：环基址/大小/读指针(head)/写指针(tail) 的编程与回绕，`count` 不跨环尾。
 3. doorbell：写寄存器唤醒 CP；CP 从 head 取包、推进 head、写回 MMIO。
 4. CP 状态机：按包类型分派的最小版本，内部处理 `STREAM_HEADER` / `NOP` / `FENCE`。
-5. fence：CP 写 64 bit 单调值并置完成位；`Wait` 退化为值断言；完成计数 = 提交计数。
+5. fence：CP 写 64 bit 单调值并置完成位；本章单线程 `Submit` 会同步 Pump 到 fence 完成，`Wait` 只验证最近提交值；完成计数 = 提交计数。
 6. 薄提交门面骨架：`submit::Submit(desc)` / `submit::Wait()` 可编译、可提交空命令流。
 7. 非法输入定位：非法包类型、`count` 越界、版本不匹配、包跨环尾，均返回带 `{unit, packetType, dwordOffset}` 的错误。
 
@@ -41,7 +41,7 @@
  ┌──────────────────── hw_sim/core ─────────────────────┐
  │ Ring    base / sizeDwords / head / tail / wrap 检查   │
  │ Mmio    256 dword 寄存器块（只经 Read/Write 访问）    │
- │ Doorbell 写 0x00 段 → Cp::OnDoorbell()               │
+ │ Doorbell 写 `DOORBELL` MMIO 寄存器（`command-mmio.md` 权威偏移） → Cp::OnDoorbell()               │
  │ Cp      FSM: Idle→Fetch→Decode→Dispatch→Fence→Idle   │
  │ Fence   64 bit 单调值 + 完成位（0x08 段）              │
  │ Device  生命周期 / 能力 / 单元持有者（私有成员）        │
@@ -91,8 +91,8 @@ struct DrawDesc {                 // 本章只使用 rtWidth/rtHeight/clearColor
     const void* textureData; u32 texWidth; u32 texHeight;
     u32 rtWidth; u32 rtHeight; u32 clearColor;
 };
-Result Submit(const DrawDesc& desc);  // 同步执行完命令
-Result Wait();                        // fence 值断言
+Result Submit(const DrawDesc& desc);  // 写入命令并同步 Pump 到目标 fence 完成
+Result Wait();                        // 验证最近一次提交的 fence 已完成
 u64    LastSubmittedFence();          // 诊断用，不参与判据
 }
 ```
@@ -203,10 +203,10 @@ u64    LastSubmittedFence();          // 诊断用，不参与判据
 | DoD | 判据（机器可判） | 级别 |
 |---|---|---|
 | D2.1 | 头文件可独立编译；MMIO 偏移表与 §3.3 逐行一致（脚本比对）；`DrawDesc` 字段顺序与字节偏移有 `static_assert` | L1 契约 |
-| D2.2 | 对 0x00~0x3F 内任一登记偏移读写往返一致；越界偏移（≥0x100）返回 `InvalidArgument`；`0x40~0xFF` 保留段（合法窗口内未实现）读写返回 `NotSupported` 且不改写任何状态；`RING_HEAD`/`ERROR_*` 写入被拒绝且值不变 | L1 契约 |
+| ~~D2.2~~ | **SUPERSEDED**：旧版把 `0x40~0xFF` 整段视为保留区，现与 stateId、PSO 暂存区等分配冲突。替代判据：仅对本章登记的 MMIO 子集验证读写权限、越界和只读寄存器；映射唯一表以 `command-mmio.md` §3 与第 10 章为准 | 退役记录 |
 | D2.3 | 以 `sizeDwords=64` 连续写入 100 个包后 `head/tail` 始终在 `[0,64)`；任意包不跨环尾（逐包检查 `offset+count ≤ size`）；空环时 `Pump` 不发生状态变化 | L1 契约 |
 | D2.4 | 对 `[HEADER, NOP, FENCE]` 序列，状态转移轨迹为 `Idle→Fetch→Validate→Dispatch→Advance→Idle`（`CP_STATUS` 逐次匹配）；`count=0`、`count=4096`、首包非 HEADER 三种输入均被拒且错误偏移精确 | L1 契约 |
-| D2.5 | 提交 N 次（N=1、8、64）后 `FENCE_VALUE` 严格等于最后一次提交的 fence 值且单调递增；完成位在 `Wait` 前可能为 0、在 `Wait` 后必为 1；完成计数 == N | L1 契约 |
+| D2.5 | 提交 N 次（N=1、8、64）后 `FENCE_VALUE` 严格等于最后一次提交的 fence 值、单调递增且在 `Submit` 返回时已完成；`Wait` 验证该值；完成计数 == N | L1 契约 |
 | D2.6 | 六类非法输入各触发一次（环大小非 2 幂/<64、非法 `count`、非首包 `STREAM_HEADER`、版本不匹配、跨尾残留、越界 `tail`）：返回码、`ERROR_CODE/ERROR_PKT_TYPE/ERROR_DWORD_OFFSET` 三寄存器与 `GD_LOG` 行三者一致；不崩溃、不静默继续 | L1 契约 |
 | D2.7 | `scene_e1` 以 `rt_size=256x256` 提交 1 次空命令流：`Submit` 返回 `Ok`、`Wait` 返回 `Ok`、`LastSubmittedFence()==1`；场景只 include 门面头文件（编译期检查 include 图） | L1 契约 + A2 |
 | D2.8 | A2 全绿：E1 提交子集（读回缓冲尚未引入，本章只判提交与完成）+ 专有判据；连续两次运行 fence 序列与错误记录完全一致 | L1 契约 |
