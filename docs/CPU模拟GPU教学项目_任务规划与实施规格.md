@@ -180,7 +180,7 @@ WP4 中的 Tessellation/GS 会增加专门的 patch/control point 与生成数�
 
 每项任务均按“目标—范围—依赖—实施项—交付物—DoD”验收。实现过程中新增功能若改变公开契约，必须同步更新接口文档、场景输入和回归判据。
 
-### 阶段 A：最小计算闭环
+### 基础任务组 A：契约与单 wave 功能基线
 
 #### T0：工程骨架与统一契约（S）
 
@@ -258,7 +258,7 @@ WP4 中的 Tessellation/GS 会增加专门的 patch/control point 与生成数�
 - **交付物**：`tests/scenes/scene_vector_add`、CPU reference、运行日志、模型级执行路径说明。
 - **DoD**：正常、空输入、非法参数和越界 case 均有判据；CPU reference 独立计算期望结果；重复运行输出一致。
 
-### 阶段 B：SIMT 与 workgroup 协作
+### 基础任务组 B：SIMT 与 workgroup 协作
 
 #### T6：控制流分歧与重收敛（M）
 
@@ -294,7 +294,7 @@ WP4 中的 Tessellation/GS 会增加专门的 patch/control point 与生成数�
 - **交付物**：LDS/atomic/barrier 模块、协作 kernel、同步错误场景。
 - **DoD**：共享数据结果正确；原子计数满足精确期望；barrier 不完整时报告可定位错误，不死锁挂起。
 
-### 阶段 C：驱动提交与地址空间
+### 基础任务组 C：驱动提交与地址空间验证
 
 #### T9：命令包、Ring 与 Command Processor（L）
 
@@ -327,7 +327,7 @@ WP4 中的 Tessellation/GS 会增加专门的 patch/control point 与生成数�
 - **交付物**：API/ABI 文档、对象模型、错误映射表、经抽象层运行的场景。
 - **DoD**：核心计算场景可经 UMD compute→HLI→KMD→Firmware→Ring/CP 路径执行；对象释放、重复提交和非法状态均有确定行为；层间依赖检查通过。
 
-### 阶段 D：内存层次与 CPU 并行模拟
+### 基础任务组 D：GPU 内存模型与 CPU 并行模拟
 
 #### T12：显式 GPU 缓存与片上数据暂存模型（L）
 
@@ -369,7 +369,7 @@ WP4 中的 Tessellation/GS 会增加专门的 patch/control point 与生成数�
 - **交付物**：Residency Manager、资源压力场景、内存事件 trace。
 - **DoD**：预算内访问成功；超预算按配置给出稳定结果；逐出和重新驻留有明确数据正确性规则；记录可关联资源 ID、VA、驻留状态和数据消费者；不以缓存 hit/miss 作为门槛。
 
-### 阶段 E：异步系统、工具链与教学收尾
+### 基础任务组 E：异步系统、工具链与教学收尾
 
 #### T15：多队列、Fence/Event 与依赖图（L）
 
@@ -448,11 +448,11 @@ flowchart TD
 
 ### 5.2 建议顺序
 
-1. 串行完成 T0–T5，确保最小计算闭环尽早可用。
-2. 完成 T6–T8，先建立正确的 SIMT/workgroup 语义，再引入 CPU 并行。
-3. 实施 T9–T11，把直连 runner 逐步升级为教学版驱动提交链路。
-4. 实施 T12–T14，先固定显式 GPU cache 语义，再优化 host worker 执行。
-5. 实施 T15–T18，完成依赖调度、故障解释、诊断工具和课程化材料。
+1. T0–T5 是模块级功能练习，可配合第 1–9 章逐步实现；vector_add 只验证 ISA/wave/内存，不作为初级产品阶段出口。
+2. T6–T8 用于验证控制流、workgroup 和协作语义；执行到正式章节时按 roadmap 的依赖落位。
+3. T9–T11、T12–T14、T15–T18 分别提供提交/地址、GPU 内存/CPU worker、异步/诊断的模块级自检；正式实现仍按 §3.2 WP0–WP8 和 §9 门禁推进。
+4. CPU worker 并行必须在 SIMT/workgroup 同步语义明确后启用；缓存/暂存优先验证数据生命周期和可见性，不以命中率优化作为门槛。
+5. 图形 UMD 在 HLI 契约稳定后实施；计算驱动在第 37 章计算管线收口后实施。
 
 模块接口稳定后，可并行编写 ISA 工具、参考模型、trace viewer、场景文档；不得并行改动同一公共 ABI 而不先裁决契约。
 
@@ -558,7 +558,7 @@ flowchart TD
 
 ---
 
-### 10.2 每章统一补充的实施项
+### 10.1 每章统一补充的实施项
 
 在原有“目标—范围—依赖—实施项—交付物—DoD”之外，章/子里程碑的设计评审和验收还需逐项回答：
 
@@ -847,7 +847,7 @@ flowchart TD
 | D4 | GPU 地址空间、内存管理与数据复用 | 观察 HostVa/GpuVAddr/PhysAddr 的边界、VA→PA/TLB、VRAM/GART/System 堆、资源驻留，以及数据在 shader/几何阶段之间的暂存、复用、flush/可见性边界。重点解释 GPU 工作流中缓存和中间存储解决什么数据流问题，不以 L1/L2 hit/miss 数字作为演示目标；GS/Tess 场景可用来展示 patch/control point 与生成数据的局部暂存和复用。 | 3、11–12、14、20–21、28 章；S4、S6、S14、S16 |
 | D5 | SIMT、workgroup 与并行协作 | 观察 lane mask、分歧/重收敛、subgroup、workgroup/wave 映射、barrier/atomic 和确定性串行/并行执行。 | 15、29–31 章；S10、S11、S18–S19 |
 | D6 | 图形/计算驱动与共用底座衔接 | 同一软设备如何被图形 UMD（Vulkan/D3D12/GL 子集）和计算驱动分别调用；两者如何复用 HLI 对象、KMD context/VA/资源管理与队列，再经 FW/ring/CP 到达硬件模型。可展示计算写入共享资源后由图形读取/呈现的端到端互操作。 | 10–14、20、32–37 章；S12、S16–S19 |
-| D7 | 计算驱动完整流程 | 展示 context/module/function、参数打包、LaunchKernel、grid/block 映射、stream/event、组内协作、间接 dispatch/UAV，以及计算驱动入口与直连 HLI 入口的等价结果。CS 是计算执行入口，不属于 M2 图形首帧管线。 | 37–42 章；S18/S19、A38–A42 |
+| D7 | 计算驱动完整流程 | 展示 context/module/function、参数打包、LaunchKernel、grid/block 映射、stream/event、组内协作、间接 dispatch/UAV，以及计算驱动入口与直连 HLI 入口的等价结果。CS 是计算执行入口，不属于 D2 图形首帧管线。 | 37–42 章；S18/S19、A38–A42 |
 
 ### 18.4 不作为项目成果的数字
 
