@@ -1,8 +1,8 @@
 # CPU 模拟 GPU 教学项目：任务规划与实施规格
 
-> 文档性质：项目级任务规划与验收规格。定义项目目标、分层边界、阶段划分、任务依赖、场景及完成条件；模块设计文档与实现任务应以本文的范围为准。
+> 文档性质：项目级任务规划与验收规格。定义项目目标、实现任务、依赖、场景和交付物。权威关系遵循 `docs/roadmap.md` → `docs/architecture-design.md` → `docs/design/` → 本文的实施拆解；本文补充教学顺序和交付呈现，不改写上游冻结的章号、场景号、接口契约与能力范围。
 >
-> 项目定位：在 CPU 上实现一个可追踪、可测试的 GPU 功能行为模拟器，用于学习 GPU 执行模型、驱动提交路径、内存层次和同步机制。它不是周期精确的 GPU 仿真器，也不承诺模拟特定厂商 GPU 的全部细节。
+> 项目定位：在 CPU 上实现可追踪、可测试的 GPU 全栈软模型，以图形 draw 链路作为初级可视化主线，以计算 dispatch 作为高级共用执行单元与驱动扩展线，学习 GPU 执行模型、命令提交、内存层次、同步及图形/计算软件栈。它不是周期精确仿真器，不追求厂商 API/二进制兼容，也不承诺模拟特定 GPU 的全部细节。
 >
 > 总原则：先让一个最小 kernel 端到端运行，再逐步加入并行、缓存、虚拟内存、异步队列和驱动抽象。每个阶段都有运行场景和明确 DoD；核心任务保持可独立验收，扩展功能不得阻塞基础教学闭环。
 
@@ -14,7 +14,7 @@
 
 项目以 CPU 实现 GPU 的功能行为，完整展示一次计算任务如何从应用 API 进入运行时和驱动、转化为命令、被命令处理器派发、映射为 workgroup/wave 执行、访问 GPU 地址空间与缓存、最终写回并通过同步对象通知完成。
 
-首要成果是一个可单步跟踪的 `vector_add` 计算闭环。后续通过 reduction、histogram、分支、缓存和异步队列等场景逐渐揭示 GPU 的并行语义与软件栈结构。
+最小代码正确性基线可以用单 wave `vector_add` 验证 ISA、wave 和内存；首个面向学习者展示的端到端成果应按既有 E0–E5 场景完成一帧绘制（清屏、三角形、纹理四边形、网格和合成帧）。高级阶段再依次扩展 E→S 图形能力，并在第 37 章收口计算管线、stage3 第 38–42 章完成计算驱动入口。
 
 ### 1.2 明确边界
 
@@ -552,9 +552,9 @@ flowchart TD
 
 ## 12. 与原设计资料的关系
 
-本文是面向“CPU 模拟 GPU 教学项目”的重新规划，不是对原 Stage 1/2/3 章节编号的逐章改写。原有内容中可复用的概念包括命令处理、内存管理、SIMT/ISA、缓存、workgroup 协作、队列同步和错误恢复；完整图形 API、厂商风格 UMD、复杂编译器与几何管线暂作为扩展方向。
+本文将紧凑的 T0–T18 学习任务与既有全栈章程衔接起来：T0–T18 描述概念和基础模块的学习增量；`roadmap.md` 的 1–42 章、E0–E5/S0–S19、A38–A42 是上游正式任务和验收编号。两套编号不能互相替代，新增实现任务需落到对应章/子里程碑，不另造冲突的正式章号。图形固定管线、编译器、API 后端和计算驱动均纳入完整项目范围，并按 roadmap 的能力档分期实现。
 
-原设计资料仍保留为历史基线，便于回查原章节与模块映射；当新任务规划与旧总览的章节顺序不同时，以本文件的新任务依赖和阶段门禁为实施依据。对原仓库已有设计文档的修改应另行形成变更记录，避免把“重新规划”误认为仓库内容已经同步更新。
+原设计资料是当前项目正式设计基线，不是仅供回查的历史资料。实施顺序以 `roadmap.md` 为准，目录/职责/接口以 `architecture-design.md` 为准，内部算法以 `docs/design/` 为准，输入与判据以 `docs/design/scene-specs.md` 为准；本文的 T0–T18 只提供面向教学的横向索引和基础实施建议。若本文与上述文件冲突，先按正式变更流程更新权威文档，再同步本文，不能由本文单方面改变既有契约。
 
 
 ---
@@ -759,3 +759,122 @@ flowchart TD
 4. serial 基线通过前，不把 parallel 性能报告列为验收门禁。
 5. 统一 UMD/HLI/KMD 边界形成后，再做 Mesa/MUSA 风格的 API/驱动适配扩展。
 6. 每个阶段完成后更新任务依赖、场景回归矩阵和参考来源版本；范围改变时记录决策理由和受影响任务。
+
+
+---
+
+## 18. 与既有全栈方案对齐的功能与任务扩展
+
+本节把 `docs/README.md`、`docs/roadmap.md` 中的完整功能范围接入本实施规划。实现以章号和子里程碑为最小正式任务单位；表中的工作包仅用于教学呈现和阶段组织，不替代 `roadmap.md` 的任务编号、任务数量或门禁。
+
+### 18.1 两条纵向主线与共用模块
+
+| 主线 | 学习者看到的输入与结果 | 主模块 | 主要验收 |
+|---|---|---|---|
+| 图形线 | 顶点/索引/纹理/状态 → draw → 光栅与合并 → RT/显示帧 | `hw_sim/frontend`、`shader`、`raster`、`om`、`visibility`、`periph/display`，以及 HLI/UMD | 初级 E0–E5 全图逐字节；高级 S0–S17 探针与差分 |
+| 计算线 | kernel/module/function/参数 → dispatch(grid, block) → workgroup/wave → 内存写回与同步 | `umd/compute`、`hli`、`kmd`、`firmware`、`hw_sim/shader`、`memory`、`isa` | S18/S19；阶段 F 直连 HLI；stage3 A38–A42 双入口等价 |
+| 共用底座 | 两条线共享命令、地址空间、资源、缓存、队列、同步、错误和调度 | `common`、`hw_sim/core`、`hw_sim/memory`、`firmware`、`kmd`、`hli` | 共用模块无 graphics-only/compute-only 特化；E/S 回归不退化 |
+
+图形与计算的主要差异保留在入口和工作负载上：图形有 IA/几何前端/光栅/OM；计算没有这些像素阶段，而以 grid/block、workgroup/wave、内存作用域和 barrier 为核心。内存、命令派发、执行阵列、ISA、队列及同步应复用同一模块语义。
+
+### 18.2 完整功能工作包与阶段验收
+
+| 工作包 | 对应正式章节 | 需要补齐的功能与可学习内容 | 关键交付/门禁 |
+|---|---|---|---|
+| WP0：契约与最小可运行骨架 | 1–2 | 统一类型/错误/packet/ABI/日志/配置；MMIO dword 单位；设备创建销毁、doorbell、单 ring、CP 解包派发、fence；单一薄 facade | E0、S1；包格式与位宽预算一致，空提交能完整走通 |
+| WP1：初级图形纵向切片 | 3–9 | flat VA/bump 分配；warp32 单波；最小 ISA、汇编/反汇编；IA→VS→裁剪/视口→光栅→深度/颜色写回；RGBA8 nearest 纹理；清屏、双缓冲与 PNG 导出 | E0–E5；完成一帧渐变三角、贴图四边形和简单网格的组合绘制，两次输出逐字节一致 |
+| WP2：设备、地址与执行底座 | 10–16 | 多环预留、CP/FW/KMD 提交边界；三类地址、两级页表/TLB、VRAM/GART/System 三堆、分配器、内存池、cache flush/invalidate；L1/L2/write buffer；Copy/Display；residency/context/ASID；控制流重收敛与波调度；冻结完整 ISA | A0–A 门禁 S1/S2/S13；页表与种子确定、地址越界可定位、缓存 on/off 输出等价 |
+| WP3：编译器与资源接口 | 17–20 | GLSL-like 子集前端、AST/SSA/CFG、类型与 IO 签名校验、发散分析；常量折叠/DCE/CSE 等优化（一期不做 LICM）；SGPR/VGPR 寄存器分配及溢出；ISA 发射；LLVM 对照；资源/视图分离、描述符堆、绑定、管线、动态状态快照、push constant、资源状态与屏障 | B 门禁 S0/S3；手写 ISA/编译器/LLVM 路径输出符合场景判据，绑定/参数边界可断言 |
+| WP4：纹理与完整图形流水线 | 21–28 | 格式解码和线性/tile 布局；mip/LOD、nearest/bilinear/trilinear、wrap/clamp/mirror/border、数组/Cubemap；IA 索引/primitive restart/实例化；VS 切片；裁剪/guard band/PA/Clip-Cull Distance/多视口；fill rule、quad、插值、点线/scissor；depth/stencil/blend/MRT/RT 格式转换/LoadOp/StoreOp；MSAA、early-Z/Hi-Z/fast clear；Tess/GS 与 patch 缓冲 | C 门禁 S3–S9、S14；章节内大任务按 M21.x/M25.x/M26.x/M28.x 拆开独立验收 |
+| WP5：SIMT 协作、并行与计算共用语义 | 29–31 | ballot/shuffle/reduction/导数；shared/LDS、atomic、barrier、内存序与 workgroup/device 作用域；三维 grid/block 到 workgroup/wave/lane 映射、部分 workgroup；SE/CU 阵列、occupancy 上限、线程本地 TLB；策略 A 串行黄金基线与策略 B 硬件对齐并行 | D 门禁 S10/S11/S18；所有组合功能判据一致；未实现策略明确返回不支持，禁止静默串行降级 |
+| WP6：队列、引擎、查询与图形 API | 32–36 | Graphics/Compute/Copy 队列；timeline semaphore/fence、跨队列所有权转移；IB 链、直接/间接 draw/dispatch、predication、独立 DMA；occlusion/timestamp/pipeline stats；HLI 原生入口和 Vulkan/D3D12/OpenGL 核心子集；非法访问、非法包、死循环、watchdog、按引擎复位和复位后重跑 | E 门禁 S12/S13/S15–S17；三入口硬判据一致，错误能定位并恢复 |
+| WP7：计算管线收口 | 37 | 计算入口与 dispatch 描述、KernelArgsLayout 校验、compute engine 派发、uniform 装载、三维映射/组内 barrier/统计、异步计算、间接派发、query、全阶段 UAV；直连 HLI 计算入口 | F 门禁 S18/S19；serial/parallel 判据一致，E0–E5/S0–S17 不退化 |
+| WP8：计算驱动与最终贯通 | 38–42 | `umd/compute` context/module/function/stream/event；自有 `MUSA_MODULE_HDR` 解析与装载（借鉴对象模型，不兼容 MUSA）；参数 pack 与 launch；异步 stream/event；协作、间接 dispatch、UAV 写回；S18/S19 双入口贯通 | G 门禁 A38–A42；计算驱动入口与直连 HLI 入口逐值等价，全 E/S 回归通过 |
+
+任务拆分执行正式来源为 `roadmap.md` §2.1–§2.4。10、11、14、17、18、20、21、25、26、28、30、31、35 等 L 级章节必须按该文件列出的子里程碑分别设计、实现、验收；跨章节接口先冻结再并入，不以“一次性完成整章”作为任务粒度。
+
+### 18.3 明确一期边界，避免扩展失控
+
+能力按 `roadmap.md` §0.5 登记为四档：
+
+- **必须完成**：初级 1–9 章及 E0–E5，不得用 stub 或静默降级替代。
+- **高级一期**：10–37 章规定的 P0 硬件、图形 API 子集、计算管线，以及 38–42 章计算驱动开发线；按 A–G 门禁递进。
+- **高级二期预留**：Task/Mesh Shader、Multiview、Conservative Rasterization、完整抢占/TDR 等只查询 capability bit，一期明确返回“不支持”。
+- **范围外**：API/二进制兼容、周期精确/真实带宽模型、虚拟化、稀疏资源、压缩纹理、视频引擎、电源热管理、ECC、细粒度页错误恢复等不纳入实现。
+
+每个 capability 必须标注档位、关闭/不支持时行为、对应任务和测试；“看起来能跑”不能代替明确能力声明。
+
+### 18.4 子模块设计文档的落实方式
+
+| 独立设计文档 | 本规划要落实的细节 | 对应工作包 |
+|---|---|---|
+| [command-mmio.md](design/command-mmio.md) | packet/version/count、包类型登记、stateId/MMIO 分段、ring wrap/满判定、CP 唯一派发、位宽审计 | WP0、WP2、WP6 |
+| [memory-system.md](design/memory-system.md) | HostVa/GpuVAddr/PhysAddr 分离；硬件单元只能经 `IMemorySubsystem`；页表/TLB、三堆、cache/write buffer、flush、驻留、确定性分配与 sanitizer | WP1、WP2、WP5 |
+| [isa-abi.md](design/isa-abi.md)、[compiler.md](design/compiler.md) | 64-bit ISA、opcode/寄存器 ABI、往返汇编、编译器 SSA/CFG 到 ISA、LLVM 对照边界 | WP1、WP3 |
+| [compute-line.md](design/compute-line.md)、[compute-driver.md](design/compute-driver.md) | 计算最小通路、对象映射、module/function/参数 ABI、stream/event 生命周期、错误映射、双入口等价 | WP5、WP7、WP8 |
+| [execution-parallel.md](design/execution-parallel.md)、[sync-primitives.md](design/sync-primitives.md) | Strategy A/B、时间无关、固定归约顺序、workgroup barrier、队列同步与内存作用域 | WP5–WP8 |
+| [texture-unit.md](design/texture-unit.md) | 纹理格式、tiling、mip/LOD、过滤、寻址、采样器和异步延迟隐藏 | WP1、WP4 |
+| [boot-reset.md](design/boot-reset.md) | 初始化依赖、失败回滚、分层故障、watchdog、引擎级 reset 和重跑验证 | WP0、WP6 |
+| [logging.md](design/logging.md) | GD_LOG 等级、错误定位字段、MMIO 只读统计、断言分层；日志和统计不成为正确性来源 | WP0、WP2、WP6 |
+| [validation-model.md](design/validation-model.md)、[scene-specs.md](design/scene-specs.md) | E 场景全图字节判据、高级固定探针/CPU ref_model、容差、KFT、回归矩阵和 CI 诊断包 | WP1–WP8 |
+| [bit-budget.md](design/bit-budget.md) | packet/opcode/MMIO/VA/ring/heap 位宽容量审计；冻结前解决冲突，不在实现中临时扩位 | WP0、WP2、WP3 |
+
+这些设计文档是模块实现的输入，不需要在任务规划中复写整套接口数值。每个工作包开工前记录采用的设计文档版本、相关 ADR、冻结接口及必须先决的未决项。
+
+### 18.5 每章统一补充的实施项
+
+在原有“目标—范围—依赖—实施项—交付物—DoD”之外，章/子里程碑的设计评审和验收还需逐项回答：
+
+1. 图形与计算两线分别如何使用该模块；共用部分是否误做了单线特化。
+2. 输入/输出契约、所有权、生命周期、状态机和错误传播到哪一层。
+3. 初级简化在哪里实现、由哪章替换；关闭该能力是否能回到上一阶段黄金基线。
+4. 确定性由何种排序/种子/归约规则保证；时间、worker 完成顺序不能改变结果。
+5. 必须输出哪些可观察状态、计数器、错误上下文和人工阅读 trace；它们是否只是软观测。
+6. 机器判据来自哪个 scene-spec、CPU reference、探针或固定基线；容差与失败行为是什么。
+7. 哪些配置键控制该能力，非法组合、能力缺失和超限请求如何处理。
+8. 修改冻结接口后影响哪些下游模块、场景和回归组合，是否需要 ADR。
+
+---
+
+## 19. 项目最终交付与可展示成果
+
+### 19.1 最终提交物
+
+最终交付应是一个可从干净检出构建、可 headless 运行、可复现输入、可验证结果、可用于逐步教学的 CPU GPU 软模型仓库，至少包含：
+
+| 交付类别 | 用户可见产物 | 完成判据 |
+|---|---|---|
+| 可构建程序 | C++ 核心库、CLI 场景运行器、Windows/Linux 构建说明与脚本 | 干净构建通过；核心层不依赖操作系统，平台差异集中在窗口/文件系统适配 |
+| 初级教学演示 | E0–E5 可执行场景；E5 一帧含清屏、渐变三角、贴图四边形和模型 | 从命令行一键运行；产出帧图/原始 buffer；E0–E5 全图逐字节符合仓库基线 |
+| 高级图形演示 | S0–S17 场景覆盖多队列、纹理/几何、MSAA、错误恢复、三套 API 后端子集 | 通过对应场景探针/差分；HLI/Vulkan/D3D12/OpenGL 后端判据一致 |
+| 计算驱动演示 | S18/S19 及 C1–C5 demo：launch、参数打包、grid/block、stream/event、协作、间接派发、UAV | 38–42 章 A38–A42 全绿；计算驱动与直连 HLI 两入口逐值等价 |
+| 教学调试能力 | `--trace` 人工阅读输出、错误上下文、状态快照、可复现 scene JSON、raw/PNG 帧、内存审计 | 学习者能从输入、提交包、关键状态到最终像素/内存值追踪一次执行 |
+| CPU 参考与自动校验 | `ref_model`、`image_diff`、`pick_probe`、`spec_runner`、`log_analyze`、`mem_audit`、`state_inspector` | 工具只读模拟器导出的稳定产物；CI 生成可读机器报告与失败诊断包 |
+| 教学文档 | 架构图、模块树、初级简化→高级替换表、任务依赖图、每阶段教程、场景说明、参考资料与 ADR | 新学习者可按阶段复现；文档中的目录/接口/命令/判据与代码一致 |
+
+### 19.2 最终运行体验
+
+项目应支持一组简单、可复制的命令入口，具体命令以实现阶段冻结的 CLI 为准：
+
+- 列出场景与能力：查看阶段、输入规模、所需模块、已实现/不支持的 capability。
+- 运行单场景：选择 E/S/C 场景和固定配置，输出结果文件与判定摘要。
+- 运行教学 trace：查看包提交、CP 派发、引擎/执行状态、地址翻译、wave/lane、cache、同步/fence 的关键步骤；trace 是人工阅读格式，不作为稳定机器 ABI。
+- 运行回归矩阵：按 scene-spec 执行 serial/parallel、cache 开关、后端及错误路径组合，产生 HTML/JSON 汇总和失败快照。
+- 查看结果：生成 raw/PNG 帧、探针差异、显存/资源占用、日志错误摘要；GUI 窗口只作为可选展示层，headless 运行不能依赖 GUI。
+
+### 19.3 分阶段可演示里程碑
+
+| 里程碑 | 演示主题 | 现场应能看到 |
+|---|---|---|
+| M1 | 命令与状态 | 输入场景如何形成 command packet，ring/CP 如何消费，fence 如何完成 |
+| M2 | 第一帧图形 | 顶点如何经过 VS、裁剪、光栅和 OM 写入 RT，并导出图像 |
+| M3 | GPU 内存与缓存 | VA→PA/TLB、L1/L2 hit/miss、写缓冲/flush 对可观察结果的影响 |
+| M4 | SIMT 与协作 | lane mask、分歧重收敛、subgroup、workgroup barrier 与原子结果 |
+| M5 | 驱动与多队列 | HLI/UMD/KMD/FW 分层、异步队列依赖、故障定位和引擎复位 |
+| M6 | 计算驱动 | module/function/参数包、LaunchKernel、stream/event、S18/S19 双入口对照 |
+
+### 19.4 不作为项目成果的数字
+
+所有性能输出必须注明是 CPU 模拟器运行时间或模型统计。不得把宿主 L1/L2 命中、CPU worker speedup、模拟 cache hit rate 或功能级等待次数包装成真实 GPU 性能、带宽、周期或占用率实测值。宿主 CPU 的 L1/L2 优化只可作为模拟器性能工程的独立数据，不改变模拟 GPU 的显式 cache model。
+
+---
