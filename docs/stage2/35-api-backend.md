@@ -35,6 +35,7 @@
 
 ```
  apps（api_backend=hli）──► HLI（35.1）──► KMD（DDI）──► FW ──► HW
+ apps（api_backend=graphics）──► umd/graphics/pal ──► HLI
  apps（api_backend=vulkan|d3d12|gl）──► umd/graphics/api/* ──► PAL ──► HLI
  apps（计算驱动）──► umd/compute ──► HLI
 ```
@@ -121,7 +122,9 @@ IHliDevice.CreateQueue → CreateCommandList → BindDescriptorHeap
 ```
 （场景入口 `api_backend=hli` 与初级薄门面 `main` 兼容，场景数据不变——ADR-028 保持。）
 
-### 4.2 UMD 命令快照
+### 4.2 图形 UMD 命令记录
+
+35.1 的 `graphics` 入口保持资源视图、管线和命令列表的最小对象面。创建和提交复用 HLI，动态状态在记录期快照。外部适配器复用相同 HLI 路径。
 
 ```
 UMD 记录命令缓冲：Bind* / Draw ... → 生成 IHliCommandList（记录时快照动态状态）
@@ -147,8 +150,8 @@ LaunchKernel(fn, grid, block, args):
 | T35.01 | ① 契约(35.1) | HLI 对象接口 + 句柄 + 能力查询 + 动态状态快照语义落头文件 |
 | T35.02 | ② 主体(35.1) | HLI 对象工厂与资源表、`QueryCapability` 唯一能力入口 |
 | T35.03 | ② 主体(35.1) | 双维度引用计数（user/hw ref + 释放条件） |
-| T35.04 | ③ 接入(35.1) | 将第 20 章已有 Pipeline 和命令 lowering 接至正式 HLI 对象面。运行 S0、S2、S3、S17 核心用例，S15 验一期能力拒绝。场景按已交付能力逐个迁移 |
-| T35.05 | ④ 验收(35.1) | A35.1：HLI 核心用例集全绿并留档；后续 E/S 场景随其硬件能力逐步接入 HLI 回归，不作为 API 子集的先决全局门禁 |
+| T35.04 | ③ 接入(35.1) | 将第 20 章已有 Pipeline 和命令转换接至 HLI。通过 S0/S2/S3/S17 直连基线和 S15 能力拒绝 |
+| T35.05 | ④ 接入与验收(35.1) | 在 `umd/graphics/pal` 公开最小自有图形入口 `api_backend=graphics`，记录资源视图、Pipeline 和 Draw，经 HLI 提交。S17 代表场景同输入对照 `hli` 并留档 |
 | T35.06 | ① 契约(35.2) | Vulkan-UMD 对象映射 + 命令缓冲快照 + capability 只读 |
 | T35.07 | ② 主体(35.2) | Vulkan 资源/视图/管线/命令表 → HLI 映射 |
 | T35.08 | ② 主体(35.2) | Vulkan 同步（fence/semaphore）→ HLI Queue |
@@ -170,7 +173,7 @@ LaunchKernel(fn, grid, block, args):
 
 | 里程碑 | 任务范围 | 收口判据 |
 |---|---|---|
-| M35.1 | T35.01~T35.05 | HLI 对象面落地并通过冻结门禁，D35.01~D35.05 全绿 |
+| M35.1 | T35.01~T35.05 | HLI 核心对象与最小图形 UMD 入口通过核心门禁 |
 | M35.2 | T35.06~T35.10 | 可选 Vulkan API-inspired 子集通过支持用例与 capability 检查；不宣称 API 兼容 |
 | M35.3 | T35.11~T35.15 | 可选 D3D12 API-inspired 子集；未实现能力返回 NotSupported，不阻塞 A35.1 |
 | M35.4 | T35.16~T35.20 | 可选 OpenGL API-inspired 子集；未实现能力返回 NotSupported，不阻塞 A35.1 |
@@ -185,7 +188,7 @@ LaunchKernel(fn, grid, block, args):
 | D35.02 | 工厂对象创建/销毁关闭；能力查询只从 HLI | L1 契约 |
 | D35.03 | 引用计数：对象 user=0,hw=0 前不释放内存（测试模拟未完成提交释放被拒） | L1 契约 |
 | D35.04 | 直连 HLI 核心用例（S0、S2、S3、S17）探针通过，S15 一期能力拒绝断言通过。后续场景按已具备能力加入 | 横切 + 门禁 |
-| D35.05 | HLI 核心门禁记录留档；API-inspired 适配器可独立按 capability 表启动，不因尚未迁移的非核心 E/S 场景阻塞 | L1 契约 |
+| D35.05 | S17 的清屏和三角形经最小图形 UMD 记录并通过 HLI 提交，同时通过同输入直连 HLI 探针对照。资源绑定、动态状态及提交可追踪，记录 A35.1 完成证据 | L1 + L2 |
 | D35.06 | Vulkan-UMD 契约：对象映射表落头文件；`Vk*` 不进 HLI；动态状态快照语义 | L1 契约 |
 | D35.07 | Vulkan 资源/视图/管线/命令表映射正确；两 cmdlist 各自提交互不干扰（快照） | 横切 |
 | D35.08 | Vulkan fence/sem → HLI 队列 timeline | L1 契约 |
@@ -206,15 +209,15 @@ LaunchKernel(fn, grid, block, args):
 
 ## 7. 场景与判据（A35）
 
-**绑定场景：S17（HLI 主线及 capability=true 的适配器子集）、S2/S3 为可选代表用例；具体映射以本章能力矩阵为准。**
+**绑定场景：35.1 验 S17 的直连 HLI 与项目自有图形入口，S0/S2/S3 为 HLI 代表用例，S15 验一期拒绝。外部图形适配器仅按已声明能力验证。**
 
 | 项 | 内容 |
 |---|---|
-| 输入 | HLI 核心场景集；按适配器 capability 矩阵选择 Vulkan/D3D12/GL 的代表用例。非支持场景必须返回 `NotSupported`。 |
+| 输入 | HLI 核心场景集、S17 的最小图形 UMD 输入，及已启用外部适配器的代表用例 |
 | 产物 | HLI 对象/命令快照；adapter capability 矩阵与支持用例语义对照表 |
-| 主判据 | HLI 核心用例按正式判据通过；可选适配器仅对声明支持的用例进行语义/探针对照 |
+| 主判据 | HLI 核心用例通过，S17 的 `graphics` 与 `hli` 探针一致，可选适配器对照其声明的子集 |
 | 本章专有判据 | ① HLI 对象创建/提交/资源生命周期正确；② 可选适配器严格映射能力表且不改写 HLI 契约；③ API 未支持能力可预测返回 `NotSupported`；④ adapter 不宣称厂商 API 完整兼容；⑤ 计算驱动等价归 stage3 42（A42） |
-| 回归项 | R35：S17 HLI 核心路径及本章逐项登记的已交付 E/S 场景不退化；S2/S3 仅按绑定表作为代表用例；可选 adapter 只回归其 capability=true 用例；均不得改变硬件契约 |
+| 回归项 | R35：S17 HLI/最小图形 UMD 及已交付的 E/S 场景回归。选做 adapter 回归声明的 capability 子集 |
 | 后续补齐 | API 特化兼容（workaround）只在该 UMD 层，不反向进 HLI |
 
 ---
@@ -229,7 +232,7 @@ LaunchKernel(fn, grid, block, args):
 | 契约影响 | HLI 对象面/引用计数/能力入口冻结（35.1 门禁） |
 | 简化登记 | 初级薄门面 → HLI → UMD（三层替换，场景入口不变） |
 | 计算兼容 | 计算驱动共用 HLI（跳图形 UMD）；硬件单元按包类型派发不按 UMD 类型 |
-| 配置与回退 | `api_backend` 键；`hli/vulkan/d3d12/gl` 全部路径；blit 窗口 `BW_WINDOW` 为内部常量（非配置键） |
+| 配置与回退 | `api_backend` 的核心入口为 `hli` 和 `graphics`，可选值为 `vulkan/d3d12/gl`；`BW_WINDOW` 是内部常量 |
 | 调试钩子 | `--trace=hli/umd/compute`；能力位 dump |
 | trace 契约 | 不进入判据 |
 | 契约变更 | HLI 对象面、引用计数、能力位为冻结项；变更走 ADR 回归 S17 及受影响 S |

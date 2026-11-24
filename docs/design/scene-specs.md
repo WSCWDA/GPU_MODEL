@@ -248,7 +248,7 @@
 ### S12 `scene_s12_multiengine` — 多引擎交错
 
 - 元信息：高级 / 章 32、33 / 阻断；入口 `apps/scene_s12_multiengine`。
-- 输入：图形 + 拷贝 + 计算三条流。
+- 输入：图形、拷贝及 Compute 家族队列三条流。第 32/33 章的 Compute 流使用受控测试提交验证队列依赖，真实 kernel 的多引擎交互在 S19/C3 接入。
 - 主判据：依赖顺序、semaphore 不早于信号、IB / 间接 / predication 与直接提交等价（L1 + L2）。
 - 回归矩阵：`serial` / `parallel`。
 - 引用：章 32/33 DoD。
@@ -288,9 +288,9 @@
 ### S17 `scene_s17_api_equivalence` — API 等价一致性
 
 - 元信息：高级 / 章 35 / 阻断；入口 `apps/scene_s17_api_equivalence`。
-- 输入：HLI 主路径必测；Vulkan/D3D12/GL 只运行 capability 矩阵声明支持的子集，其余能力断言返回 `NotSupported`。
-- 主判据：HLI 按本场景判据通过；各 adapter 的支持子集满足同一场景语义/探针判据，不支持项返回 `NotSupported`；不要求 API 完整兼容。
-- 回归矩阵：运行 `hli` 基线，以及实际启用适配器的 capability=true 用例。未支持能力按 `NotSupported` 判定。
+- 输入：直连 HLI 与项目内最小图形 UMD（`graphics`）使用同一场景必测。启用的 Vulkan/D3D12/GL 运行 capability 声明子集，未支持能力返回 `NotSupported`。
+- 主判据：`hli` 与 `graphics` 的清屏/三角形场景探针一致，图形 UMD 经 HLI 提交；启用的外部 API 适配器按能力范围满足同一语义判据。
+- 回归矩阵：`hli` 与 `graphics` 为必测。另运行实际启用适配器的 capability=true 用例。
 - 引用：章 35 DoD、`35-api-backend.md`、ADR-022。
 
 ### S18 `scene_s18_compute_basic` — 计算最小通路
@@ -307,7 +307,7 @@
 | case-0 | 1D 基础 | grid 8 × block 32 | int32 ×2 | LCG 0x5EED | 256 int32 元素（逐字节）+ blockIdx/threadIdx 探针 = ref_model case0 |
 | case-1 | 2D 基础 | grid (8×8) × block (16×16) | int32 ×2 | LCG 0x5EED | 1 024 int32 元素（逐字节）+ 二维 id 探针 = ref_model case1 |
 | case-2 | 3D + 越界 | grid (4×4×5) × block (8×8×8)（z 维超出 512 有效域 1 层） | int32 ×2 | LCG 0x5EED | 512 有效元素逐字节；**越界 work-item 不写任何内存**（M-01/M-02 越界前哨 buffer 探针） |
-| case-3 | 经计算驱动 | = case-1 同参数（stage3 双入口主验收入口） | int32 ×2 | LCG 0x5EED | 与直连 HLI 入口**同参数同命令流零容差一致**（A42） |
+| case-3 | 经计算驱动 | 与 case-1 同参数，HLI 侧使用 case-1 等价输入 | int32 ×2 | LCG 0x5EED | A39 首验，A42 比对关键命令语义和零容差探针 |
 | case-4 | WA-01 | N = 65 536 | int32 ×2 + fp32 ×2 | LCG 0x5EED | 65 536 int32（逐字节）+ 65 536 fp32（≤1 ULP）= ref_model wa01 |
 | case-5 | WA-02 | N = 262 144 | fp32 | LCG 0x5EED | 组级 2 048 + 全局 1 fp32（≤1 ULP + 归约顺序断言强制）= ref_model wa02 |
 | case-6 | WA-03 | N = 16 384 | uint32 | LCG 0x5EED | 16 384 uint32（逐字节，Blelloch 前缀和）= ref_model wa03 |
@@ -364,6 +364,8 @@
 
 ## 4. 章节验收判据（42 章总表）
 
+计算场景按入口成熟度启用。A37 使用直连 HLI 运行 S18 `case-0~2/4~12` 与 S19 `case-0~4`。A39 首验 S18 `case-3` 和 C2。A42 的双入口矩阵覆盖 S18 `case-0~3` 与 S19 `case-0~4`，S18 `case-4~12` 保留 HLI 回归，各 C 系列 demo 按所属章节保留驱动入口验收。
+
 每章的"场景 × 专有判据"以下表为**唯一权威**；`roadmap.md` §8.2 步骤 3 逐"第 N 行"断言通过；行内 sub-case / 探针 / 容差细节以本文件各场景节（§2/§3）与章文档 DoD 为准，两侧必须对齐：
 
 | 章 | 场景 | 专有判据 |
@@ -387,7 +389,7 @@
 | 17 | S3 + S0 | IR 快照稳定；前端解析/语义/IO 签名错误与源码位置确定；编译后端执行等价由 18/19 章判定 |
 | 18 | S3 | 优化开/关一致；寄存器溢出统计可输出 |
 | 19 | S3 | ABI/ISA 合法性与规范程序语义一致（允许合法编码差异） |
-| 20 | S4/S14 绑定子集，S5 视图与 S18 参数布局单测 | 检查资源与参数取值、越界与未绑定、视图范围及重解释、Pipeline/包转换、非法子资源范围和描述符设备内存语义 |
+| 20 | S4/S14 绑定子集，S5 视图与 S18 参数布局单测 | 资源/视图/快照语义与地址范围，校验调用方已准备的参数缓冲，非法输入无派发包 |
 | 21 | S4 + S14 | LOD/sRGB/寻址正确；数组/Cubemap 层索引与越界行为确定；采样器并入 stateId 5 描述符堆、比较采样正确；SAMPLE 请求为 float2 uv + 导数 |
 | 22 | S5 | 索引与非索引顶点流一致；primitive restart、step rate 正确；`baseVertex`/`baseInstance` 偏移与 `InstanceID` 正确；内建 ID 只读 SGPR/专用寄存器 |
 | 23 | S5 | 命令数恒为 1；顶点数不受单次派发容量限制；切片容量归前端派发器、VGT 只产顶点流；切片边界图元完整；顶点流常驻复用不随帧增长 |
@@ -399,17 +401,17 @@
 | 29 | S10，独立 wave 输入 | ballot/shuffle/归约/导数结果确定，部分活跃时按操作使用单位元 |
 | 30 | S10，S19 case-0/1 只作单测输入 | LDS 转置、原子、组内 barrier 和作用域按独立 workgroup 用例验证 |
 | 31 | S11，S18 case-1/2 只作映射单测输入 | 并行组合结果一致，TLB 失效后无脏读，映射、部分组与越界行为确定 |
-| 32 | S12 队列子集、S16 | 三队列依赖与 timeline 值序正确，屏障和所有权移交按子资源范围判定 |
+| 32 | S12 队列子集、S16 | 图形、拷贝和测试 Compute 队列验证依赖，WAIT 停驻及已知生产者失败传播，timeline 值序、屏障和所有权移交 |
 | 33 | S12 IB/间接绘制子集，S19 case-3 只作参数单测输入 | IB、间接 draw、predicate 与直接路径对照。间接 dispatch 只对照参数描述符，输出等价归 37/42。验证 DMA 切片拷贝 |
 | 34 | S7 + S2 | 遮挡 query = 0；timestamp 单调不减；统计不参与正确性；查询可作 GPU 侧谓词 |
-| 35 | S17 + S2 + S3 + S4 + S5 | HLI 场景通过；adapter capability=true 的子集满足语义判据；UMD 不改写 HLI 包；动态状态是命令缓冲快照而非全局状态；能力位只从 HLI 读取且含二期四位（一期恒 false）；计算验收已迁第 37 章（A37：S18/S19 直连 HLI 验收），35 章本身不再承担计算验收 |
+| 35 | S17 + S2 + S3 + S4 + S5 | HLI 主路径和最小图形 UMD 同场景通过，外部适配器按能力声明；动态状态取命令缓冲快照，能力位由 HLI 提供 |
 | 36 | S13 | 故障定位到单元；reset 后 S2 重跑成功 |
-| 37 | S18、S19 | kernel→参数→dispatch→workgroup/wave→LDS/atomic/barrier→写回→fence 端到端；直连 HLI 计算入口；三维映射 / 越界 / 组驻留（M-03）/ 间接 dispatch 与 33 章等价；A37 主验收（双入口等价归 stage3 42，A-stage3） |
+| 37 | S18 case-0~2/4~12、S19 case-0~4 | 直连 HLI 跑通参数消费、uniform、调度/协作/写回和完成值。S18 case-3 首验见 A39 |
 | 38 | Demo C1 `module_probe` | `MUSA_MODULE_HDR` 字段与 blob 逐字节一致；符号表解析正确（name/entryOffset/paramBytes/vgprCount/ldsBytes）；Function 入口解析 + 4B 对齐；截断/坏 header/越段返回确定错误（`InvalidIsa`/`NotMapped`）且无泄漏 |
-| 39 | S18 case-3、Demo C2 `vector_add` | 参数六条校验全部命中非法样例并返回确定错误、命令流不含 `SET_KERNEL_ARGS`/`DISPATCH`；`v[56..67]` uniform 区 = paramBufVa/grid/block（快照比对）；vector_add 整型逐字节 + fp32 ≤1 ULP 通过、>1 ULP 阻断（同序 FMA 下 0 ULP 为诊断信息，§1.2）；计算驱动入口命令流与直连 HLI 同参数同顺序零容差一致 |
-| 40 | S19、Demo C3 `async_pipeline` | event Record/Wait/Query 值序正确、未达值 Query 非阻塞返回未完成；stream 提交顺序=命令流顺序；计算队列与图形队列并发、`WAIT` 前图形不读计算产物；异步交叉下数值等价（serial/parallel 硬判据一致） |
-| 41 | S18、S19、Demo C4/C5 | 三维 block/grid 的 blockIdx/threadIdx = ref_model；grid 边界部分 workgroup 有效、越界 work-item 不写任何内存（M-01/M-02）；跨 wave barrier 只在全部 wave 到达放行（原子计数断言）；workgroup/device 作用域语义确定；归约 ≤1 ULP + 归约顺序断言（强制，identity 正确，§1.2）；`DISPATCH_INDIRECT` 与直接 dispatch 逐值等价；UAV kernel 写回同 `(x,y,format)` 字节布局逐字节一致（对照 20 章 image 描述符 + 26 章格式转换表，ADR-049，不依赖 26 章 OM 写回探针） |
-| 42 | S18、S19（A-stage3） | S18/S19 经计算驱动入口与直连 HLI 入口逐值等价（同参数、同命令流、同探针，零容差）；`serial`/`parallel` 零容差一致；六条校验非法样例/坏 module/未达成值 Query 经计算驱动入口正确映射 `MUSA_ERROR_*`（不吞错、不静默降级）；S10/S11/S12/S16/S17 等 E/S 场景回归不退化；共用单元无"图形专用/计算专用"分支（ADR-032） |
+| 39 | S18 case-3、Demo C2 `vector_add` | 最小 Stream 可独立提交、同步和销毁；六条参数检查，参数缓冲存活至终态；两入口关键包等价、探针零容差、fp32 CPU 参考 ≤1 ULP |
+| 40 | S19 异步子集、Demo C3 `async_pipeline` | 双 UMD 双队列、有序提交、Event Wait 快照，非阻塞区分 pending/成功/失败；图形在同步和所有权获取后读取，失败依赖可观测 |
+| 41 | S18/S19 代表用例、Demo C4/C5 | UMD 输入校验与记录正确，复用执行层探针验证三维/协作、UAV 和间接派发。C4 归约 ≤1 ULP 且顺序断言通过，C5 直接/间接逐值一致 |
+| 42 | S18 case-0~3、S19 case-0~4（A-stage3） | 同输入关键命令语义等价，双入口/双执行策略探针零容差。错误映射确定，未达成 Query 返回状态；S18 其余 HLI 用例及适用 E/S 回归 |
 
 - E 场景绑定章节：E0→1/5；E1→2/3/8；E2→4/5/6；E3→7；E4→3/6；E5→9。
 - S 场景绑定章节：见各场景节"引用"；**多场景章以本表首列场景为主场景**（主判据），其余为专有判据或章文档 §7 明确登记的回归；一 S 号一入口（Q-67），与 `roadmap.md` §8.2 步骤 3 逐行对齐。

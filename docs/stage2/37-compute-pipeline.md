@@ -13,7 +13,7 @@
 ### 1.1 目标
 
 1. **计算最小通路**（线贯通）：`kernel → module/function → 参数缓冲 → dispatch(grid, block) → CP 派发 → workgroup 分配到 CU/SIMD → wave 调度 → LDS/原子/barrier → 全局内存/图像写回 → fence/查询`，全链路可定位、可探针校验。
-2. **直连 HLI 计算入口**（A37 验收入口）：`SetKernel` → `Dispatch` / `DispatchIndirect` 命令流闭环接入 S18/S19；（MUSA 计算驱动对象模型 `context / module / function / stream / event` 与 `LaunchKernel` 属原 35.5，**归 stage3 38~42**（ADR-047），本章不实现。）
+2. **直连 HLI 计算入口**通过 `SetKernel` → `Dispatch` / `DispatchIndirect` 跑通已准备参数的计算场景。最小 Stream 和主机参数打包由第 39 章接入。
 3. **计算调度与协作收口**（37.2）：三维 workgroup/grid 映射的**驱动侧语义**、grid 边界部分 workgroup、越界 work-item 不写、组内 barrier 组内全部 wave 到达放行、workgroup/device 作用域内存序——把 29~31 的共用单元收口为 kernel 入口语义。
 4. **计算系统收口**（37.3）：异步计算（计算队列并发 + 计算→图形 fence 依赖）、间接派发计算侧（`DISPATCH_INDIRECT` 与直接等价）、计算查询与统计、全阶段 UAV kernel 写回收口。
 5. **端到端验收（A37，直连 HLI 入口）**：S18/S19 在 `serial` / `parallel` 下硬判据零容差一致、直连 HLI 计算入口跑通；计算驱动入口与直连 HLI 入口的**双入口等价归 stage3 42（A42）**主验收。
@@ -155,7 +155,7 @@ CP 解析 DISPATCH(0x04) → Compute 引擎
 | M37.3 | T37.11 | ② 主体 | Compute engine 解释第 33 章登记的 `DISPATCH_INDIRECT` 与 28 B 参数结构，执行与直接派发语义等价的硬件路径；驱动侧参数构造/校验由第 41 章负责 |
 | M37.3 | T37.12 | ② 主体 | 计算查询与统计：dispatch 计数、timestamp 单调、查询可作 GPU 侧谓词（查询单元在 34 章；本章收口计算口径） |
 | M37.3 | T37.13 | ③ 接入 | Compute shader 对已绑定的全局/图像资源执行写回，验证硬件 memory/image store 通路；UAV view 创建、描述符打包与驱动调用包装归第 41 章 |
-| M37.4 | T37.14 | ④ 验收 | 直连 HLI 计算入口接 S18/S19：`A37` 全绿（S18/S19 双策略硬判据一致、直连 HLI 计算入口跑通、受影响 S 场景回归）；双入口等价（原 35.5 计算驱动吸收点）归 stage3 42（A42） |
+| M37.4 | T37.14 | ④ 验收 | A37 跑 `api_backend=hli` 的 S18 `case-0~2/4~12` 与 S19 `case-0~4`，对照双执行策略并回归受影响场景；S18 `case-3` 从 A39 启用 |
 
 ### 子里程碑（本章 ≤ 6 任务/块）
 
@@ -172,7 +172,7 @@ CP 解析 DISPATCH(0x04) → Compute 引擎
 
 | DoD | 判据（机器可判） | 级别 |
 |---|---|---|
-| D37.1 | Compute 引擎载荷头独立编译；合法 DISPATCH 字段能被解析；包长、版本、保留位和引擎类型错误在提交期返回确定错误；不重复执行第 39 章的 ArgPack/KernelArgsLayout/D13 记录期校验 | L1 契约 |
+| D37.1 | Compute 载荷头独立编译，DISPATCH 字段正确解析；包长、版本、保留位和引擎类别错误返回确定状态；输入数据的记录期校验归 20/35.1，主机参数打包归 39 | L1 契约 |
 | D37.2 | 硬件消费已提交参数描述符时，未映射/越界参数区产生确定错误；合法参数正确装入 uniform。Host `ArgPack[]` 的布局/重叠校验与禁止下发由 D39.1/D39.2 验收 | L1 契约 |
 | D37.3 | `DISPATCH` 能驱动 Compute 引擎产出与 29~31 章单测一致的结果；派发入口必须持有非空 `IShaderArray* sa` 并对每个有效 wave 调用 `IShaderArray::Dispatch`，缺失 `sa` 在执行前返回 `InvalidArgument` | L1 契约 |
 | D37.4 | `DISPATCH` 后 VGPR uniform 区 `v[56..67]` 内容 = `paramBufVa/grid/block`（快照比对） | L1 契约 |
@@ -185,20 +185,20 @@ CP 解析 DISPATCH(0x04) → Compute 引擎
 | D37.11 | `DISPATCH_INDIRECT(参数=直接 dispatch)` 与直接 dispatch 结果逐点零容差一致 | 横切 |
 | D37.12 | 计算 dispatch 计数值正确、timestamp 单调不减；查询可作谓词回读 | L1 |
 | D37.13 | kernel UAV 写回按 `(x,y,format)` 与 20 章 image 描述符 + 26 章格式转换表逐字节一致（S19 `case-4`）；不依赖 26 章 OM 写回探针 | 横切 |
-| D37.14 | A37 全绿：S18/S19 在 `serial`/`parallel` 硬判据逐项一致（整数/索引零容差；fp32 归约 ≤1 ULP + 归约顺序断言）、直连 HLI 计算入口跑通、受影响 S 场景不退化（双入口等价归 stage3 42 / A42） | L1 + L2 + 横切 |
+| D37.14 | A37：直连 HLI 的 S18 `case-0~2/4~12` 与 S19 `case-0~4` 通过场景判据和双策略对照。S18 `case-3` 进入 A39/A42 | L1 + L2 + 横切 |
 
 ---
 
 ## 7. 场景与判据（A37）
 
-**绑定场景：S18 `scene_s18_compute_basic`、S19 `scene_s19_compute_memory`（本章为主验收章；S10 组内归约与原子、S11 并行、S12 多引擎、S16 所有权为回归项）。**
+**绑定场景：直连 HLI 的 S18 `case-0~2/4~12` 与 S19 `case-0~4`。S18 `case-3` 在计算 UMD 入口交付后执行。S10/S11/S12/S16 为回归项。**
 
 | 项 | 内容 |
 |---|---|
 | 输入 | S18：1D/2D/3D grid + block、kernel 参数、越界 work-item；S19：LDS / 原子 / barrier + 间接 dispatch + 异步计算；两者跑 `api_backend=hli`（直连）；（`api_backend=compute` 计算驱动入口归 stage3 42 双入口等价验收） |
 | 产物 | kernel 启动日志、命令包序列、RT/UAV/参数缓冲读回、S18/S19 探针表 |
 | 主判据 | S18/S19 的 blockIdx/threadIdx/越界/计数/shared/barrier/内存序 = ref_model（整数/索引零容差）；fp32 归约 ≤1 ULP + 归约顺序断言（`scene-specs.md` §1.2）；间接 dispatch 与直接等价；计算→图形 fence 后结果可见 |
-| 本章专有判据 | ① S18/S19 在 `serial` / `parallel` 下硬判据逐项一致（整数/索引零容差；fp32 归约 ≤1 ULP + 归约顺序断言）；② 直连 HLI 计算入口跑通（双入口等价归 stage3 42 / A42 主验收）；③ 共用单元无图形/计算特化分支；④ D13-a/b/c 在 HLI/计算驱动记录期拒绝（由第 39 章验收）；Compute engine 对有效提交执行正确，wave/CU 与资源驻留边界无死锁 |
+| 本章专有判据 | 直连 HLI 双策略结果符合本章场景；以现有 D13-a/b/c 检查 HLI 记录期拒绝和无包，A39 复核计算驱动入口的错误映射；有效提交与组驻留可正常推进 |
 | 回归项 | R37：S10（波内/组内归约计算侧）、S11（并行）、S12（多引擎）、S16（所有权）在计算线接入后不退化；未列明历史 A 门禁不自动阻断 |
 | 后续补齐 | `LaunchWithParamBuffer`、动态并行、可变 subgroup、真实 occupancy 调优 —— 均二期 / 范围外，只留 capability bit 或文档登记 |
 

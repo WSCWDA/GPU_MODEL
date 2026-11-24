@@ -41,17 +41,11 @@
 | WP2–WP3 | 10–19，A–B | KMD/FW、虚拟地址与驻留、显式 GPU 缓存、执行与编译链。LLVM 对照验证 ABI 和程序语义 |
 | WP4 | 20–28，C | 资源与绑定、纹理、图形前端、光栅、OM、MSAA。Tess/GS 在第 28 章通过 S6 独立展示 |
 | WP5 | 29–31，D | 波内/组内协作与 CPU worker 并行。S10/S11 验收共用原语 |
-| WP6 | 32–36，E | 多队列、间接命令、查询、35.1 HLI 对象面和必要错误路径。S15 验收能力查询和拒绝。35.2–35.4 适配器按能力选做 |
+| WP6 | 32–36，E | 多队列、间接命令、查询、35.1 HLI、项目自有最小图形 UMD 入口和必要错误路径。S15 验收能力查询和拒绝。35.2–35.4 适配器按能力选做 |
 | WP7 | 37，F | Compute 引擎消费已登记的命令和参数，经直连 HLI 验收 S18/S19 |
 | WP8 | 38–42，G | 计算 UMD 对象、主机参数打包与 launch、stream/event。第 42 章对照直连 HLI 和计算 UMD 的结果 |
 
 正式门禁和阶段回归见 [路线图](roadmap.md)。
-
----|---|---|---|
-| 初级 | 1~9 | 场景 → 薄提交门面 → 硬件单元 | E0~E5，全图逐字节 |
-| 高级图形与共用底座 | 10~36 | 场景 → 图形 UMD/HLI → KMD → FW → 硬件单元 | S0~S17，探针 + 差分 |
-| 计算管线 | 37 | HLI DISPATCH → 共用 KMD/FW/Compute 引擎 | S18/S19 的直连 HLI 路径 |
-| 计算驱动扩展 | stage3 38~42 | 计算 UMD → HLI → KMD → FW → Compute 引擎 | S18/S19 双入口等价 |
 
 能力四档见 `roadmap.md` §0.5：初级实现 / 高级一期 / 高级二期（只留 bit）/ 范围外。
 
@@ -87,7 +81,7 @@ hw_sim::submit（薄提交门面）
 
 ~~~mermaid
 flowchart TD
-    A["高级场景"] --> G["图形 UMD 适配器与 PAL"]
+    A["高级场景"] --> G["图形 UMD 与 PAL"]
     A --> C["计算 UMD"]
     A --> H["HLI"]
     G --> H
@@ -99,7 +93,7 @@ flowchart TD
 
 说明：
 
-- 场景可直连 HLI。35.1 前可按章通过共用包契约的最小门面或测试支架验收硬件。第 37 章通过 `api_backend=hli` 验收完整计算硬件通路。stage3 引入 `api_backend=compute`，由第 42 章做双入口对照。图形适配器按声明的支持用例与 HLI 比对。
+- 场景可直连 HLI。35.1 前可按章采用共享包契约的薄门面或测试支架。35.1 提供直连 HLI 与项目自有图形 UMD 两条入口。第 37 章以 `api_backend=hli` 验收计算硬件，39 章起接入 `api_backend=compute`，42 章对照两条计算入口。外部图形适配器按能力选做。
 - **HLI 位置**：HLI 是"类 KMD 原生接口"，位于 KMD 之上、UMD 之下。它负责对象、资源/视图、描述符、管线与命令组装；提交统一走 KMD DDI，不复制 KMD 的页表/上下文接口。
 - **KMD/FW 引入**：第 10 章起建立最小 KMD/FW（DDI、ring 写入、doorbell、fence 中断），后续章只在其上追加能力。
 - `umd/graphics` 与 `umd/compute` 各自管理入口对象并复用 HLI 与 `umd/os`。`umd/shader` 的产物通过公共 ISA 与 Shader ABI 交给执行端。
@@ -374,7 +368,7 @@ public:
 4. HLI 的 `CreatePipeline` 对图形与计算同构，不按上层类型分支。
 5. 描述符堆按设备内存语义读取：提交后修改堆，下一次 draw 生效；命令包不拷贝描述符。
 6. 动态状态在命令列表记录时快照，提交时按记录值执行；两个命令缓冲各自提交时动态状态互不干扰。
-7. 35.1 以直连 HLI 代表用例和计算命令记录契约收口。35.2–35.4 随后按能力接入。S18/S19 的完整计算硬件验收在第 37 章。
+7. 35.1 交付直连 HLI 代表用例、计算命令记录契约，以及 `umd/graphics/pal` 上的项目自有最小图形入口。该入口允许应用创建或引用资源视图、记录 Pipeline/Draw、提交并读回 S17 的代表图形结果。直连 HLI 路径用于同输入对照。35.2–35.4 随后按能力接入。S18/S19 的完整计算硬件验收在第 37 章。
 
 ### 3.5 KMD / FW 契约（第 10 章）
 
@@ -459,7 +453,7 @@ struct VertexInputLayout {
 
 `vertexIdx` 使用 `baseVertex + index`（索引）或 `baseVertex + v`（非索引）。`instanceIdx` 包含 `baseInstance`。IA 消费统一布局和绘制参数。Shader ABI 输入属性区 `v[0..15]` 由 IA 按本布局装配（`docs/design/isa-abi.md` §3）。初级固定 `RenderVertex`（stride 32：`float4 position` + `float4 color`），第 22 章切换为 `VertexInputLayout` 动态装配。
 
-### 3.8 计算 kernel 参数（第 20 章冻结；计算驱动落地 stage3 38~42，ABI 见 `compute-driver.md`）
+### 3.8 计算参数描述与打包
 
 ```cpp
 struct KernelArgsLayout {
@@ -470,7 +464,7 @@ struct KernelArgsLayout {
 };
 ```
 
-第 39 章 `LaunchKernel` 打包主机参数并写入设备可见参数缓冲。直连 HLI 场景自行准备同布局数据。HLI 记录命令，第 37 章 Compute 引擎消费 `SET_KERNEL_ARGS`/`DISPATCH` 并装载 uniform 描述符。对象与打包 ABI 见 [计算驱动设计](design/compute-driver.md)。
+第 20 章定义描述结构和记录期校验。第 39 章 `LaunchKernel` 按函数签名打包主机参数并写入设备可见参数缓冲。直连 HLI 场景自行准备同布局数据。HLI 记录命令，第 37 章 Compute 引擎消费 `SET_KERNEL_ARGS`/`DISPATCH` 并装载 uniform 描述符。提交接受时持有参数缓冲和相关资源，成功或失败终结后一起释放。对象与打包 ABI 见 [计算驱动设计](design/compute-driver.md)。
 
 **输入校验规则**在 HLI 或计算驱动的创建、记录阶段执行。静态布局错误返回 `InvalidArgument`，映射或驻留错误按规则 1 返回对应状态。记录期失败不生成命令。
 
@@ -523,7 +517,7 @@ struct KernelArgsLayout {
 | HLI | 对象表、描述符堆默认状态 | 释放 KMD |
 | UMD | API 对象、默认管线 | 释放 HLI |
 
-正常 `Shutdown` 先停止接受新提交，保持已接受工作推进至完成或明确失败，再停执行器并按创建逆序释放。此处规定层间关闭顺序，[启动与复位设计](design/boot-reset.md)的停止 CP 条目按此顺序执行。故障引擎按下述失败完成语义清理。
+正常 `Shutdown` 停止接收新提交，推进已接受的工作至成功或失败，再停止 CP，并按创建逆序释放。已停止接收后若剩余队列无法推进，按同步契约结束未完成提交并释放引用。启动及复位见 [启动与复位设计](design/boot-reset.md)。
 
 **对象销毁契约（35.1，问题：销毁异常 / 复位时序）**：
 
@@ -541,7 +535,7 @@ struct KernelArgsLayout {
 | 重新提交 | 复位期间提交返回 `Busy`。完成后旧 queue/stream generation 返回 `DeviceLost`。应用重建受影响的队列、stream 与资源，用有效对象显式重提固定输入 |
 | 责任归属 | 复位是 36 章引擎级行为，不级联到其他引擎 / 设备，UMD 依 §3.9 把 `ResetRequired` 映射为设备丢失类错误上报 |
 
-引擎级复位按第 36 章接入。被中止的提交保持失败状态，命令不会隐式重放。
+引擎级复位按第 36 章接入。被中止的提交保持失败状态，命令不会隐式重放。队列完成状态与资源可见性分别处理，等待和失败传播见 [同步原语 §2.1](design/sync-primitives.md#21-提交完成与失败传播)。
 
 ### 3.11 计算 dispatch 载荷与计算 ABI（第 20、35.1 章冻结，ADR-046；计算驱动落地 stage3 38~42）
 

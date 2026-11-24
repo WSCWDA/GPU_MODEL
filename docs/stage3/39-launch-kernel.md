@@ -14,12 +14,12 @@
 
 1. **参数打包 ABI 落地**：`ArgPack{ptr,bytes}[]` → 按签名推导偏移 → 写入参数缓冲 → `KernelArgsLayout`；六条校验全部命中非法样例（对齐 / 重叠 / 越界 / 越区 / 未映射）返回确定错误且**不产生包**。
 2. **`LaunchKernel` 主路径**：`SetKernel → Dispatch(grid,block) → 队列提交`；Compute 引擎把 `paramBufVa / grid / block` 装载到 VGPR uniform 区 `v[56..67]`。
-3. **双入口等价**：同一 kernel（Demo C2 `vector_add`，WA-01）经计算驱动入口与直连 HLI 手动 Dispatch 命令流同参数、同顺序，探针零容差一致。
+3. **双入口等价**：同一 kernel（Demo C2 `vector_add`，WA-01）经计算驱动入口与直连 HLI 手动 Dispatch 命令流的关键操作与参数语义一致，探针零容差一致。
 4. **首次端到端计算通路**（第 37 章通路契约 + 本章驱动面的闭合）：从 kernel 源码/ISA → 参数 → dispatch → 内存写回 → fence → 回读。
 
 ### 1.2 非目标
 
-- 不做 stream/event 与异步（第 40 章）；不做三维映射/间接/UAV 写回驱动侧收口（第 41 章）；不做 S18/S19 全量双入口验收（第 42 章）。
+- 最小 Stream 与首次派发在本章闭合。多 Stream、Event 与异步互操作在第 40 章扩展。第 41 章接入协作、间接与 UAV，第 42 章汇总双入口矩阵。
 - 不做 `LaunchWithParamBuffer`（二期）；不做动态并行；不做真实 occupancy 调优（只软观测 wave 数）。
 - 不为计算特化硬件单元；不新增 HLI 接口（ADR-032）。
 
@@ -54,6 +54,8 @@ fence / 回读 → 探针比对（计算驱动入口 vs 直连 HLI）
 
 ## 3. 输入输出契约
 
+- **最小 Stream**：在 `umd/compute` 为已创建 Context 的一个 Compute 队列提供 `StreamCreate`、`StreamSynchronize`、`StreamDestroy`。Stream 与队列 1:1，`LaunchKernel` 经该 Stream 提交。同步等待提交时快照的队列目标值，并返回其终态。存在未完成提交时销毁返回 `Busy`，显式同步后销毁。第 40 章扩展同一接口。
+- **参数归属**：第 20 章校验预构造参数缓冲的记录契约，第 37 章消费参数并验证 uniform 装载，本章从应用参数生成缓冲及布局。提交成功后，参数资源保持有效至完成或失败回收。
 ### 3.1 kernel 参数（权威：`architecture-design.md` §3.8 + `compute-driver.md` §5）
 
 ```cpp
@@ -88,7 +90,7 @@ struct KernelArgsLayout {
 ihliPipeline.SetKernel(fn);                       // 或 IHliPipeline(kernel)
 cmdList.Dispatch(grid, block);                    // 手动 Dispatch
 queue.Submit(cmdList, fenceVal); wait(fenceVal);
-// 计算驱动入口：LaunchKernel 内部生成的命令流必须与上述逐条一致（同参数、同顺序）
+// 计算驱动入口：按第 42 章 §3.1 比对关键命令语义
 ```
 
 ---
@@ -131,17 +133,17 @@ CP 解析 DISPATCH(0x04) → Compute 引擎
 
 | 子里程碑 | 任务 | 段 | 内容 |
 |---|---|---|---|
-| M39.1 | T39.1 | ① 契约 | `packArg` 接口与 `KernelArgsLayout` 在 `umd/compute` 落地（对齐 `compute-driver.md` §5；六条校验单测落头文件） |
+| M39.1 | T39.1 | ① 契约 | 先接通已有 Compute 队列的最小 Stream 生命周期，再固化 `packArg` / `KernelArgsLayout` 接口及六条校验 |
 | M39.1 | T39.2 | ② 主体 | `ArgPack[]` → 参数缓冲写入与偏移推导（对齐/簇对齐/重叠检测；失败 `InvalidArgument` 且命令流不含 `SET_KERNEL_ARGS`/`DISPATCH`） |
-| M39.1 | T39.3 | ② 主体 | `LaunchKernel` 主路径：SetKernel → Dispatch → 提交；uniform 装载 `paramBufVa/grid/block` 到 `v[56..67]`（快照比对） |
-| M39.2 | T39.4 | ③ 接入 | Demo C2 `vector_add` 直连 HLI 入口与计算驱动入口双跑；命令流 dump 对齐 |
-| M39.2 | T39.5 | ④ 验收 | A39：vector_add 整型逐字节 + fp32 ≤1 ULP 通过、>1 ULP 阻断（同序 FMA 下期望 0 ULP 是诊断信息，scene-specs §1.2）；`v[56..67]` = paramBufVa/grid/block；六条校验非法样例全部命中确定错误且命令流无对应包；计算驱动入口命令流与直连 HLI 同参数同顺序零容差一致 |
+| M39.1 | T39.3 | ② 主体 | `LaunchKernel` 在最小 Stream 上记录 SetKernel → Dispatch 并提交，保活参数缓冲至终态；复用第 37 章 uniform 装载 |
+| M39.2 | T39.4 | ③ 接入 | Demo C2 `vector_add` 双跑直连 HLI 与计算驱动入口，比较关键命令语义和探针 |
+| M39.2 | T39.5 | ④ 验收 | A39：C2 双入口、六条参数非法样例、S18 `case-3` 与同输入 `case-1` 对照、`case-0/1` 回归 |
 
 ### 子里程碑
 
 | 子里程碑 | 范围 | 承载任务号 |
 |---|---|---|
-| M39.1 参数打包与派发 | packArg/KernelArgsLayout、六条校验、LaunchKernel 主路径、uniform 装载 | T39.1~T39.3 |
+| M39.1 最小 Stream 与首次派发 | 单 Compute 队列、参数打包与校验、LaunchKernel | T39.1~T39.3 |
 | M39.2 双入口与验收 | Demo C2 双跑、A39 | T39.4~T39.5 |
 
 ---
@@ -150,23 +152,23 @@ CP 解析 DISPATCH(0x04) → Compute 引擎
 
 | DoD | 判据（机器可判） | 级别 |
 |---|---|---|
-| D39.1 | `packArg`/`KernelArgsLayout` 头文件独立编译；六条校验单测全绿（正常 + 非法边界：未映射/空缓冲/重叠/越界/未对齐/越区；`paramBufByteSize` 4096 通过 / 4097 拒绝）；D13-a/b/c 记录期 `InvalidArgument` 单测全绿 | L1 契约 |
+| D39.1 | 最小 Stream 头文件独立编译；单队列绑定、重复绑定拒绝、pending 销毁返回 `Busy`、显式同步后销毁；参数接口头文件独立编译，六条校验含参数缓冲 4096/4097 B 边界，D13-a/b/c 记录期单测全绿 | L1 契约 |
 | D39.2 | 每 `{ptr,bytes}` 按 `paramOffsets` 写入 GART；重叠/越区/无效参数区/未映射 → 报错且命令流不含 `SET_KERNEL_ARGS` | L1 契约 |
-| D39.3 | `DISPATCH` 驱动 Compute 引擎产出与 29~31 章单测一致结果；`sa` 非空；`v[56..67]` 快照 = paramBufVa/grid/block | L1 契约 |
-| D39.4 | `vector_add`（WA-01）整型逐字节 + fp32 ≤1 ULP 通过、>1 ULP 阻断（同序 FMA 下期望 0 ULP 是诊断信息）；计算驱动入口命令流 = 直连 HLI 手动 Dispatch 命令流（同参数、同顺序） | 横切 |
-| D39.5 | A39 全绿：六条非法样例矩阵 + 双入口探针零容差 + S18 `case-3`（经计算驱动）命令流等价、case-0/1 回归不退化 | L1 + L2 + 横切 |
+| D39.3 | `LaunchKernel` 提交发出正确的 `DISPATCH`；延迟执行仍读到提交时的参数，终态后释放；`sa` 非空，`v[56..67]` 与第 37 章 `paramBufVa/grid/block` 探针一致 | L1 + L2 |
+| D39.4 | C2 整型逐字节一致，fp32 与 CPU 参考 ≤1 ULP，同输入两入口探针零容差；关键包按第 42 章 §3.1 等价 | 横切 |
+| D39.5 | A39 全绿：六条非法输入产生确定错误且无对应包；S18 `case-3` 与 `case-1` 同输入探针零容差及关键包等价；`case-0/1` 回归 | L1 + L2 + 横切 |
 
 ---
 
 ## 7. 场景与判据（A39）
 
-**绑定：Demo C2 `vector_add`（WA-01，本阶段主判据）；S18 `case-3`（经计算驱动，= case-1 同参数）为首次双入口命令流等价入口；case-0/1（1D/2D）作为前序能力回归。S18/S19 全量双入口验收在第 42 章。**
+**绑定：Demo C2 `vector_add`（WA-01，本阶段主判据）；S18 `case-3`（经计算驱动，= case-1 同参数）为首次双入口命令流等价入口；case-0/1（1D/2D）作为前序能力回归。S18/S19 双入口矩阵验收在第 42 章。**
 
 | 项 | 内容 |
 |---|---|
 | 输入 | `vector_add` kernel（1D grid/block；`a/b/c` 缓冲 + N）；六条校验非法样例集；`api_backend ∈ {hli, compute}` |
 | 产物 | kernel 启动日志、命令包序列、参数缓冲布局、`v[56..67]` 快照、探针表 |
-| 主判据 | `vector_add` 整型逐字节 + fp32 ≤1 ULP 通过、>1 ULP 阻断（同序 FMA 下期望 0 ULP 是诊断信息）；计算驱动入口命令流与直连 HLI 同参数同顺序零容差一致（横切） |
+| 主判据 | C2 整型逐字节一致，fp32 与 CPU 参考 ≤1 ULP，同输入驱动与 HLI 探针零容差；关键包按 §3.1（第 42 章）等价 |
 | 本章专有判据 | 六条校验全部命中非法样例返回确定错误且不下发；`v[56..67]` = paramBufVa/grid/block（快照比对）；不新增配置键（`api_backend=compute` 复用） |
 | 回归项 | R39：S18 case-0/1（1D/2D）在接入后不退化；D13-a/b/c 拒绝边界回归；未列明历史 A 门禁不自动阻断 |
 
@@ -206,7 +208,7 @@ CP 解析 DISPATCH(0x04) → Compute 引擎
 ## 10. 待定项
 
 - kernel 参数布局的显式寄存器直传（部分标量直接进 SGPR uniform，减少参数缓冲读取）——一期统一走参数缓冲，性能优化二期。
-- 多 stream 并发提交在第 40 章引入后，`LaunchKernel` 提交路径需与 stream 封装合并（第 40 章 T40.2）。
+- 第 40 章扩展多个 Stream 和 Event，沿用本章的 `LaunchKernel` 提交路径。
 
 ---
 

@@ -205,7 +205,7 @@ DRAW/DISPATCH → 引擎按 stateId 5 基址读描述符
 | T20.8 | ② 主体 | 常量区/push constant：`SET_CONSTANT` 或 push 常量路径（35.1 收口） |
 | T20.9 | ② 主体 | 资源状态机情况：状态下推与跟踪（粗粒度） |
 | T20.10 | ② 主体 | BARRIER 包：执行/内存/布局掩码 → 12 章缓存刷/失效 |
-| T20.11 | ② 主体 | kernel 参数打包：签名 → GART 参数缓冲 → `SET_KERNEL_ARGS` |
+| T20.11 | ② 主体 | 定义 `KernelArgsLayout` 的记录期校验，使用预先写好的参数缓冲记录 `SET_KERNEL_ARGS`。按函数签名打包主机字节由 T39.2 实现 |
 | T20.12 | ② 主体 | 视图/描述符非法：越界、未绑定、重解释非法格式 → 确定报错 |
 | T20.13 | ② 主体 | 管线替换完整性：`Bind` 新 PSO 后旧状态清、新状态生效、删除旧资源引用安全 |
 | T20.14 | ② 主体 | 绑定用例数据面与自检：S4 描述符堆+Bindless、S14 常量/UAV 场景；S5 资源视图与 S18 case-0~2 仅作独立绑定/参数布局单测输入（供 ③ 接入，不跑完整场景） |
@@ -236,7 +236,7 @@ DRAW/DISPATCH → 引擎按 stateId 5 基址读描述符
 | D20.8 | push constant 越界（超常量区）→ `InvalidArgument`；合法值进入 SB/常量区 | L1 契约 |
 | D20.9 | 资源状态随提交推进（READ→WRITE 需 BARRIER）；非法 subresource 范围报错 | L1 契约 |
 | D20.10 | `BARRIER(kind=resource)` 的唯一 3-dword envelope 触发 12 章 Flush/Invalidate；`READ→WRITE` 后新值读回 | L1 契约 |
-| D20.11 | kernel 参数：每个 `{ptr,bytes}` 按 `paramOffsets` 写入 GART；`paramVgprBase=56` 写 uniform（`v[56..67]`）。**新增 L1 契约单测（正常+非法边界）**：`paramOffsets` 重叠 / `< 前一项` / 未映射 `paramBufVa` / `paramVgprBase` 越出 uniform 区 → 返回 `InvalidArgument`/`NotMapped` 且命令流不含 `SET_KERNEL_ARGS`（`../architecture-design.md` §3.8） | L1 契约 |
+| D20.11 | 用构造的缓冲、大小与偏移验证记录期校验。合法描述生成预期 `SET_KERNEL_ARGS`。重叠、越界、未映射、未驻留或 uniform 区不合法时返回对应错误且无包。硬件装载由 D37.4 验收 | L1 契约 |
 | D20.12 | 越界视图/未绑定描述符 → 确定报错（`NotMapped`/`InvalidArgument`），非静默 0 | L1 契约 |
 | D20.13 | 绑定新 PSO 后旧资源引用不被新提交使用；删除旧资源时提交未引用（引用计数/安全） | L1 契约 |
 | D20.14 | S4/S14 场景断言通过；S5 资源视图、S18 case-0~2 参数布局独立单测通过（不验收 S5/S18 端到端场景） | L1 + L2 |

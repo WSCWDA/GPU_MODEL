@@ -74,8 +74,8 @@ public:
 | `PREDICATE`(0x0D) | `{predVa:u64, mask:u64, cond:u64, skipDwords:u32, reserved0:u32}` | 条件执行；载荷与跳过范围唯一口径见 `command-mmio.md` §2.4 |
 | `BARRIER`(0x0E) | 3-dword envelope `{kind,scope,memOrder,accessMask; srcStageMask; dstStageMask}`；ownership kind=2 | 粗粒度 |
 
-- 包号：`PREDICATE`=0x0D、`BARRIER`=0x0E、0x0F 预留（Q-65）。**顶层 `PKT_TYPE` 已冻结（ADR-043）**：后续同步类新命令不占 0x0F，统一走 `EXTENDED` 子操作码或 `INDIRECT`(0x0C) IB（`../design/bit-budget.md` §2.3）。
-- `WAIT` 阻塞后续包；不得依赖中断到达顺序（轮询值）。
+- `SIGNAL` 为 `0x0A`、`WAIT` 为 `0x0B`，`BARRIER` 为 `0x0E`。包号和载荷以 [命令包登记](../design/command-mmio.md) 为准。
+- `WAIT` 只挂起本队列后续包。等待以 [同步原语 §2.1](../design/sync-primitives.md#21-提交完成与失败传播) 定义的成功值或失败完成唤醒。
 
 > 一期队列沿用第 10 章直连 ring 寄存器模型，多队列依赖通过内存 semaphore 表达。间接环描述表和 FW 活动窗口切换作为后续扩展，见 [评审裁决 §2.2](../design/review-sync-20261121.md)。
 >
@@ -108,9 +108,9 @@ Waiter 在 ringF 上：SIGNAL/WAIT/BARRIER 作为命令流元素
 ### 4.2 semaphore 计时线
 
 ```
-Queue.Signal(v): timeline[v]=max(timeline[v], v)；notify 满足 v 的所有 WAIT
-Queue.WaitSemaphore(v): 阻塞后续包直到 timeline>=v
-主机 WaitHost(v): 忙等待（或条件变量）值断言
+Queue.Signal(v): 若 v < 当前成功值则报 InvalidArgument；否则发布 v
+Queue.WaitSemaphore(v): 达到目标则继续；生产者失败则结束依赖提交；否则仅挂起本队列
+主机 WaitHost(v): 查询已指定提交的成功或失败状态
 ```
 
 - timeline 单调递增（release 语义）。
@@ -120,7 +120,7 @@ Queue.WaitSemaphore(v): 阻塞后续包直到 timeline>=v
 ```
 计算 Queue C 提交 compute 命令：
   C.Signal(v1) ；图形 Queue G 命令流含 WaitSemaphore(v1)
-  顺序实现在 G 显示前等待 C 完成；不影响 G 派发其他包
+  G 在 WAIT 处挂起，G 的后续包按原序等待，其他队列仍可推进
 场景 S12：多引擎交错依赖正确。
 ```
 
@@ -133,10 +133,10 @@ Queue.WaitSemaphore(v): 阻塞后续包直到 timeline>=v
 | T32.1 | ① 契约 | `QueueDesc`/`Queue`/SIGNAL/WAIT/PREDICATE/BARRIER 载荷/所有权转移语义落头文件 |
 | T32.2 | ② 主体 | 多队列实例 + 多 ring 初始化（Graphics/Compute/Copy 独立 ring） |
 | T32.3 | ② 主体 | timeline semaphore：SIGNAL 写值、WAIT 阻塞、值单调 |
-| T32.4 | ② 主体 | WaitHost 值断言与信号通知（无中断依赖） |
+| T32.4 | ② 主体 | 提交接受、成功/失败完成和主机等待。已知生产信号失败时结束依赖提交 |
 | T32.5 | ② 主体 | BARRIER 在队列内（执行/内存/布局）粗粒度语义 |
 | T32.6 | ② 主体 | 所有权转移（release/acquire 显式） |
-| T32.7 | ② 主体 | 异步计算队列提交不阻塞图形（fence 后合并） |
+| T32.7 | ② 主体 | 用 Compute 家族队列的受控生产者与图形/Copy 验证跨队列推进和失败传播。实际 kernel 接入归 T37.10 |
 | T32.8 | ③ 接入 | `scene_s12_multiengine`（三队列交错依赖）、`scene_s16_barrier_ownership`（所有权转移 + 跨队列 barrier）接入 |
 | T32.9 | ④ 验收 | A32：S12/S16 全绿 + 专有判据 + R32 回归项 |
 
@@ -148,11 +148,11 @@ Queue.WaitSemaphore(v): 阻塞后续包直到 timeline>=v
 |---|---|---|
 | D32.1 | 接口独立编译；`QueueDesc.familyId` 枚举冻结 | L1 契约 |
 | D32.2 | 三队列独立：输出互不串扰；`Signal` 只推进本 timeline | L1 契约 |
-| D32.3 | `WaitSemaphore(2)`：timeline>=2 才放行；值单调；小于当前已完成值的 `SIGNAL` 以 `InvalidArgument` 拒绝且不改变 semaphore 状态 | L1 契约 |
-| D32.4 | WaitHost：不等 delay，只等值 | L1 契约 |
+| D32.3 | WAIT 观察对应成功或失败终态；对同一 semaphore 测试递增、等值幂等、递减 `SIGNAL` 返回 `InvalidArgument` 且成功值保持 | L1 契约 |
+| D32.4 | 失败提交唤醒主机等待并传出错误，后续 fence 成功值不掩盖失败。释放在飞引用 | L1 契约 |
 | D32.5 | BARRIER：release 后 acquire 读可见；`READ→WRITE` 不越级 | L1 契约 |
 | D32.6 | 所有权：QueueB 在 acquire 前不读 QueueA 写的数据；acquire 后读到 | L1 契约 |
-| D32.7 | 异步计算：图形在 wait 前不显示计算产物；不阻塞整体推进 | L1 契约 |
+| D32.7 | WAIT 停驻当前队列；晚到生产者可唤醒；已绑定失败信号不能被后续成功值覆盖；独立队列持续推进。关闭时无法满足的等待进入失败终态 | L1 契约 |
 | D32.8 | S12/S16 探针通过 | L2 + A32 |
 | D32.9 | A32 全绿：三引擎交错依赖正确、timeline semaphore 值序正确、跨队列家族所有权转移、计算异步队列不破坏依赖 + R32 回归项 | L1 + L2 |
 
@@ -206,7 +206,7 @@ Queue.WaitSemaphore(v): 阻塞后续包直到 timeline>=v
 
 ## 10. 待定项
 
-- `WAIT` 阻塞的"后续包挂起"机制在多 ring 同时推进时，是否引入严格总序（避免死锁）——本期以语义上"WAIT 使该队列排空直至满足"处理，S12 若出现死锁按队列优先级重排，登记备选方案。
+- 无进展和失败传播以 [同步原语 §2.1](../design/sync-primitives.md#21-提交完成与失败传播) 为准。局部验收用确定性故障替身，A36 再覆盖真实引擎失败。
 - timeline semaphore 的初始/销毁语义（值从 0 开始、不可逆）是否需 `Reset` 支持，留 stage3 38~42（计算驱动 event，原 35.5）收口。
 - 所有权转移的"自动"（无显式 release/acquire）是否默认存在：本期要求显式；若 S16 显示弱序用例难写，再评估默认所有权归当前提交者。
 

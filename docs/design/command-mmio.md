@@ -35,8 +35,8 @@
 | 0x07 | `NOP` | 1 | 空包 / 环尾填充 |
 | 0x08 | `CLEAR` | 3 | 清屏（CP 级） |
 | 0x09 | `QUERY` | 34 | begin/end/resolve |
-| 0x0A | `SIGNAL` | 32 | timeline semaphore 信号 |
-| 0x0B | `WAIT` | 32 | 等待 fence / semaphore |
+| 0x0A | `SIGNAL` | 32 | timeline semaphore 信号，单调与失败传播见 [同步原语 §2.1](sync-primitives.md#21-提交完成与失败传播) |
+| 0x0B | `WAIT` | 32 | 等待 fence / semaphore，只停驻当前队列，按完成结果推进 |
 | 0x0C | `INDIRECT` | 33 | IB 链 / 间接绘制与派发 |
 | 0x0D | `PREDICATE` | 33 | 条件执行 |
 | 0x0E | `BARRIER` | 32 | 屏障 / 同步（载荷见 §2.3） |
@@ -49,7 +49,7 @@
 | SubOp | 名称 | 用途 | 落地章 | 登记 |
 |---|---|---|---|---|
 | `0x0001` | `BIND_DESCRIPTOR_TABLE` | 绑定描述符表基址 | 20 | B-032 |
-| `0x0002` | `SET_KERNEL_ARGS` | 预写 kernel 参数区（paramBufVa/size/paramVgprBase） | 20 契约、37 收口、39 落地 | B-033 |
+| `0x0002` | `SET_KERNEL_ARGS` | 记录已准备的 kernel 参数区（paramBufVa/size/paramVgprBase） | 20 记录契约、37 硬件消费、39 主机参数打包 | B-033 |
 | `0x0010` | `DISPATCH_INDIRECT` | 从 GPU 内存读取 28-byte/16-byte-aligned `{grid[3], block[3], reserved0}` | 33、41 | B-034 |
 | `0x0011` | `DRAW_INDIRECT` | 间接绘制 | 33 | B-044 |
 | `0x0012` | `DMA_COPY` | `{dstVa:u64, srcVa:u64, bytesPerRow:u32, srcStride:u32, dstStride:u32, sliceCount:u32}` 行切片；32 B payload | 33 | B-035 |

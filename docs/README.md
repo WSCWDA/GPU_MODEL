@@ -193,9 +193,11 @@ EDU-00–EDU-18 仅作为概念学习索引，不构成实现顺序或验收门�
 | WP3：执行、ISA 与编译器 | 15–19 | 分歧和重收敛、波调度；完整 ISA/汇编器；GLSL-like 前端、AST/SSA/CFG、类型/IO 检查、优化、寄存器分配与发射、LLVM 对照 | B 门禁：S0/S3；ISA/ABI 冻结，执行及编译路径满足场景判据 |
 | WP4：资源、纹理与图形管线扩展 | 20–28 | 资源/视图、描述符、绑定、管线和状态快照；纹理格式、布局、mip/LOD、过滤、数组/Cubemap；IA 索引/重启/实例化、VS 切片、裁剪/PA；光栅插值/点线/scissor；depth/stencil/blend/MRT/LoadOp/StoreOp；MSAA/可见性；Tess/GS patch 几何扩展 | C 门禁：S3–S9/S14；Tess/GS 作为高级独立场景，不是 E5 首帧前置项 |
 | WP5：SIMT 协作与硬件对齐并行 | 29–31 | ballot/shuffle/reduction/导数；LDS/shared、atomic、barrier、内存序/作用域；grid/block→workgroup/wave/lane 映射；SE/CU、occupancy 上限和策略 A/B | D 门禁只验 S10/S11；计算复用原语以隔离单元测试覆盖，不提前验收 S18/S19 场景；串行/并行硬判据一致 |
-| WP6：队列、多引擎、查询与驱动后端 | 32–36 | Graphics/Compute/Copy 队列、fence/semaphore、所有权转移；IB、间接命令、predication、DMA；query/statistics；HLI 核心对象面；Vulkan/D3D12/OpenGL 为按 capability 矩阵交付的 API-inspired 可选子集，不宣称兼容；必要错误传播与引擎复位支撑（非主展示） | E 门禁：S12/S13/S15–S17；重点验收驱动到硬件提交与资源/队列协同；可选适配器不得阻塞核心门禁 |
-| WP7：计算管线收口 | 37 | Compute engine 解析 DISPATCH/参数 ABI、uniform 装载与 workgroup/wave 派发；复用既有同步/队列/间接/query/UAV 硬件，不实现驱动端 ArgPack 打包或 API wrapper | F 门禁：S18/S19；计算功能与共用底座通过双执行策略验证 |
-| WP8：计算驱动与双入口 | 38–42 | 计算 UMD 对象模型 context/module/function/stream/event；module 装载、参数打包和 LaunchKernel；异步 stream/event；协作、间接 dispatch/UAV；直连 HLI 与计算驱动双入口 | G 门禁：A38–A42；S18/S19 双入口逐值等价，完整 E/S 回归 |
+| WP6：队列、多引擎、查询与驱动后端 | 32–36 | Graphics/Compute/Copy 队列，等待与完成、所有权转移；IB、间接命令、predication、DMA、query；共用 HLI 与最小图形 UMD；故障复位作为错误路径 | E 门禁：S12/S13/S15–S17，S17 验 HLI 与最小图形 UMD。Vulkan/D3D12/OpenGL 按能力选做 |
+| WP7：计算管线收口 | 37 | Compute engine 消费已记录参数，装载 uniform，派发 workgroup/wave，接入共用同步、间接、query 和 UAV | F 门禁：S18 case-0~2/4~12、S19 case-0~4 直连 HLI 与双执行策略验证 |
+| WP8：计算驱动与双入口 | 38–42 | 计算 UMD 对象与装载；最小 Stream 上打包参数并首次派发；多 Stream/Event 与双 UMD；协作能力接入、双入口语义验收 | G 门禁：A38–A42；代表矩阵探针零容差，其余按场景规约回归 |
+
+驱动线按能独立运行的结果交付。20 章用预构造参数验证资源与记录，37 章跑直连计算，39 章实现从应用参数到首次派发的单队列闭环，40 章演示图形与计算 UMD 的同步，41 章把既有硬件能力接入计算 UMD，42 章对照两入口。队列终态与共享资源归第 32 章及内存模块，调用侧统一复用。
 
 WP4 中的 Tessellation/GS 会增加专门的 patch/control point 与生成数据流演示，帮助解释几何阶段间的数据暂存和复用。具体 cache、patch buffer、顶点流缓冲分别归属各自模块；不能把“所有阶段数据复用”都说成 L1/L2 命中。
 
@@ -544,7 +546,7 @@ flowchart TD
 | 能力档 | 纳入范围 | 实施要求 |
 |---|---|---|
 | 初级实现 | 第 1–9 章、E0–E5 | 必须完成；单 draw 图形链路端到端，不能以 vector_add 或空模块替代 |
-| 高级一期 | 第 10–37 章与 stage3 第 38–42 章。35.1 为核心 HLI，35.2–35.4 为可选图形适配器 | 核心按 A–G 验收，适配器按声明能力独立验收 |
+| 高级一期 | 第 10–37 章与 stage3 第 38–42 章。35.1 包含核心 HLI 和项目自有最小图形 UMD，35.2–35.4 为可选图形适配器 | 核心按 A–G 验收，适配器按声明能力独立验收 |
 | 高级二期预留 | Task/Mesh Shader、Multiview、Conservative Rasterization、完整抢占/TDR 等 | 只登记 capability bit；一期查询为不支持并明确拒绝 |
 | 范围外 | API/二进制兼容、周期级/真实性能仿真、虚拟化、稀疏资源、压缩纹理、视频引擎、电源/热、ECC、细粒度页错误恢复等 | 不实现；不得通过隐式简化伪装成支持 |
 
@@ -562,8 +564,8 @@ flowchart TD
 | C | 第 20–28 章 | S3–S9/S14 通过；资源、纹理和图形流水线契约冻结 |
 | D | 第 29–31 章 | S10/S11 通过；确定性并行与三维 workgroup 映射冻结 |
 | E | 第 32–36 章 | S12/S13/S15–S17 通过；队列、同步、查询、错误及 HLI/API 契约冻结 |
-| F | 第 37 章 | S18/S19 直连 HLI 计算入口通过，双执行策略结果一致 |
-| G | 第 38–42 章 | A38–A42 全绿；计算驱动与直连 HLI 入口逐值等价，完整 E/S 回归 |
+| F | 第 37 章 | 直连 HLI 验收 S18 `case-0~2/4~12` 和 S19 `case-0~4`，双执行策略结果一致 |
+| G | 第 38–42 章 | A38–A42 全绿，按场景规约对照两入口，S18 `case-0~3` 和 S19 `case-0~4` 为 A42 双入口必跑矩阵，已交付 E/S 全量适用回归 |
 
 正式章验收还需满足本章契约冻结与 §17.2 明确登记的 `R_n` 回归要求。出现功能已实现但场景不通过、接口未冻结或受影响回归退化时，不得声明该阶段完成。
 
@@ -875,7 +877,7 @@ EDU-00–EDU-18 是可选的概念练习和模块级自检索引；`roadmap.md` 
 | D3 | 几何阶段扩展：Tessellation 与 GS | 在基础帧上单独打开 tessellation/GS 场景，观察 patch/control point 输入、tess factor、生成顶点/图元及输出缓冲。它们属于高级扩展，不是初级第一帧成立的必要条件；保留在完整项目范围内。 | 24、28 章；S6 |
 | D4 | GPU 地址空间、内存管理与数据复用 | 观察 HostVa/GpuVAddr/PhysAddr 的边界、VA→PA/TLB、VRAM/GART/System 堆、资源驻留，以及数据在 shader/几何阶段之间的暂存、复用、flush/可见性边界。重点解释 GPU 工作流中缓存和中间存储解决什么数据流问题，不以 L1/L2 hit/miss 数字作为演示目标；GS/Tess 场景可用来展示 patch/control point 与生成数据的局部暂存和复用。 | 3、11–12、14、20–21、28 章；S4、S6、S14、S16 |
 | D5 | SIMT、workgroup 与并行协作 | 观察 lane mask、分歧/重收敛、subgroup、workgroup/wave 映射、barrier/atomic 和确定性串行/并行执行。 | 15、29–31 章；S10、S11、S18–S19 |
-| D6 | 图形/计算驱动与共用底座衔接 | 同一软设备如何被图形 UMD（Vulkan/D3D12/GL 子集）和计算驱动分别调用；两者如何复用 HLI 对象、KMD context/VA/资源管理与队列，再经 FW/ring/CP 到达硬件模型。可展示计算写入共享资源后由图形读取/呈现的端到端互操作。 | 10–14、20、32–37 章；S12、S16–S19 |
+| D6 | 图形/计算驱动与共用底座衔接 | 项目自有最小图形 UMD 与计算 UMD 复用 HLI 对象、KMD context/VA/资源管理、FW/ring/CP 与队列机制。计算写入共享资源，图形等待、读取并呈现。可选图形适配器可替换图形入口 | 10–14、20、32–37、39–40，S12/S16/S17/S19、Demo C3 |
 | D7 | 计算驱动完整流程 | 展示 context/module/function、参数打包、LaunchKernel、grid/block 映射、stream/event、组内协作、间接 dispatch/UAV，以及计算驱动入口与直连 HLI 入口的等价结果。CS 是计算执行入口，不属于 D2 图形首帧管线。 | 37–42 章；S18/S19、A38–A42 |
 
 ### 18.4 不作为项目成果的数字

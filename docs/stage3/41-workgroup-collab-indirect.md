@@ -15,7 +15,7 @@
 1. **三维 workgroup 驱动侧封装**：`grid/block` 与 `blockIdx/threadIdx` 语义、grid 边界部分 workgroup 有效、越界 work-item 不写任何内存、末波 `LaneMask`（M-01/M-02）。
 2. **组内 barrier 与作用域收口**：组内全部 wave 到达才放行（跨 wave，原子计数断言）；`scope ∈ {Workgroup, Device}` 在 `0x0E` 载荷内表达（S-03）；组驻留整体性防死锁（M-03）。
 3. **subgroup / LDS / 原子计算侧包装**：`ballot/shuffle/reduce`（identity 按 op 定义：MIN=+∞ / MAX=−∞）、LDS 布局与原子、无效 lane 不执行（M-02）。
-4. **间接 dispatch**：`DISPATCH_INDIRECT` 从显存读 `{gridX,gridY,gridZ}`（indirectArgsVa 16 B 对齐、展开前读一次唯一真值 D-10、非法值 GPU 侧确定性中止），与直接 dispatch 逐值等价。
+4. **间接 dispatch**：UMD 记录已绑定参数缓冲的命令，执行层在展开前读一次 28 B `{grid[3], block[3], reserved0}`，按 D-10 校验并派发；有效输入与直接 dispatch 逐值等价。
 5. **全阶段 UAV kernel 写回**：buffer store 直写 memory（S-04）、image store 复用第 21 章 tiling 编码与 `common/format` 转换（与 26 章格式转换表共用实现，不依赖 OM 写回路径）。
 6. **计算查询与统计**：dispatch 计数、timestamp 单调、可作 GPU 侧谓词（第 34 章 query 共用）（A41 贡献项）。
 
@@ -23,7 +23,7 @@
 
 - 不做 MUSA/CUDA API 或二进制兼容；不做动态并行（kernel 内再派发）；不做 grid-wide barrier（协 kernel，二期候选）；不做可变 subgroup（固定 warp32）。
 - 不新增硬件单元/包号；不为计算特化共用单元（ADR-032）；不做真实 occupancy 调优（软观测 wave 数）。
-- 不做 S18/S19 全量双入口验收（第 42 章）。
+- 不做 S18/S19 双入口矩阵验收（第 42 章）。
 
 ---
 
@@ -58,6 +58,7 @@ query（34 章）→ 探针比对 + 统计断言
 
 ## 3. 输入输出契约
 
+本章交付 UMD 输入校验、命令记录和探针。下述索引计算、屏障、subgroup、UAV 写回和间接参数取数属于既有执行层契约，通过共用单元的回归验证。三维索引公式继续由架构设计 §3.12 定义。
 ### 3.1 三维映射（权威：`architecture-design.md` §3.12，唯一公式）
 
 ```
@@ -136,21 +137,21 @@ workgroup → 首波执行 → LDS 初始化 → BARRIER(Workgroup) → 计算
 
 | 子里程碑 | 任务 | 段 | 内容 |
 |---|---|---|---|
-| M41.1 | T41.1 | ① 契约 | 计算驱动侧三维映射与作用域语义头文件（对齐 §3.12/§3.13；映射公式冻结落头文件） |
-| M41.1 | T41.2 | ② 主体 | 三维 workgroup 驱动侧封装：blockIdx/threadIdx、grid 边界部分 workgroup、越界 work-item 不写、末波 LaneMask（M-01/M-02） |
-| M41.1 | T41.3 | ② 主体 | 组内 barrier 与 workgroup/device 作用域收口：跨 wave barrier 只在全部 wave 到达放行（原子计数断言）；scope=Workgroup/Device（S-03） |
-| M41.1 | T41.4 | ② 主体 | subgroup ballot/shuffle/reduce + LDS/原子计算侧包装（identity 按 op：MIN=+∞ / MAX=−∞；无效 lane 不执行 M-02） |
-| M41.2 | T41.5 | ② 主体 | `DISPATCH_INDIRECT` 计算侧：indirectArgsVa 16 B 对齐、展开前读一次唯一真值、非法值确定性中止、与直接 dispatch 逐值等价 |
-| M41.2 | T41.6 | ② 主体 | 全阶段 UAV kernel 写回：buffer store 直写 memory、image store 复用 21 章 tiling/format（与 26 章格式转换表共用） |
-| M41.2 | T41.7 | ③ 接入 | Demo C4 `reduce`（WA-02）+ Demo C5 `indirect_dispatch`（WA-12）接入 |
-| M41.2 | T41.8 | ④ 验收 | A41：归约 ≤1 ULP 通过、>1 ULP 阻断；同序 FMA 下 0 ULP 是额外诊断期望，不改变通过门槛；归约顺序断言强制、阶段/barrier 计数断言、间接与直接逐值等价、UAV 写回同 `(x,y,format)` 字节布局逐字节一致（对照 20 章 image 描述符 + 26 章格式转换表，ADR-049，不依赖 OM 写回探针） |
+| M41.1 | T41.1 | ① 契约 | 封装三维 grid/block、同步作用域、间接参数及资源视图输入，引用已有契约 |
+| M41.1 | T41.2 | ② 主体 | 校验三维 grid/block 并记录 Dispatch，使用执行层探针验证 ID、尾波与边界 |
+| M41.1 | T41.3 | ② 主体 | 转发 workgroup/device 作用域和同步描述，验证已有屏障与可见性语义 |
+| M41.1 | T41.4 | ② 主体 | 接入使用既有 subgroup/LDS/原子能力的 kernel，驱动负责对象、参数与派发 |
+| M41.2 | T41.5 | ② 主体 | 记录 `DISPATCH_INDIRECT`，校验地址、16 B 对齐及资源映射；执行时读参、校验值并展开由已有执行层负责 |
+| M41.2 | T41.6 | ② 主体 | 转发 UAV buffer/image 视图及生命周期引用，回归已有写回、tiling 与格式 |
+| M41.2 | T41.7 | ③ 接入 | 接入既有查询/谓词，运行 C4 归约和 C5 间接派发 |
+| M41.2 | T41.8 | ④ 验收 | 汇总 D41.1~D41.7，以 C4/C5 及代表性 UAV 用例验收 |
 
 ### 子里程碑
 
 | 子里程碑 | 范围 | 承载任务号 |
 |---|---|---|
-| M41.1 协作收口 | 三维映射驱动侧、组内 barrier/作用域、subgroup/LDS/原子 | T41.1~T41.4 |
-| M41.2 间接/UAV 与验收 | DISPATCH_INDIRECT、UAV 写回、Demo C4/C5、A41 | T41.5~T41.8 |
+| M41.1 派发与组内协作接入 | 三维封装、作用域转发、组内 kernel 用例 | T41.1~T41.4 |
+| M41.2 资源、间接派发与验收 | 间接参数与 UAV 视图，查询/谓词与 C4/C5 | T41.5~T41.8 |
 
 ---
 
@@ -158,14 +159,14 @@ workgroup → 首波执行 → LDS 初始化 → BARRIER(Workgroup) → 计算
 
 | DoD | 判据（机器可判） | 级别 |
 |---|---|---|
-| D41.1 | 映射公式头文件与 `compute-line.md`/§3.12 一致；三维 block/grid 的 blockIdx/threadIdx = ref_model | L1 契约 |
-| D41.2 | grid 边界部分 workgroup 有效、越界 work-item 不写任何内存；末波 LaneMask 与 ref_model 一致 | L2 |
-| D41.3 | block > warp（如 64 = 2 wave / 256 = 8 wave，对齐 S19 `case-0`）跨 wave barrier 只在全部 wave 到达后放行（原子计数断言）；workgroup/device 作用域语义确定 | L2 |
-| D41.4 | ballot/shuffle/reduce 与 CPU 参考一致；identity 按 op 定义（MIN=+∞ / MAX=−∞）且允许部分活跃 | L2 |
-| D41.5 | `DISPATCH_INDIRECT(参数=直接 dispatch)` 与直接 dispatch 结果逐点零容差一致；非法参数 GPU 侧确定性中止 | 横切 |
-| D41.6 | kernel UAV 写回按 `(x,y,format)` 与 20 章 image 描述符 + 26 章格式转换表逐字节一致（S19 `case-4`）；不依赖 26 章 OM 写回探针；image store 复用 tiling/format，无重复实现 | 横切 |
-| D41.7 | 计算 dispatch 计数正确、timestamp 单调；查询可作 GPU 侧谓词（第 34 章共用） | L1 |
-| D41.8 | A41 全绿（D41.1~D41.7 + Demo C4/C5 探针 + 回归不退化） | L1 + L2 + 横切 |
+| D41.1 | UMD 包装契约可独立编译，输入合法性按 §3.12/§3.13，使用同一套执行层索引契约 | L1 契约 |
+| D41.2 | 三维 grid/block 正确记录，非法输入无 dispatch；有效 ID、尾波 mask 和边界越界不写的探针与执行基准一致 | L2 |
+| D41.3 | 作用域正确传到执行层；S19 `case-0` 的跨 wave barrier 在全部 wave 到场后放行，作用域回归通过 | L2 |
+| D41.4 | 同 kernel 经 UMD 使用既有 ballot/shuffle/reduce、LDS 与原子后，探针与 HLI 基准一致 | L2 |
+| D41.5 | 非法间接地址、对齐或映射在记录侧拒绝；合法地址的内容由执行层在执行时检查，直接/间接有效输出逐值一致 | 横切 |
+| D41.6 | UAV 视图及资源引用正确传递；S19 `case-4` 代表性输出与 20 章描述符、26 章格式契约逐字节一致 | 横切 |
+| D41.7 | 查询与谓词经既有路径记录；计算 dispatch 计数、timestamp 单调与谓词探针通过；C4/C5 可运行 | L1 |
+| D41.8 | A41 汇总 D41.1~D41.7，C4 归约与 CPU 参考 ≤1 ULP 且顺序断言通过，C5 与直接派发逐值一致 | L1 + L2 + 横切 |
 
 ---
 

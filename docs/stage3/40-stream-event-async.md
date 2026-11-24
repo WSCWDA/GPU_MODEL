@@ -19,7 +19,7 @@
 
 ### 1.2 非目标
 
-- 不做组内协作 / 间接派发 / UAV 写回的驱动侧收口（第 41 章）；不做 S18/S19 全量双入口验收（第 42 章）。
+- 不做组内协作 / 间接派发 / UAV 写回的驱动侧收口（第 41 章）；不做 S18/S19 双入口矩阵验收（第 42 章）。
 - 一个 stream 不绑定多个队列；Graphics 与 Compute 等不同队列可并存各自的 stream。动态改优先级与计算专用队列优先级策略不做（ADR-032 `core/cp/ring` 边界）。
 - 不做抢占（二期）；不打乱提交次序来满足依赖（依赖只由 fence/semaphore 定义）。
 
@@ -66,9 +66,9 @@ class Stream {
 
 ```cpp
 struct EventDesc { SemaphoreHandle timeline; u64 nextValue; u64 lastRecordedValue; };
-// Record(stream): reserve value; emit SIGNAL(event.timeline, value)
+// Record(stream): first accepted record binds producer; reserve value and emit SIGNAL
 // Wait(stream):   snapshot lastRecordedValue; emit WAIT(event.timeline, value)
-// Query():        compare completedValue with lastRecordedValue; never blocks
+// Query(): inspect completion of lastRecordedValue; return pending, reached, or failure without blocking
 ```
 
 ### 3.3 异步与互操作契约（第 32 章 + `architecture-design.md` §3.13"图形 ↔ 计算"行）
@@ -81,9 +81,9 @@ struct EventDesc { SemaphoreHandle timeline; u64 nextValue; u64 lastRecordedValu
 ### 3.4 错误码映射
 
 - `StreamCreate` 优先级非法 / 队列不可用 → `InvalidArgument` → `MUSA_ERROR_INVALID_VALUE`；
-- `EventQuery` 不产生错误码（状态枚举驱动）；
-- `Record` 的 `stream.queueId` 必须等于 `event.queueId`（否则 `InvalidArgument`）；`Wait` 允许跨队列（timeline semaphore 语义，§4.1 的 `t1` 即跨队列等待）；
-- 非法仅限：未映射事件、同队列自等待、等待值回退（`<` 当前 timeline）。
+- `EventQuery` 对有效目标非阻塞。目标尚未达成返回 `NotReached`，达成返回 `Reached`，目标失败时返回对应错误。无有效 Record、无效句柄等返回 `InvalidArgument`。
+- 首次被接受的 `Record` 绑定生产者 Stream。后续 `Record` 必须使用该 Stream。计算侧 `Wait` 可跨队列，图形侧通过同设备的共享 semaphore/资源建立依赖。
+- `Wait` 在记录时快照最后一个已接受的 Record 值。已满足的历史值可立即通过。正向同队列自等待、无效 semaphore 和递减 SIGNAL 按第 32 章处理。
 
 ---
 
@@ -93,16 +93,16 @@ struct EventDesc { SemaphoreHandle timeline; u64 nextValue; u64 lastRecordedValu
 
 ```
 t0 计算队列: LaunchKernel(k1) → Event.Record(e1)      [提交]
-t1 图形队列: 绘制 draw → Event.Wait(e1) → 读 UAV    [依赖 e1≥v]
+t1 图形队列: graphics UMD 提交 WAIT(e1) → 获取资源所有权 → draw/读 UAV
 t2 计算队列: LaunchKernel(k2) → Event.Record(e2)
-t3 回读:   Event.Wait(e2) 阻塞至完成 → Query(e2)=Reached → 数值比对
+t3 回读:   主机显式同步 Stream → Query(e2)=Reached → 数值比对
 ```
 
 ### 4.2 event 状态
 
 ```
-Event.state: NotReached（timelineValue 未达） → Reached（值 ≥ timelineValue）
-Query：只读，不推进（主动同步用 Wait / fence）
+Event.state: NotReached → Reached 或失败（对应 Record 值）
+Query：只读目标状态，主机主动同步使用 StreamSynchronize 或 fence
 ```
 
 ### 4.3 错误处理
@@ -118,12 +118,12 @@ Query：只读，不推进（主动同步用 Wait / fence）
 
 | 子里程碑 | 任务 | 段 | 内容 |
 |---|---|---|---|
-| M40.1 | T40.1 | ① 契约 | `umd/compute` Stream/Event 头文件（对齐 `compute-driver.md` §6；stream 1:1 队列、优先级不可变、Event 自有 timeline semaphore 和单调 `u64` value；Wait 跨队列合法） |
-| M40.1 | T40.2 | ② 主体 | Stream 提交封装：`LaunchKernel(stream,...)` 顺序提交 → `IHliQueue.Submit`；实现显式 `StreamSynchronize`；pending 时 `StreamDestroy` 与 live Stream 时 `ContextDestroy` 返回 `Busy`，不隐式 drain |
-| M40.1 | T40.3 | ② 主体 | Event Record/Wait/Query：命令流插 `SIGNAL/WAIT`、Query 非阻塞读；Event 自有 timeline semaphore，不复用队列 timeline 值域 |
-| M40.2 | T40.4 | ② 主体 | async compute：计算队列与图形队列并发、计算 → 图形 fence 依赖、`WAIT` 前图形不读计算产物（复用第 32 章 + 所有权转移） |
-| M40.2 | T40.5 | ③ 接入 | Demo C3 `async_pipeline` 双队列并发跑通；S12/S16 回归接入 |
-| M40.2 | T40.6 | ④ 验收 | A40：event Record/Wait/Query 值序正确、未达值 Query 非阻塞返回未完成；stream 提交顺序 = 命令流顺序；异步交叉下数值等价（serial/parallel 硬判据一致） |
+| M40.1 | T40.1 | ① 契约 | 扩展 39 章最小 Stream 支持不同队列，冻结 Event 目标值、生产者绑定和查询状态 |
+| M40.1 | T40.2 | ② 主体 | 沿用提交路径，验证多 Stream 相互独立、各自 FIFO、显式同步和资源销毁顺序 |
+| M40.1 | T40.3 | ② 主体 | 实现 Event Record/Wait/Query，独立 semaphore 值域、Wait 快照及失败传播 |
+| M40.2 | T40.4 | ② 主体 | 计算 UMD 生产、35.1 图形 UMD 消费，复用第 32 章队列同步与所有权转移 |
+| M40.2 | T40.5 | ③ 接入 | Demo C3 `async_pipeline` 跑通双 UMD、双队列，接入 S12/S16 回归 |
+| M40.2 | T40.6 | ④ 验收 | A40 汇总 D40.1~D40.5 与 `serial`/`parallel` 硬判据 |
 
 ### 子里程碑
 
@@ -139,12 +139,11 @@ Query：只读，不推进（主动同步用 Wait / fence）
 | DoD | 判据（机器可判） | 级别 |
 |---|---|---|
 | D40.1 | Stream/Event 头文件独立编译；优先级不可变、Stream 与 HLI 队列 1:1 映射；同一队列重复创建 Stream → `InvalidArgument`，不同家族队列（Graphics/Compute）可并存 | L1 契约 |
-| D40.2 | stream 内提交顺序 = 命令流顺序（提交日志按序断言）；`LaunchKernel` 经 stream 提交包序列正确 | L1 契约 |
-| D40.3 | Record 后命令流含 `SIGNAL(eventSemaphore,v)`、Wait 含 `WAIT(eventSemaphore,lastRecordedValue)`；跨队列等待可达；Query 未达值非阻塞返回 NotReached | L1 契约 |
-| D40.4 | 计算队列与图形队列并发提交；图形 `WAIT` 前不读计算产物；Event 自有 timeline 值序正确、跨队列 `WAIT` 达成 | L1 + L2 |
-| D40.5 | Demo C3 `async_pipeline`（WA-11）数值等价：与串行参考逐值一致；S12/S16 回归不退化 | 横切 |
-| D40.6 | StreamSynchronize 等待已提交值完成；pending 时 StreamDestroy 与存在 live Stream 时 ContextDestroy 均返回 `Busy`；显式 drain 后可按逆创建顺序销毁 | L1 契约 |
-| D40.7 | A40 全绿（D40.1~D40.6 + `serial`/`parallel` 硬判据一致） | L1 + L2 + 横切 |
+| D40.2 | 多 Stream 独立推进、各自 FIFO，沿用第 39 章提交路径；同步返回完成结果，pending 时 `StreamDestroy` 与有 live Stream 时 `ContextDestroy` 返回 `Busy`，显式同步后可逆序销毁 | L1 契约 |
+| D40.3 | 包序含正确 `SIGNAL`/`WAIT`；重新 Record 后旧 WAIT 仍保留目标快照；换生产者 Record 被拒；Query 非阻塞区分未达成、达成和失败 | L1 契约 |
+| D40.4 | 图形 UMD 与计算 UMD 走不同队列；计算信号及所有权转移后图形才读；注入生产者失败后，依赖绘制不读取数据且获得失败完成 | L1 + L2 |
+| D40.5 | 双 UMD 的 C3（WA-11）结果与串行参考逐值一致；S12/S16 回归不退化 | 横切 |
+| D40.6 | A40 全绿（D40.1~D40.5 + `serial`/`parallel` 硬判据一致） | L1 + L2 + 横切 |
 
 ---
 

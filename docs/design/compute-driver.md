@@ -3,7 +3,7 @@
 > 项目目标、范围、阶段与交付以[任务规划](../README.md)为主干；roadmap展开章级任务，architecture-design定义模块树与层间契约。本文负责本模块的内部技术设计。
 
 > 定位：定义 **stage3 计算驱动开发线（新章 38~42，`docs/stage3/`）** 的驱动专属设计——`umd/compute` 的 MUSA 风格对象模型（context / module / function / stream / event）、`MUSA_MODULE_HDR` 二进制布局与装载、kernel 参数打包 ABI、stream/event 同步、生命周期与错误码映射。它是 stage3 各章文档的设计权威。
-> 落地章：38（对象骨架与 Module 装载）、39（LaunchKernel 与参数打包）、40（Stream/Event 与异步）、41（组内协作/间接/UAV 写回）、42（双入口等价与验收）。
+> 落地章：38 装载对象，39 最小固定队列 Stream、参数打包和首个 LaunchKernel，40 扩展 Stream/Event 与异步，41 组合已有硬件能力，42 双入口验收。
 > 权威来源：`architecture-design.md` §3.8（KernelArgsLayout 六条校验）、§3.9（错误契约与 MUSA 错误码映射）、§3.11（DispatchDesc 与 D-01~D-12）、§3.12（映射公式 M-01~M-08）、§3.13（地址空间与作用域 S-01~S-06）、§3.10（生命周期）；`compute-line.md` §2/§7（对象粒度与 HLI 映射）；ADR-009 / ADR-013 / ADR-022 / ADR-030 / ADR-032 / ADR-039 / ADR-041 / ADR-047。
 > 与 `compute-line.md` 的分工：计算最小通路、workgroup/wave/CU 映射、内存地址空间与作用域、共用单元复用表、WA 业务目录保留在 `compute-line.md`；**对象模型二进制细节、参数打包 ABI、stream/event 同步、生命周期与错误码**为驱动专属，迁到本文件。
 
@@ -31,12 +31,12 @@
 
 - `Module`：`Loaded`（blob 解析通过）→ `Resident`（GART 常驻并可被 CP 访问）→ `Bound`（至少一个 Function 被 `SetKernel` 引用）；销毁或 context 销毁回到释放。
 - `Function`：`Resolved`（符号表解析出入口）→ `Launched`（至少一次 `Dispatch` 引用）；入口解析失败为错误终态（`InvalidIsa` / `NotMapped`）。
-- `Stream`：`Idle` → `Pending`（有 in-flight 提交）→ 完成回到 `Idle`；`Event` 状态由其自有 semaphore 的完成值与最近记录值比较（未达 = NotReached，达到 = Reached）。
+- `Stream`：`Idle` → `Pending`（有在飞提交）→ 所有提交终结后回到 `Idle`。`Event` 查询观察最近一次记录的未达成、成功或失败结果。
 
 **生命周期（权威 `architecture-design.md` §3.10，ADR-041）**：
 
 1. 创建顺序：`Context → Module → Function → Stream/Event`，HLI 侧先建 device → queue；销毁严格逆序。
-2. 驱动对象销毁只减**用户引用**；底层 GPU 内存仅在"用户引用 AND 硬件提交引用双归零"后释放（硬件引用由 fence 完成回调释放），销毁不做隐式同步。
+2. 驱动对象销毁释放用户引用，完成或失败释放硬件引用。两者归零后回收底层内存。销毁无需隐式同步，仍有依赖的 Stream/Context 按对象契约返回 `Busy`。
 3. 设备丢失 / 引擎复位期间（第 36 章）：被丢弃命令的硬件提交引用即刻归零；驱动对象销毁必须安全且幂等（底层内存已回收时不得二次 free）。
 
 ## 3. `MUSA_MODULE_HDR` 二进制布局
@@ -102,12 +102,14 @@ module blob 布局（little-endian，字段 4 B 对齐；`entryOffset`/`codeBase
 
 ## 6. Stream 与 Event
 
+第 39 章先在一个 Context 上包装一条现有 HLI Compute 队列，交付最小 Stream 的创建、提交、显式同步与销毁。第 40 章用相同提交路径扩展多个 Stream 以及跨队列等待。
+
 - `Stream` = 1:1 映射一个 HLI 队列（`IHliQueue`）；stream 内提交顺序 = 命令流顺序；不同队列可各自创建 stream，但同一队列不重复包装；优先级创建时声明且不可变。
 - `StreamSynchronize` 是唯一阻塞 drain 操作；`StreamDestroy` 存在 in-flight 提交时返回 `Busy`，不隐式同步；`ContextDestroy` 存在任一子对象（含 Stream）或硬件引用时返回 `Busy`。
 - `Event` 是拥有独立 timeline semaphore 的对象，不复用任何队列的 fence/timeline 值域：
-  - `Record(stream)`：为该 Event 预留严格递增的 `u64` 值，并在该 stream 命令流插入 `SIGNAL(eventSemaphore,value)`；
+  - `Record(stream)` 在发信号的 stream 命令流插入 `SIGNAL`。首次接受的记录绑定一个生产者 stream，后续允许同一 stream 重录。只有提交接受后才发布新的记录值。
   - `Wait(stream)`：快照 Event 最近一次已记录值，在该 stream 插入 `WAIT(eventSemaphore,value)`；未记录过的 Event 返回 `InvalidArgument`。等待可跨队列；
-  - `Query()`：非阻塞读取 semaphore 的已完成值，与最近一次已记录值比较；未达到返回 `NotReached`，不隐式同步。
+  - `Query()` 非阻塞查询最近一次记录。尚未完成返回 `NotReached`，已成功返回 `Reached`，已失败映射该记录的非成功状态。此前已记录的 `Wait` 固定使用当时快照的信号值和状态。
 - 异步计算语义：计算队列与图形队列以 `SIGNAL/WAIT` 定义依赖（不依赖提交次序）；计算→图形可见性 = 队列家族所有权转移（第 32 章）+ fence + device barrier（§3.13 一致性矩阵"图形 ↔ 计算"行）。
 
 ## 7. Runtime API 面（alloc / memcpy / launch）
@@ -148,10 +150,10 @@ module blob 布局（little-endian，字段 4 B 对齐；`entryOffset`/`codeBase
 
 - **验收（stage3 A38~A42，唯一权威 `scene-specs.md` §4 38~42 行）**：
   - Demo C1 `module_probe`：`MUSA_MODULE_HDR` 逐字节一致、符号表解析正确、异常输入确定错误（A38）；
-  - Demo C2 `vector_add`（WA-01）：六条校验全命中、`v[56..67]` 快照一致、整型逐字节 + fp32 ≤1 ULP 通过、>1 ULP 阻断（同序 FMA 下期望 0 ULP 是诊断信息，`scene-specs.md` §1.2）、命令流与直连 HLI 零容差一致（A39）；
+  - Demo C2 `vector_add`（WA-01）：A39 验六条校验、uniform 快照、参数生命周期、CPU 参考数值判据及双入口关键语义和零容差探针。
   - Demo C3 `async_pipeline`（WA-11）：event 值序、非阻塞 Query、异步交叉数值等价（A40）；
   - Demo C4 `reduce` / Demo C5 `indirect_dispatch`（WA-02 / WA-12）：归约 ≤1 ULP + 顺序断言（强制）、间接等价（A41）；
-  - S18/S19 经计算驱动入口与直连 HLI 入口逐值等价（A42 / A-stage3）。
+  - A42 以 S18 `case-0~3` 和 S19 `case-0~4` 验两入口关键命令语义和零容差探针，其余 S18 子例保留 HLI 回归。
 - **契约变更规则**：本文件任何字段 / ABI / 校验规则若需改动，属于冻结契约（对应 `architecture-design.md` §3.8/§3.9/§3.11），**必须走 ADR 并配套 `roadmap.md` §7.4 流程**，回归 S18/S19 与受影响 S 场景；本文件每节登记"落地章、相关层间接口"以便追踪。
 
 ---
@@ -164,6 +166,6 @@ module blob 布局（little-endian，字段 4 B 对齐；`entryOffset`/`codeBase
 | §3 | `MUSA_MODULE_HDR` 布局与装载 | 38 | `common/isa.h`、§3.11 D-06 |
 | §4 | 符号表解析与 Function 入口 | 38 | §3.11 D-06 |
 | §5 | 参数打包 ABI（六条校验） | 39 | §3.8、§3.11 D-07 |
-| §6 | Stream / Event | 40 | §3.4、第 32 章 timeline |
+| §6 | 最小 Stream / 多 Stream 与 Event | 39 / 40 | §3.4、第 32 章 timeline 与完成记录 |
 | §7 | Runtime API 面 | 39~42 | `IHliDevice` / `IHliQueue` |
 | §9 | 错误码映射 | 38~42 | §3.9 |

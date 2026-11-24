@@ -14,7 +14,7 @@
 
 1. 三类故障分层清晰：硬件（`ResetRequired`）/ 驱动（`Result`）/ 应用（UMD 拦截），互不混淆（ADR-039）。
 2. 按引擎 watchdog：每引擎独立活跃标记，watchdog 只复位对应引擎，不做全设备一刀切（ADR-039）。
-3. 复位路径：检测 → 停止 CP → 丢弃未完成包 → 清空队列/fence/保留错误记录 → 重新 boot → 重跑一致（`boot-reset.md` §2）。
+3. 复位只停故障引擎。丢弃未完成包并通知等待者，保留错误记录，只重编程该引擎 ring，再由应用重建队列并显式重提。
 4. 故障注入：仅高级硬件单元（ADR-031）；错误包/非法 ISA/死循环/未映射/越界 → 定位到 `{unit, packetType, dwordOffset, va, code}`。
 5. reset 后 S2 重跑成功（结果与首次一致）；错误记录可靠、日志可分析（`log_analyze`）。
 6. 内存泄漏/UAF 检测：`mem_audit` 解析快照。
@@ -74,7 +74,7 @@ public:
 };
 ```
 
-- 复位动作：该引擎 ring 停止、内部 FIFO 清空、fence 监视清零、重新 boot（`firmware/watchdog` 配合）。
+- 复位动作包括停止该引擎 ring、清空内部 FIFO、保留失败完成和诊断并重编程该 ring，其他引擎继续推进。
 
 **引擎复位时序伪代码（`ADR-041` 双引用计数 × 复位语义，3 行演示引用计数 / fence / 句柄有效性）：**
 
@@ -153,7 +153,7 @@ workgroup 完成只更新进展观测；不得以墙钟或 scheduler tick 决定
 |---|---|---|
 | D36.1 | 接口独立编译；`ErrorRecord` 字段固定；`Result` 枚举扩展冻结 | L1 契约 |
 | D36.2 | 每类故障定位到 `{unit, packetType, dwordOffset, va, code}`（注入→断言字段） | L1 契约 |
-| D36.3 | `ResetRequired` → 单引擎复位完成；在飞任务丢弃、复位中提交返回 `Busy`、旧 queue/stream generation 返回 `DeviceLost`、不隐式重放；其余引擎数据完好 | L1 契约 |
+| D36.3 | 在飞提交和关联信号标记失败。主机与跨队列等待按第 32 章的完成规则退出。复位期间提交返回 `Busy`，旧队列 generation 返回 `DeviceLost`，独立引擎继续推进 | L1 契约 |
 | D36.4 | watchdog：死循环只在对应引擎触发复位；其它引擎提交正常 | L1 契约 |
 | D36.5 | 8 类注入菜单各命中（BadPacket/BadIsa/OomLoop/UnmappedVa/Deadlock/BadVersion/DescriptorOOB/RingOverflow） | L1 契约 |
 | D36.6 | 错误保留表在复位后仍可读（LastError）；日志含 unit/type/offset/va/code | L1 契约 |

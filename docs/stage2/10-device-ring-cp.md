@@ -153,7 +153,7 @@ IDLE → WAIT_RING（ring 非空？）→ FETCH_HEADER（读 1 dword 包头）
      → DISPATCH（按类型：内部处理 or Push 到引擎）
      → ADVANCE（head 推进 count 个 dword；跨尾前由生产者用 NOP 填充）
      → WRITE_FENCE（若包为 FENCE）→ IDLE
-错误转移：非法类型/版本/长度 → ERROR_{report,ResetRequired} → IDLE（后续提交被拒直到复位）
+错误转移：非法类型/版本/长度 → ERROR（记录并失败完成当前提交）→ IDLE；显式诊断 ResetEngine 路径设置 ResetRequired，实际恢复由第 36 章接入。
 ```
 
 断言：`count` 含头、`count≥1`、包不跨环尾、`PKT_TYPE` 在登记表内。
@@ -183,7 +183,7 @@ FENCE 包载荷 {u64 value} → CP 写 FENCE_MON(0x08) → 触发中断(INT_STAT
 | T10.1 | ① 契约 | `IKmDdi`/`IFirmware`/`IEngine`/包头发送/MMIO 分段/错误记录结构落头文件并独立编译。**含 A 阶段前置执行项 B-042**：`mmio.h` 按 dword 索引重排 stateId/PSO/多上下文 + 回写第 2/10 章偏移表（裁定见 `bit-budget.md` §9 第 6 项、`roadmap.md` §2.3 A 行/§7.3，A 门禁无豁免） |
 | T10.2 | ② 主体 | 设备创建/销毁、能力查询（`config.commandVersion`、引擎列表）、MMIO bucket 复位清零 |
 | T10.3 | ② 主体 | MMIO 寄存器映射：`0x00~0x3F`、`0xF0` 读写 + 回读一致性、非法偏移拒绝 |
-| T10.4 | ② 主体 | 回调节点：创建 HW→FW boot→KMD→（HLI/UMD 后置）逆序释放；Shutdown 必停 CP、等队列空闲 |
+| T10.4 | ② 主体 | HW→FW→KMD 创建及失败回滚。关闭时停止接收，推进已接受工作至终态，再停 CP 并逆序释放 |
 | T10.5 | ② 主体 | KMD DDI 入口 + 特权封装：`ResetEngine` 走 FW、页表根仅 FW 可写（ADR-040） |
 | T10.6 | ② 主体 | 环初始化/写读指针、tail/head 推进、满/空判定、回绕 |
 | T10.7 | ② 主体 | `STREAM_HEADER` 解析：版本/引擎/标志校验，不匹配拒绝报类型+偏移 |
@@ -213,13 +213,13 @@ FENCE 包载荷 {u64 value} → CP 写 FENCE_MON(0x08) → 触发中断(INT_STAT
 | D10.1 | 三接口头文件独立编译；包头发送字段偏移 `static_assert`；MMIO 段号与 §3.4 表一一对应；**B-042 判据**：`mmio.h` 全部偏移为 dword 索引（脚本/`static_assert` 校验），第 2/10 章偏移表与代码逐项一致（脚本比对） | L1 契约 |
 | D10.2 | 设备创建两次得到两实例；能力查询 `version` 与构造参数一致；第二次创建前 MMIO 全 0 | L1 契约 |
 | D10.3 | 写后读回每个已登记寄存器逐字节相等；非法 MMIO 偏移访问返回 `InvalidArgument` 且不改状态 | L1 契约 |
-| D10.4 | 创建序列回调顺序 = HW→FW→KMD；在 KMD 阶段注入 boot 失败 → 已建对象全释放且无泄漏计数 | L1 契约 |
+| D10.4 | HW→FW→KMD 创建顺序正确；任一级创建失败只回滚已建对象。带一个待处理提交关闭时先产生成功或失败完成，再停 CP；资源引用归零 | L1 契约 |
 | D10.5 | `ResetEngine` 使 CP 停止且 `ResetRequired` 置位；`scene` 模拟 UMD 写 `RESET_CTRL(0xF0)` 返回 `NotSupported`（特权拒绝） | L1 契约 |
 | D10.6 | `N=size-1` 填满环（可用容量）后 `tail+1==head`（满）；消费后 `head==tail`（空）；回绕一次后读写指针差值正确 | L1 契约 |
 | D10.7 | `version != commandVersion` 的首包：返回 `InvalidPacket`，错误记录 `{unit=cp, packetType=0x00, dwordOffset=0}`；合法首包继续 | L1 契约 |
 | D10.8 | `count=0` 拒绝；`count>4095` 拒绝；未知 `PKT_TYPE` 拒绝且报类型与偏移 | L1 契约 |
 | D10.9 | 环余量 < 包长时，环尾出现 `NOP(count=1)` 填充、包从环头完整落地，fence 值不减 | L1 契约 |
-| D10.10 | `IsIdle()` 在 Push 后为 false、排空后为 true；FIFO 满时 `Push` 返回 `Busy` 且包不丢；`Stats` 可输出占用率与反压计数（软观测）。**新增 L1 契约单测（正常+非法边界）**：①FIFO 满 `Push`→`Busy` 且包不丢可重推；②Pump 遇非法包 → 引擎中止并报 `{unit,packetType,dwordOffset}`（不静默跳过）；③复位后重新 `Push/Pump` 握手恢复 | L1 契约 |
+| D10.10 | Push/Pump/Pop 的队列状态可以检查；FIFO 满返回 `Busy` 且可重推；非法包产生失败完成和位置记录。独立复位及重建验收归 A36 | L1 契约 |
 | D10.11 | 连续两个 `FENCE(1)`/`FENCE(2)`：`WaitFence(2)` 返回后 `FENCE_MON==2`；先等待大值再小值不跳序 | L1 契约 |
 | D10.12 | `ProgramRing` 后 MMIO 回读 `base/size`；`OnDoorbell` 后 `CP_STATE` 为 running | L1 契约 |
 | D10.13 | `Submit` 后 ring tail 推进恰等于包长 dword；doorbell 计数 +1；`WaitFence` 读回完成值 | L1 契约 |
@@ -271,7 +271,7 @@ FENCE 包载荷 {u64 value} → CP 写 FENCE_MON(0x08) → 触发中断(INT_STAT
 | 内存 | 初级平坦 `IMemorySubsystem` 原样保留 | 11 |
 | 引擎 | Copy/3D 引擎暂为占位，`Execute` 同步封装 | 22~28、13 |
 | 队列 | 单图形 Ring；`DISPATCH` 仅登记不派发 | 32、33、37（原 35.5） |
-| 错误 | 只记录 `{unit,pktType,dwordOffset}` + 置 `ResetRequired`（人工诊断例外，见 `architecture-design.md` §3.9）；无复位状态机 | 36 |
+| 错误 | 当前提交进入失败终态；显式诊断 ResetEngine 入口验证 `ResetRequired`（见 `architecture-design.md` §3.9） | 36 |
 
 ---
 
