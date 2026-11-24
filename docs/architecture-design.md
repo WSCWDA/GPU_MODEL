@@ -212,6 +212,21 @@ tools/
 6. `apps` 的场景输入和判据独立于提交入口。初级经薄门面，高级按场景迁移到 HLI。适配器与计算 UMD 在相同输入上复用场景。
 7. 禁止两个模块互相持有对方具体类型；跨层只用接口与 `common` 类型。
 
+### 2.5.1 共用能力的职责和依赖
+
+以下边界参照 [历史功能总览](back/GPU_MODEL_设计思路与章节功能总览.md) 的内存、命令、执行和观测设计，落在 README 规定的分层目录。
+
+| 需要拆开的职责 | 共享接口与替换点 |
+|---|---|
+| 命令记录、提交、解释与完成 | HLI 记录对象和命令，KMD 写 ring 并管理映射，FW 激活上下文，CP 校验与派发。初级薄门面合成提交，高级由各层接管 |
+| 映射、分配、驻留与缓存 | 地址翻译持有映射，分配器管理范围和容量，驻留管理何时可访问，缓存管理副本和可见性。逐出发出 flush 请求，等待写回后释放 |
+| 存储、视图、绑定与管线状态 | 存储对象管理生命周期，视图描述用途与范围，绑定关联资源，命令记录捕获动态状态。第 20 章形成共用数据和包转换，35.1 暴露完整 HLI 对象面 |
+| 逻辑执行、驻留与宿主并行 | `shader` 负责 ISA、lane 与组内事件，`se` 负责分区和驻留账本。CPU worker 承载就绪工作。逻辑映射和组预算可先用串行执行验证 |
+| 几何、片元与写回 | HS/细分器/DS 传递 patch，GS 生成图元，光栅将图元转成片元，OM 消费片元结果。patch 局部存储与设备 L1/L2、workgroup LDS 分别维护生命周期 |
+| 观测与校验 | 模块导出数据和必要状态。工具只读公开快照，参考模型独立产生预期。局部实验可使用替身，共享路径按公开契约交换数据 |
+
+公共值类型、编码归属和实现启用条件见 [公共组件设计](design/shared-foundation.md)。
+
 ### 2.6 一次 draw 的旅程（高级直连 HLI）
 
 | 阶段 | 位置 | 动作 | 可见证据 |
@@ -651,6 +666,7 @@ globalThreadId  = workgroupId * threadsPerGroup + gtid
 
 | 模块 | 文档（`docs/design/`） | 落地章 | 职责概览 | 相关层间接口 |
 |---|---|---|---|---|
+| 公共组件与渐进契约 | [shared-foundation.md](design/shared-foundation.md) | 1 起 | 跨章值类型、所有权、地址/编码启用和代码简化说明 | common 与各层公开接口 |
 | ISA 与 Shader ABI | `isa-abi.md` | 5、16 | 64 bit 定长编码、opcode `[62:56]` + `[63]=SFLAG`、VGPR/SGPR 固定分区（`kVgprBase*`） | `common/isa.h`、`SymbolBindings` |
 | 内存系统 | `memory-system.md` | 3、11、12、14 | 三类地址、页表/TLB、三堆与分配器、缓存/驻留、主机同步与确定性 | `IMemorySubsystem` |
 | 同步原语 | `sync-primitives.md` | 2、20、30、32、33、40 | 队列 fence/timeline、event、命令包屏障与 ISA 组内屏障 | `SIGNAL`/`WAIT`/`BARRIER`/`PREDICATE` 包、ISA barrier |
@@ -815,7 +831,7 @@ gpu-driver-model/
 | 无探针表/`spec_runner`（全图逐字节 + 结构断言） | `tools/image_diff` | 高级（第 21 章起） |
 | 无 PAL（场景直连薄门面） | `hw_sim/submit` | 35 |
 
-每条简化必须能在代码中定位到唯一实现点；高级替换时不得改变场景入口与探针判据。
+简化写在实际实现点。说明当前行为和省略状态，注明启用后续能力时需补齐的状态转换、持有者与验证入口。保留适用的场景入口和判据。示例见 [公共组件设计](design/shared-foundation.md)。
 
 ### 7.6 编码资源设计权衡（直接编码 vs 间接编码）
 
@@ -829,7 +845,7 @@ gpu-driver-model/
 | 内存间接状态表 | MMIO 只存根指针，`SET_STATE_TABLE_INDEX(index)` 索引内存数组 | CP 多一次读内存；改动集中、不与包布局冲突 | `stateId 0~7` 用尽后（长期方案） |
 | 页表级数扩展 | 保持 `GpuVAddr` u64 与 `IMemorySubsystem` 接口不变，只改内存子系统内部级数 / 索引位 | 页表布局属 ABI、需 ADR；上层包与场景透明 | VA 上限不足时（当前裁定 36 bit 已覆盖 64 GiB） |
 
-**工程约束**：MMIO 寄存器稀缺，仅放根指针 / 门控 / 控制 / 计数，大块状态结构一律放 GPU 内存（§7.4 红线 13）；对外 ABI（`GpuVAddr` u64、`IMemorySubsystem::Translate` 签名）与内部实现解耦，页表级数是内存子系统内部细节；老二进制路径保留、新能力走新路径，不改老二进制的行为（基线兼容优先）。
+**工程约束**：MMIO 寄存器稀缺，仅放根指针 / 门控 / 控制 / 计数，大块状态结构一律放 GPU 内存（§7.4 红线 13）；对外 ABI（`GpuVAddr` u64、`IMemorySubsystem::Translate` 签名）与内部实现解耦，页表级数是内存子系统内部细节；命令流按版本校验，保留独立的初级场景基线。高级 v2 入口按包规约拒绝 v1。
 
 ---
 

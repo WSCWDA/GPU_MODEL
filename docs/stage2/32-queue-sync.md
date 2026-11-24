@@ -77,9 +77,9 @@ public:
 - 包号：`PREDICATE`=0x0D、`BARRIER`=0x0E、0x0F 预留（Q-65）。**顶层 `PKT_TYPE` 已冻结（ADR-043）**：后续同步类新命令不占 0x0F，统一走 `EXTENDED` 子操作码或 `INDIRECT`(0x0C) IB（`../design/bit-budget.md` §2.3）。
 - `WAIT` 阻塞后续包；不得依赖中断到达顺序（轮询值）。
 
-> ⚠️ 多队列与 MMIO（Q-31/ADR-043 裁决）：MMIO 256 dword 已冻结，**不为每队列分配一段 MMIO 寄存器块**。一期采用**单活动 ring 窗口 + FW 切换 + 内存 semaphore 间接环表**：MMIO `0x00~0x0F` 只保留一个活动 ring 窗口，ring 描述表（base/size/head/tail 等）放 GPU 内存，FW 切换队列时重编程窗口；跨队列同步走内存 semaphore（`SIGNAL/WAIT` 的 `semaphoreVa`），不占 MMIO。详见 `../design/bit-budget.md` §3.4。
+> 一期队列沿用第 10 章直连 ring 寄存器模型，多队列依赖通过内存 semaphore 表达。间接环描述表和 FW 活动窗口切换作为后续扩展，见 [评审裁决 §2.2](../design/review-sync-20261121.md)。
 >
-> ⚠️ stateId 编号纪律（三档，`../design/bit-budget.md` §3.1）：本章不新增 stateId（semaphore/ring 描述表走 GPU 内存地址）；`0x50~0x7F` 为**临时过渡缓冲**，不得作为长期设计，禁止往 MMIO 硬编码新增 stateId。
+> 本章沿用 `stateId` 0~7 的直接槽与 `0x50~0x7F` 保留段，semaphore 通过设备内存 VA 引用。
 
 ### 3.3 所有权转移
 

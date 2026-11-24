@@ -290,7 +290,7 @@
 - 元信息：高级 / 章 35 / 阻断；入口 `apps/scene_s17_api_equivalence`。
 - 输入：HLI 主路径必测；Vulkan/D3D12/GL 只运行 capability 矩阵声明支持的子集，其余能力断言返回 `NotSupported`。
 - 主判据：HLI 按本场景判据通过；各 adapter 的支持子集满足同一场景语义/探针判据，不支持项返回 `NotSupported`；不要求 API 完整兼容。
-- 回归矩阵：`api_backend ∈ {hli, vulkan, d3d12, gl}`，全组合。
+- 回归矩阵：运行 `hli` 基线，以及实际启用适配器的 capability=true 用例。未支持能力按 `NotSupported` 判定。
 - 引用：章 35 DoD、`35-api-backend.md`、ADR-022。
 
 ### S18 `scene_s18_compute_basic` — 计算最小通路
@@ -387,7 +387,7 @@
 | 17 | S3 + S0 | IR 快照稳定；前端解析/语义/IO 签名错误与源码位置确定；编译后端执行等价由 18/19 章判定 |
 | 18 | S3 | 优化开/关一致；寄存器溢出统计可输出 |
 | 19 | S3 | ABI/ISA 合法性与规范程序语义一致（允许合法编码差异） |
-| 20 | S4 + S5 + S14 + S18 | 常量/结构化缓冲/SSBO 与 kernel 参数取值正确；越界与未绑定确定报错；视图切片与格式重解释正确；管线对象替换完整；push constant 越界报错；屏障非法子资源范围报错；描述符堆按设备内存语义实时读取（命令包不拷快照） |
+| 20 | S4/S14 绑定子集，S5 视图与 S18 参数布局单测 | 检查资源与参数取值、越界与未绑定、视图范围及重解释、Pipeline/包转换、非法子资源范围和描述符设备内存语义 |
 | 21 | S4 + S14 | LOD/sRGB/寻址正确；数组/Cubemap 层索引与越界行为确定；采样器并入 stateId 5 描述符堆、比较采样正确；SAMPLE 请求为 float2 uv + 导数 |
 | 22 | S5 | 索引与非索引顶点流一致；primitive restart、step rate 正确；`baseVertex`/`baseInstance` 偏移与 `InstanceID` 正确；内建 ID 只读 SGPR/专用寄存器 |
 | 23 | S5 | 命令数恒为 1；顶点数不受单次派发容量限制；切片容量归前端派发器、VGT 只产顶点流；切片边界图元完整；顶点流常驻复用不随帧增长 |
@@ -396,13 +396,13 @@
 | 26 | S7 + S8 + S14 | 深度/模板/混合/MRT/剔除正确；LoadOp/StoreOp 正确；双源混合与逻辑 Op 正确；PS 输出到 UNORM/SNORM/UINT/SINT/sRGB 的格式转换与舍入确定；写 UAV 时 Early-Z 禁用 |
 | 27 | S9 + S7 | coverage/resolve 正确；early-Z 不改结果；fast clear 元数据与 Hi-Z 拒绝计数可输出 |
 | 28 | S6 | patch 载荷无丢失（本章自建 patch 缓冲，C 阶段不依赖 LDS）；三图元模式正确；细分因子与模式符合公式；输出域属性完整 |
-| 29 | S10 + S18 | ballot/shuffle/归约/导数结果确定；REDUCE 的 identity 按 op 定义（MIN=+∞ / MAX=−∞）且允许部分活跃；计算 subgroup 内建与 CPU 参考一致 |
-| 30 | S10 + S18 + S19 | shared 转置、原子累加与 CPU 参考一致；barrier 顺序正确；workgroup 与 device 作用域的释放/获取语义确定 |
-| 31 | S11 + S18 | 全并行组合逐字节一致；线程本地 TLB + 全局失效无脏读；三维 workgroup 映射、grid 边界部分 workgroup、越界 work-item 行为确定 |
-| 32 | S12 + S16 + S19 | 三引擎交错依赖正确；timeline semaphore 值序正确；跨队列家族所有权转移正确；计算队列与异步计算不破坏依赖 |
-| 33 | S12 + S19 | IB 链、间接绘制、predication 与直接提交等价（谓词统一 u64 值 + mask/cond 比较）；间接 dispatch 与直接 dispatch 等价；DMA 引擎切片拷贝正确 |
+| 29 | S10，独立 wave 输入 | ballot/shuffle/归约/导数结果确定，部分活跃时按操作使用单位元 |
+| 30 | S10，S19 case-0/1 只作单测输入 | LDS 转置、原子、组内 barrier 和作用域按独立 workgroup 用例验证 |
+| 31 | S11，S18 case-1/2 只作映射单测输入 | 并行组合结果一致，TLB 失效后无脏读，映射、部分组与越界行为确定 |
+| 32 | S12 队列子集、S16 | 三队列依赖与 timeline 值序正确，屏障和所有权移交按子资源范围判定 |
+| 33 | S12 IB/间接绘制子集，S19 case-3 只作参数单测输入 | IB、间接 draw、predicate 与直接路径对照。间接 dispatch 只对照参数描述符，输出等价归 37/42。验证 DMA 切片拷贝 |
 | 34 | S7 + S2 | 遮挡 query = 0；timestamp 单调不减；统计不参与正确性；查询可作 GPU 侧谓词 |
-| 35 | S17 + S2 + S3 + S4 + S5 | HLI 场景通过；adapter capability=true 的子集满足语义判据；UMD 不改写 HLI 包；动态状态是命令缓冲快照而非全局状态；能力位只从 HLI 读取且含二期四位（一期恒 false）；计算验收已迁第 37 章（A37：S18 主判据 / S19 回归），35 章本身不再承担计算验收 |
+| 35 | S17 + S2 + S3 + S4 + S5 | HLI 场景通过；adapter capability=true 的子集满足语义判据；UMD 不改写 HLI 包；动态状态是命令缓冲快照而非全局状态；能力位只从 HLI 读取且含二期四位（一期恒 false）；计算验收已迁第 37 章（A37：S18/S19 直连 HLI 验收），35 章本身不再承担计算验收 |
 | 36 | S13 | 故障定位到单元；reset 后 S2 重跑成功 |
 | 37 | S18、S19 | kernel→参数→dispatch→workgroup/wave→LDS/atomic/barrier→写回→fence 端到端；直连 HLI 计算入口；三维映射 / 越界 / 组驻留（M-03）/ 间接 dispatch 与 33 章等价；A37 主验收（双入口等价归 stage3 42，A-stage3） |
 | 38 | Demo C1 `module_probe` | `MUSA_MODULE_HDR` 字段与 blob 逐字节一致；符号表解析正确（name/entryOffset/paramBytes/vgprCount/ldsBytes）；Function 入口解析 + 4B 对齐；截断/坏 header/越段返回确定错误（`InvalidIsa`/`NotMapped`）且无泄漏 |

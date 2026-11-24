@@ -146,7 +146,7 @@ CP 解析 DISPATCH(0x04) → Compute 引擎
 | M37.1 | T37.2 | ② 主体 | 硬件侧消费 `SET_KERNEL_ARGS`：按已冻结的 `KernelArgsLayout` 读取 GART 参数区、检查映射/边界并装载 uniform；不负责 `ArgPack[]` 解释或 Host 参数缓冲打包（归第 39 章） |
 | M37.1 | T37.3 | ② 主体 | Compute 引擎派发主路径：CP 解析 `DISPATCH` → Compute 引擎 → `IShaderArray::Dispatch`（复用 29~31 共用单元；非着色引擎 `sa` 规则不适用，Compute 必填） |
 | M37.1 | T37.4 | ② 主体 | `DISPATCH` 统一区装载：`paramBufVa` / grid / block 写入 VGPR uniform 区 `v[56..67]`（isa-abi §3 权威分区） |
-| M37.1 | T37.5 | ② 主体 | 直连 HLI 计算入口打通：`IHliPipeline(kernel)` + `IHliCommandList.Dispatch` → S18/S19（HLI 入口）闭环（M37.1 收口） |
+| M37.1 | T37.5 | ③ 局部接入 | 直连 HLI 记录 kernel 与简单 dispatch，先用 S18 基本子集检查命令和写回。完整 S18/S19 在 M37.4 汇总 |
 | M37.2 | T37.6 | ② 主体 | 硬件侧按 DISPATCH grid/block 展开 workgroup/wave，并复用第 31 章索引映射；驱动侧不复制 blockIdx/threadIdx 算法（计算驱动只消费统一定义） |
 | M37.2 | T37.7 | ② 主体 | 计算引擎用第 30 章 ISA/LDS 同步原语运行跨 wave barrier 用例；本章只验收硬件执行路径可达，不重做 barrier 或驱动作用域 API（归 30/41 章） |
 | M37.2 | T37.8 | ② 主体 | 计算内建 id（THREAD/GROUP/WAVE）编译器前端映射与 kernel 侧暴露（内建寄存器面在 15/17 章；本章收口计算侧） |
@@ -176,7 +176,7 @@ CP 解析 DISPATCH(0x04) → Compute 引擎
 | D37.2 | 硬件消费已提交参数描述符时，未映射/越界参数区产生确定错误；合法参数正确装入 uniform。Host `ArgPack[]` 的布局/重叠校验与禁止下发由 D39.1/D39.2 验收 | L1 契约 |
 | D37.3 | `DISPATCH` 能驱动 Compute 引擎产出与 29~31 章单测一致的结果；派发入口必须持有非空 `IShaderArray* sa` 并对每个有效 wave 调用 `IShaderArray::Dispatch`，缺失 `sa` 在执行前返回 `InvalidArgument` | L1 契约 |
 | D37.4 | `DISPATCH` 后 VGPR uniform 区 `v[56..67]` 内容 = `paramBufVa/grid/block`（快照比对） | L1 契约 |
-| D37.5 | 直连 HLI 计算入口下 `scene_s18_compute_basic` 探针通过（整数/索引零容差；含 fp32 归约的 case 按 ≤1 ULP + 顺序断言） | L2 + A37 |
+| D37.5 | 直连 HLI 运行 S18 case-0，索引和写回与参考逐项一致。后续子 case 由 M37.2/M37.3 接入，完整场景归 D37.14 | L2 |
 | D37.6 | 三维 block/grid 的 blockIdx/threadIdx=ref_model；grid 边界部分 workgroup 有效、越界 work-item 不写任何内存 | L2 |
 | D37.7 | block > warp（如 64 = 2 wave / 256 = 8 wave，对齐 S19 `case-0`）跨 wave barrier 只在全部 wave 到达后放行（原子计数断言）；workgroup/device 作用域语义确定 | L2 |
 | D37.8 | 内建 `THREAD/GROUP/WAVE` id 与 ref_model 一致；编译器产物不产生非法布局 | L2 |
