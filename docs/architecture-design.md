@@ -2,7 +2,7 @@
 
 > 定位：定义分层、模块边界、数据流、接口契约与 ABI，回答"系统由哪些层和单元组成、它们如何协作、哪些契约不能破"。
 > 文档职责：项目目标、范围、阶段与交付以 [任务规划](README.md) 为主干；`roadmap.md` 展开章级任务与门禁；本文件负责模块树、数据流、层间契约与 ABI；`docs/design/` 细化模块内部机制；`scene-specs.md` 冻结场景输入与判据；stage 文档描述章节实现。本文件不新增章号与场景号。
-> 决策记录见 `roadmap.md` §0.3 ADR 清单与 `docs/adr/`；原 `open-questions.md` 的 Q-01~Q-83 已全部定案关闭，本文件只写已定案内容。
+> 项目约束以 [README](README.md) 为准。模块清单参考 [设计思路与章节功能总览](back/GPU_MODEL_设计思路与章节功能总览.md)。其中的历史接口和排期按现行架构、任务及场景规约核对后使用。
 > 模块设计：本文件 §4 为独立模块设计文档（`docs/design/`）索引；子系统的内部设计细节不在此内联，见各模块文档。
 
 ---
@@ -35,8 +35,19 @@
 
 ### 1.4 正式阶段与能力档
 
-| 阶段 | 章 | 分层形态 | 验收 |
-|---|---|---|---|
+| README 工作包 | 章与阶段 | 架构交付 |
+|---|---|---|
+| WP0–WP1 | 1–9，初级 | 公共契约、薄提交门面、单环、平坦内存、单波 ISA、固定功能与可编程着色配合。E0–E5 以 headless 帧导出收口 |
+| WP2–WP3 | 10–19，A–B | KMD/FW、虚拟地址与驻留、显式 GPU 缓存、执行与编译链。LLVM 对照验证 ABI 和程序语义 |
+| WP4 | 20–28，C | 资源与绑定、纹理、图形前端、光栅、OM、MSAA。Tess/GS 在第 28 章通过 S6 独立展示 |
+| WP5 | 29–31，D | 波内/组内协作与 CPU worker 并行。S10/S11 验收共用原语 |
+| WP6 | 32–36，E | 多队列、间接命令、查询、35.1 HLI 对象面和必要错误路径。S15 验收能力查询和拒绝。35.2–35.4 适配器按能力选做 |
+| WP7 | 37，F | Compute 引擎消费已登记的命令和参数，经直连 HLI 验收 S18/S19 |
+| WP8 | 38–42，G | 计算 UMD 对象、主机参数打包与 launch、stream/event。第 42 章对照直连 HLI 和计算 UMD 的结果 |
+
+正式门禁和阶段回归见 [路线图](roadmap.md)。
+
+---|---|---|---|
 | 初级 | 1~9 | 场景 → 薄提交门面 → 硬件单元 | E0~E5，全图逐字节 |
 | 高级图形与共用底座 | 10~36 | 场景 → 图形 UMD/HLI → KMD → FW → 硬件单元 | S0~S17，探针 + 差分 |
 | 计算管线 | 37 | HLI DISPATCH → 共用 KMD/FW/Compute 引擎 | S18/S19 的直连 HLI 路径 |
@@ -74,36 +85,24 @@ hw_sim::submit（薄提交门面）
 
 ### 2.2 高级分层（10~37 章；stage3 计算驱动 38~42）
 
-```
-apps/scene_s0 .. scene_s19
-   │                    │                         │
-   │ api_backend=vulkan │ api_backend=d3d12/gl    │ 计算驱动入口（stage3 38~42）
-   ▼                    ▼                         ▼
-umd/graphics/api/*   umd/graphics/api/*        umd/compute
-   │                    │                         │
-   ▼                    ▼                         │
-umd/graphics/pal（resource / binding / pipeline / cmd_gen / queue）
-   │                    │                         │
-   └──────────┬─────────┘                         │
-              ▼                                   ▼
-            hli（35.1：设备 / 队列 / 资源 / 视图 / 描述符 / 管线 / 命令 / 能力）
-              │
-              ▼
-            kmd（DDI / 内存 / 上下文 / 提交 / 调度 / 中断 / 复位）
-              │
-              ▼
-            firmware（boot / ring 管理 / doorbell / 上下文加载 / watchdog）
-              │
-              ▼
-            hw_sim（core / memory / shader / frontend / raster / om / geometry / query / se）
-```
+~~~mermaid
+flowchart TD
+    A["高级场景"] --> G["图形 UMD 适配器与 PAL"]
+    A --> C["计算 UMD"]
+    A --> H["HLI"]
+    G --> H
+    C --> H
+    H --> K["KMD 映射与提交"]
+    K --> F["FW 上下文与门铃"]
+    F --> S["HW 环、CP 与执行单元"]
+~~~
 
 说明：
 
-- **入口**：`api_backend=hli` 时场景直连 HLI，用于 10~34 的硬件单元验收；`api_backend=vulkan|d3d12|gl` 时经对应 UMD；计算场景在 stage3（38~42）之后经计算驱动入口（第 42 章双入口等价为主验收）。各路径的硬判据必须一致。
+- 场景可直连 HLI。35.1 前可按章通过共用包契约的最小门面或测试支架验收硬件。第 37 章通过 `api_backend=hli` 验收完整计算硬件通路。stage3 引入 `api_backend=compute`，由第 42 章做双入口对照。图形适配器按声明的支持用例与 HLI 比对。
 - **HLI 位置**：HLI 是"类 KMD 原生接口"，位于 KMD 之上、UMD 之下。它负责对象、资源/视图、描述符、管线与命令组装；提交统一走 KMD DDI，不复制 KMD 的页表/上下文接口。
 - **KMD/FW 引入**：第 10 章起建立最小 KMD/FW（DDI、ring 写入、doorbell、fence 中断），后续章只在其上追加能力。
-- **UMD 与计算驱动并列**：二者互不依赖，都只依赖 HLI 与 `umd/os`；编译器（17~19）只产出 ISA，35.x 只消费 ISA。
+- `umd/graphics` 与 `umd/compute` 各自管理入口对象并复用 HLI 与 `umd/os`。`umd/shader` 的产物通过公共 ISA 与 Shader ABI 交给执行端。
 
 ### 2.3 分层职责表
 
@@ -113,7 +112,7 @@ umd/graphics/pal（resource / binding / pipeline / cmd_gen / queue）
 | `hw_sim` | 设备、环、CP、内存、缓存、SIMT、纹理、固定功能、光栅、OM、几何、查询、SE | 不认识 UMD/KMD 概念，不写驱动策略 | `common` |
 | `firmware` | 上电、ring 管理、doorbell 响应、上下文加载、watchdog | 不解析 draw 语义 | `common`、`hw_sim`（只经 MMIO/环） |
 | `kmd` | DDI、物理页与页表、GART、TLB 失效、上下文、提交、调度、中断、复位 | 不做 API 语义翻译 | `common`、`hw_sim`、`firmware` |
-| `hli` | 设备/队列、资源/视图、描述符、管线、命令组装、能力查询 | 不做 API 兼容 workaround，不直接驱动单元 | `common`、`hw_sim`、`firmware`、`kmd` |
+| `hli` | 设备/队列、资源/视图、描述符、管线、命令组装、能力查询 | 硬件执行与厂商类型映射 | `common`、KMD 公开 DDI |
 | `umd/graphics` | API 翻译、状态修补、PAL、命令记录、同步 | 不改写 HLI 输出包，不判断硬件实现 | `common`、`hli`、`umd/os` |
 | `umd/compute` | context/module/function/stream/event、kernel 启动 | 不做 API/二进制兼容 | `common`、`hli`、`umd/os` |
 | `apps` | 场景构造、提交、校验入口 | 不 include 硬件单元内部头 | 对应入口层 |
@@ -205,12 +204,12 @@ tools/
 
 ### 2.5 依赖规则
 
-1. 严格单向：`common → hw_sim → firmware → kmd → hli → umd → apps`；任何反向 include 视为架构违规。
+1. 从底层到上层的分层顺序为 `common → hw_sim → firmware → kmd → hli → umd → apps`。上层调用下层公开接口，完成通知经登记回调返回。底层不引用上层类型。
 2. `hw_sim` 内部方向固定：`frontend → shader`、`raster → shader`、`raster → om`、`geometry → shader`；反向通过回调或返回值。
-3. 驱动层不得直接调用硬件单元：HLI/KMD/FW 访问硬件的唯一路径是"写命令到环 → 敲门铃 → CP 取指"。
+3. 命令执行经 KMD 提交、FW 门铃和 CP 派发。设备管理、映射、中断回读和诊断经相应公开接口。
 4. `hw_sim` 不得出现 UMD/KMD 概念；`umd` 不得出现硬件内部结构；`hli` 不得出现 API 枚举与错误码。
 5. 编译器与 `hw_sim` 的唯一连接是 `common` 的 ISA 定义与 Shader ABI，不共享内部数据结构。
-6. `apps` 的依赖随阶段抬升：初级只认薄门面，直连阶段只认 HLI，UMD 阶段才认 `umd/graphics` 或 `umd/compute`；同一场景源码不改。
+6. `apps` 的场景输入和判据独立于提交入口。初级经薄门面，高级按场景迁移到 HLI。适配器与计算 UMD 在相同输入上复用场景。
 7. 禁止两个模块互相持有对方具体类型；跨层只用接口与 `common` 类型。
 
 ### 2.6 一次 draw 的旅程（高级直连 HLI）
@@ -221,12 +220,23 @@ tools/
 | P1 绑定 | HLI 20 | 创建资源与视图，写描述符堆，设置根参数 | 描述符堆内容 |
 | P2 管线 | HLI 20/22~26 | 选择 PSO（着色入口 + 固定功能状态） | `SHADER_PSO` 载荷 |
 | P3 记录 | HLI 命令 | 绑定 RT/深度/描述符/常量，发 `DRAW` | 命令包序列 |
-| P4 提交 | KMD/FW 10 | 写入环，更新 tail，敲门铃，等 fence | ring 快照 + fence 值 |
-| P5 前端 | IA 22 → VS 23 → 裁剪/PA 24 | 装配顶点、着色、切片、裁剪、组装图元 | 顶点流缓冲、图元列表 |
-| P6 光栅 | 25 → 27 | 三角形转像素，覆盖/early-Z，PS 着色，插值 | 像素候选列表、覆盖掩码 |
-| P7 合并输出 | 26 → 13 | 深度/模板/混合/MRT，翻转扫描输出 | RT 字节、显示帧 |
+| P4 提交 | KMD/FW、CP（10） | KMD 写 ring 并更新 tail、触发 doorbell，FW 激活上下文，CP 解包派发。上层等 fence 或处理失败完成 | ring 快照、包类型与 fence 值 |
+| P5 前端 | IA（22）→ VGT/SPI 与 VS（23）→ 裁剪/PA（24） | IA 装配，VGT/SPI 组织顶点流并调用可编程 VS。启用时接 HS、固定功能细分器、DS 与 GS，再裁剪并装配图元 | 顶点流、patch、生成图元 |
+| P6 光栅与着色 | 光栅（25）、可见性（27）、PS/纹理（21） | 覆盖和插值生成片元输入，符合条件时可 early-Z，再调用可编程 PS 和纹理采样 | 覆盖掩码、插值结果、片元输出 |
+| P7 合并输出 | OM（26）与 Display（13） | 深度、模板、混合和 RT 写回。Display 读取已完成的帧，headless 可下载并导出 | RT 字节、显示或导出帧 |
 
-任何一步失败都必须能定位到"包类型 + dword 偏移 + 单元 + 资源 VA"。
+失败记录包含已知的层、操作和错误码。涉及命令包或访存时补充包类型、dword 偏移和故障 VA。
+
+### 2.7 一次 dispatch 与跨队列互操作
+
+| 步骤 | 层间分工 | 可观察结果 |
+|---|---|---|
+| 入口与参数 | F 阶段场景通过 HLI 直连，使用已准备的参数。G 阶段由计算 UMD 装载 module、解析 function，并在第 39 章组装主机参数区 | 代码入口、资源句柄、参数 VA、grid/block |
+| 提交与执行 | HLI 记录 `SetKernel/Dispatch/IndirectDispatch`。共用 KMD/FW/CP 路径派发 Compute，引擎经 `IShaderArray` 执行 workgroup、wave 与 lane | 包序、workgroup 与 lane ID、有效掩码 |
+| 写回与消费 | buffer 走内存子系统，image store 复用布局编码与格式转换。跨队列同时表达生产者完成、资源可见性与需要的所有权转移 | UAV/RT 原始字节、barrier、fence/timeline |
+| 双向互操作 | S19 `case-4` 验证图形写 RT 后计算读并写回。README D6 的计算写入、图形等待后读取由第 37 章异步用例和 stage3 C3 展示 | 通过命令、同步与结果定位生产者及消费者 |
+
+场景输入和硬判据见 [场景规约](design/scene-specs.md)。
 
 ---
 
@@ -246,7 +256,7 @@ tools/
 | KMD → FW | `IFirmware`（ring、doorbell、上下文、复位） | 向下 | 10 | C++ 纯虚 |
 | FW → HW | MMIO 写 + ring 内存 | 向下 | 10 | 寄存器/内存 |
 | CP → 引擎 | `IEngine`（握手式，§3.3） | 向下 | 10 | 命令包 |
-| 引擎 → 内存 | `IMemorySubsystem::Read/Write/Translate` | 双向 | 3/11 | C++ 纯虚 |
+| 引擎 → 内存 | `IMemorySubsystem::Read/Write/Translate` | 调用向下 | 3/11 | C++ 纯虚 |
 | 引擎 → 着色核 | `IShaderArray::Dispatch(...)` | 向下 | 4 | C++ 纯虚 |
 | IA → VS | `VertexInputLayout`（§3.7） | 数据契约 | 22 | 结构体 |
 | 计算驱动 → kernel 参数 | `KernelArgsLayout`（§3.8） | 数据契约 | 20、38~42 | 结构体 |
@@ -338,7 +348,7 @@ public:
 | `IHliView` | `CreateSrv/Uav/Cbv/Sampler/Rtv/Dsv` | 用途与切片；不改变资源 |
 | `IHliDescriptorHeap` | `Write(index, view)`、`GetGpuVa(index)` | 动态索引；图形与计算共用 |
 | `IHliPipeline` | `SetStages`、`SetFixedState`、`SetKernel` | 图形用 stages+fixed（含 LoadOp/StoreOp、插值、混合、多视口），计算用 kernel |
-| `IHliCommandList` | `Bind*`、`Draw`、`Dispatch`、`Barrier`、`Copy`、`Reset` | 唯一允许生成命令包的出口 |
+| `IHliCommandList` | `Bind*`、`Draw`、`Dispatch`、`IndirectDispatch`、`Barrier`、`Copy`、`Reset` | HLI 的命令记录与组包出口 |
 | `IHliQueryPool` | `Begin/End/Resolve` | 34 章 |
 
 硬规则：
@@ -349,7 +359,7 @@ public:
 4. HLI 的 `CreatePipeline` 对图形与计算同构，不按上层类型分支。
 5. 描述符堆按设备内存语义读取：提交后修改堆，下一次 draw 生效；命令包不拷贝描述符。
 6. 动态状态在命令列表记录时快照，提交时按记录值执行；两个命令缓冲各自提交时动态状态互不干扰。
-7. 35.1 DoD 全部以"场景直连 HLI"跑通后，才允许开始 35.2。
+7. 35.1 以直连 HLI 代表用例和计算命令记录契约收口。35.2–35.4 随后按能力接入。S18/S19 的完整计算硬件验收在第 37 章。
 
 ### 3.5 KMD / FW 契约（第 10 章）
 
@@ -403,13 +413,13 @@ public:
 
 规则：
 
-- 所有单元（含 Copy、Display）统一走 `VA → TLB → L2 → 存储`，不得绕过翻译直连堆（`docs/design/memory-system.md`）。
+- Copy、Display 与着色单元的设备存储访问统一经 `IMemorySubsystem`。高级地址和缓存路径走 VA 翻译与存储层，flat 和关闭缓存模式按契约直通，LDS 与 patch 暂存由各自模块管理。
 - TLB 为**每 CU** 64 组 × 4 路 = **256 项**，组索引 `(va>>12)&0x3F`（容量口径权威 `docs/design/memory-system.md` §2）；失效必须全局可见；策略 B 下线程本地 TLB 依赖全局失效序列（`docs/design/execution-parallel.md` §1）；L1 写穿入 L2，仅脏行替换才进写缓冲。
-- **有效 VA 位宽 = 36 bit（契约，B-07）**：两级页表各 4096 项 × 4 KiB = 64 GiB/AS，与 `common` 页表常量及 4 GiB/8 GiB 堆基址一致；`GpuVAddr`/`PhysAddr` 软件类型仍为 u64，"硬件有效位宽 ≤ 软件类型位宽"。见 `memory-system.md` §2 与 `bit-budget.md` §4。
+- **有效 VA 位宽 = 36 bit（B-007）**。页目录和页表各有 4096 项，页大小 4 KiB。每个地址空间覆盖 `4096 × 4096 × 4 KiB = 64 GiB`。软件地址类型仍为 u64。容量见 [内存系统](design/memory-system.md)和 [位预算](design/bit-budget.md)。
 - 未映射返回 `NotMapped` 并带 VA；未驻留触发页错误路径，不得静默读 0。
 - 页错误处理为"记录 + 中止当前提交"，**不复位**；复位统一由第 36 章按引擎级接入（ADR-011、Q-30、Q-69），不做 wave 暂停/恢复。
 - `Flush` / `Invalidate` 归第 12 章 `CacheSubsystem`，**不加入本接口**；本接口 7 个方法冻结（Q-44）。
-- **部分成功语义（第 11 章冻结）**：`Read`/`Write` 按**调用级原子性**处理——请求范围 `[va, va+bytes)` 内任一 4 KiB 页翻译失败（未映射 / 未驻留）时，**整次调用不产生任何写副作用并返回 `NotMapped`**（附首个故障 VA 及其页偏移），禁止"先成功写前几页、遇故障页才报错"的部分写入；翻译按页完成、全部成功后才一次提交。`Translate` 一次只翻译单个 VA（返回该 VA 所在页的 `PhysAddr`），不承诺相邻 VA 的翻译。`Map`/`Unmap` 要求 `va` 与该范围均为 4 KiB 对齐、范围合法；部分覆盖同一页的重叠 `Map` 为未定义行为（上层责任，调用前应保证 PTE 区域互斥）。
+- **跨页调用语义（第 11 章）**：`Read`/`Write` 先校验整段地址范围和分页翻译，再提交访问。任一页失败时整次调用无部分写入，并报告首个错误 VA。未映射与未驻留分别由共享内存/驻留契约报告。`Translate` 仅翻译单个 VA。`Map`/`Unmap` 的 VA 与范围须按 4 KiB 对齐，调用方保证映射范围合法。
 - 分配器：VRAM 空闲链表 + GART bump；GART 有容量上限，周期性缓冲按上下文常驻复用，不每帧分配；描述符堆登记 GART（GPU 可读，Q-51）。
 
 ### 3.7 层间数据契约：顶点布局（第 22 章冻结）
@@ -428,10 +438,11 @@ struct VertexInputLayout {
     u32 baseVertex;
     u32 baseInstance;
 };
-// 取第 n 个顶点的属性 i：addr = bufferBase + (n / max(1, stepRate)) * stride + offsetInVertex
+// per-vertex:   bufferBase + vertexIdx * bufferStride + offsetInVertex
+// per-instance: bufferBase + (instanceIdx / stepRate) * bufferStride + offsetInVertex
 ```
 
-IA 只消费该布局，不感知 API 顶点格式；Shader ABI 输入属性区 `v[0..15]` 由 IA 按本布局装配（`docs/design/isa-abi.md` §3）。初级固定 `RenderVertex`（stride 32：`float4 position` + `float4 color`），第 22 章切换为 `VertexInputLayout` 动态装配。
+`vertexIdx` 使用 `baseVertex + index`（索引）或 `baseVertex + v`（非索引）。`instanceIdx` 包含 `baseInstance`。IA 消费统一布局和绘制参数。Shader ABI 输入属性区 `v[0..15]` 由 IA 按本布局装配（`docs/design/isa-abi.md` §3）。初级固定 `RenderVertex`（stride 32：`float4 position` + `float4 color`），第 22 章切换为 `VertexInputLayout` 动态装配。
 
 ### 3.8 计算 kernel 参数（第 20 章冻结；计算驱动落地 stage3 38~42，ABI 见 `compute-driver.md`）
 
@@ -444,39 +455,25 @@ struct KernelArgsLayout {
 };
 ```
 
-计算流程：应用预写参数区 → 计算驱动 `LaunchKernel` → HLI 组 `DISPATCH` 包 → Compute 引擎把 `paramBufVa`、grid/block 写入 VGPR uniform 区 → kernel 按偏移读取。对象模型与打包语义见 `docs/design/compute-line.md` §2。
+第 39 章 `LaunchKernel` 打包主机参数并写入设备可见参数缓冲。直连 HLI 场景自行准备同布局数据。HLI 记录命令，第 37 章 Compute 引擎消费 `SET_KERNEL_ARGS`/`DISPATCH` 并装载 uniform 描述符。对象与打包 ABI 见 [计算驱动设计](design/compute-driver.md)。
 
-**输入校验规则（第 20 章冻结，计算驱动 / HLI 创建侧执行）**——违反任何一条返回 `InvalidArgument`，**不下发硬件**；硬件侧对越界访问只做确定性中止（§3.3 错误流），不做语义修复：
+**输入校验规则**在 HLI 或计算驱动的创建、记录阶段执行。静态布局错误返回 `InvalidArgument`，映射或驻留错误按规则 1 返回对应状态。记录期失败不生成命令。
 
 1. `paramBufVa` 必须已映射且驻留（`HOST_VISIBLE | HOST_COHERENT` 参数缓冲）；未映射 / 未驻留返回 `NotMapped`/`NotResident`。
 2. `paramBufByteSize > 0` 且不超过参数区容量上限（独立契约常量 `kMaxParamBufBytes`，**2026-11-20 定案 `4 KiB`**，登记 `docs/design/bit-budget.md` §7.1 **B-041**；**与 VGPR uniform 分区容量解耦**——`v[56..67]` 只承载 `paramBufVa/grid/block` 等描述符，不承载参数本体，见 `docs/design/isa-abi.md` §3）。
 3. `paramOffsets` 必须**严格递增且互不重叠**；每条参数满足 `offset + size ≤ paramBufByteSize`（size 由驱动按签名推导，KernelArgsLayout 只携带偏移）。
 4. 参数偏移按类型自然对齐：标量 4 B、`float2/vec2/int2` 8 B、`float4/vec4` 16 B；违反对齐返回 `InvalidArgument`。
 5. `paramVgprBase` 默认 56（`v[56]`，uniform 区起点），合法值必须在 uniform 分区 `v[56..67]` 内且不与其他 ABI 分区冲突（`isa-abi.md` §3 权威分区）；越界（如落在 RT1~3 `v[44..55]` 或临时量区 `v[76..]`）一律 `InvalidArgument`。
-6. 校验只做**静态结构校验**（映射 / 对齐 / 边界 / 区段），不断言参数语义（值域由 kernel 自证）；`DISPATCH` 包生成前完成，失败即 `InvalidArgument` 且不产生包。
+6. 校验覆盖映射、对齐、边界与区段。参数取值语义由 kernel 定义，失败沿用对应规则的返回码。
 
 ### 3.9 错误契约
 
-```cpp
-enum class Result {
-    Ok = 0,
-    InvalidArgument,
-    NotSupported,
-    NotMapped,
-    NotResident,
-    InvalidPacket,
-    InvalidIsa,
-    OutOfMemory,
-    DeviceLost,
-    ResetRequired,
-    Internal,
-};
-```
+公共 `Result` 枚举见 [第 1 章公共契约](stage1/01-contracts-min.md)，包含 `Busy`、`OutOfStack`、`RegisterOverflow`、`InvalidIr` 与 `Timeout` 等共 16 个值。诊断细节通过错误记录传递。
 
-- 所有跨层接口返回 `Result`；禁止用异常跨层传播。
-- 错误日志必须包含 `{unit, packetType, dwordOffset, va, code}`；能定位才允许返回。
-- 错误只做"记录 + 中止当前提交"，不做重试与自动恢复；第 36 章只保证"可定位 + reset 后可重跑"（`docs/design/boot-reset.md`）。
-- `ResetRequired` 仅保留枚举值：**初级与高级一期均不产生**，复位只在第 36 章以**引擎级**接入（仅重编程该 ring，其余引擎数据完好）。**例外（2026-11-20 定案）**：第 10 章显式 `ResetEngine` 诊断入口与非法包错误路径可将 `ResetRequired` 置位，仅用于人工诊断与错误记录，不触发自动复位状态机、不进入阶段门禁；其余路径仍为"记录 + 中止提交"。
+- 可失败的跨层操作以 `Result` 或接口约定的等价状态报告错误。跨层边界不传播 C++ 异常。
+- 执行错误记录 `{unit, packetType, dwordOffset, va, code}`。创建或记录期错误以实际对象和参数定位，未知包位置或 VA 标为不适用。
+- 执行失败记录并中止当前提交。第 36 章补上引擎级故障定位、复位和显式重提，范围见 [启动与复位设计](design/boot-reset.md)。
+- 初级只记录并中止出错提交。第 10 章可在受控诊断路径记录 `ResetRequired`。第 36 章接入引擎复位，watchdog 按逻辑指令预算报告 `Timeout`。普通页错误按 §3.6 中止当前提交。
 - `NotSupported` 用于能力二期/范围外；不得用成功返回值掩盖未实现能力。
 
 **`Result` → 上层 API 错误码映射（35.2~35.4 与 stage3 38~42 冻结，单一来源）**——UMD（Vulkan/D3D12/GL）与计算驱动的 API 参数是上层入口，不得向应用泄露 `Result` 枚举本身；映射只做一次、方向单向（底层 `Result` → 上层错误码），禁止一方把上层错误反向当输入。HLI 自身（§3.4 硬规则 1）**不出现** `Vk*`/`D3D12_*`/`GL_*` 错误码，本表是唯一的 API 错误码登记位置。计算驱动列的名称为 MUSA 风格示意，权威的是**映射方向与禁止项**（底层 `Result` 单向映射为对等语义的非成功码），具体枚举名以计算驱动头文件为准：
@@ -489,6 +486,8 @@ enum class Result {
 | `InvalidPacket` / `InvalidIsa` | 命令包或 ISA 非法（§3.3 错误流） | `VK_ERROR_INVALID_SHADER_NV`（shader 侧） | `E_INVALIDARG` | `GL_INVALID_SHADER` | `MUSA_ERROR_INVALID_DEVICE_FUNCTION` |
 | `OutOfMemory` | GPU 内存不足（11、14 章） | `VK_ERROR_OUT_OF_DEVICE_MEMORY` | `E_OUTOFMEMORY` | `GL_OUT_OF_MEMORY` | `MUSA_ERROR_OUT_OF_MEMORY` |
 | `DeviceLost` / `ResetRequired` | 设备 / 引擎复位，需重跑（36 章） | `VK_ERROR_DEVICE_LOST` | `DXGI_ERROR_DEVICE_REMOVED` | `GL_CONTEXT_LOST` | `MUSA_ERROR_DEVICE_LOST` |
+| `Busy` / `Timeout` | 待处理工作未清空 / 预算超限 | 适配器按本地接口报告对应状态 | 同左 | 同左 | 保留未完成与超时的语义，具体枚举由计算驱动定义 |
+| `OutOfStack` / `RegisterOverflow` / `InvalidIr` | 执行或着色程序错误 | 保留非成功返回和诊断 | 同左 | 同左 | 映射为对应执行或程序错误 |
 | `Internal` | 未归类内部错误 | `VK_ERROR_UNKNOWN` | `E_FAIL` | `GL_INVALID_OPERATION` | `MUSA_ERROR_UNKNOWN` |
 
 映射硬规则：
@@ -509,7 +508,7 @@ enum class Result {
 | HLI | 对象表、描述符堆默认状态 | 释放 KMD |
 | UMD | API 对象、默认管线 | 释放 HLI |
 
-`Shutdown` 时必须：停止 CP → 等待队列空闲 → 释放 UMD → 释放 HLI → 释放 KMD → FW halt → HW 关闭。任何一步跳过都视为资源泄漏。启动/复位/关闭的硬件侧细节见 `docs/design/boot-reset.md`。
+正常 `Shutdown` 先停止接受新提交，保持已接受工作推进至完成或明确失败，再停执行器并按创建逆序释放。此处规定层间关闭顺序，[启动与复位设计](design/boot-reset.md)的停止 CP 条目按此顺序执行。故障引擎按下述失败完成语义清理。
 
 **对象销毁契约（35.1，问题：销毁异常 / 复位时序）**：
 
@@ -522,16 +521,16 @@ enum class Result {
 | 维度 | 复位后语义 |
 |---|---|
 | 未完成命令 | 故障引擎已提交未完成命令全部丢弃；被丢弃命令**不再执行**、其产物（写出的像素/内存）为未定义，场景按固定输入重跑才与首次一致（`boot-reset.md` §2） |
-| fence | 被丢弃命令关联的 fence 不承诺到达目标值；本引擎 fence 监视清空并保留错误记录；其余引擎 fence 语义完好、继续推进 |
-| 对象 / 引用计数 | 被丢弃命令持的硬件提交引用**即刻归零**（不等 fence）；用户引用不变，应用仍可持有句柄直至自己销毁；其余引擎引用的对象与数据完好 |
-| 命令缓冲（HLI） | Reset 只作用于故障引擎的 ring 与 in-flight 命令，**不使任何 HLI 命令缓冲失效**；重跑用同一命令缓冲、同样输入，结果与首次一致 |
+| fence | 被丢弃提交记录失败。等待方通过失败或旧 generation 状态结束等待，其他引擎的 fence 继续推进 |
+| 对象 / 引用计数 | 逐条释放被丢弃提交持有的硬件引用。用户引用和其他有效提交引用按原生命周期释放，应用重建受影响的资源 |
+| 重新提交 | 复位期间提交返回 `Busy`。完成后旧 queue/stream generation 返回 `DeviceLost`。应用重建受影响的队列、stream 与资源，用有效对象显式重提固定输入 |
 | 责任归属 | 复位是 36 章引擎级行为，不级联到其他引擎 / 设备，UMD 依 §3.9 把 `ResetRequired` 映射为设备丢失类错误上报 |
 
-初级与高级一期不产生 `ResetRequired`（§3.9），故本节约束对初级薄门面不生效，仅第 36 章接入后启用。
+引擎级复位按第 36 章接入。被中止的提交保持失败状态，命令不会隐式重放。
 
 ### 3.11 计算 dispatch 载荷与计算 ABI（第 20、35.1 章冻结，ADR-046；计算驱动落地 stage3 38~42）
 
-计算通路与图形通路共用 HLI、KMD、FW、内存、缓存、队列与 ISA；计算侧独有的**只有一处**：把 `grid / block / kernel 入口 / 参数区` 打包成一个 `DISPATCH` 包。`DISPATCH` 包类型 `0x04` 已在第 1 章预留（本文件不新增包号），本节冻结其载荷语义。
+计算通路与图形通路共用 HLI、KMD、FW、内存、缓存、队列与 ISA。`DISPATCH` 选择 Compute 引擎。公开记录对象以本节为准，二进制包见 [命令包登记](design/command-mmio.md)。
 
 ```cpp
 namespace compute {
@@ -563,7 +562,7 @@ struct DispatchArgsIndirect {              // 7 u32 = 28 B；起始地址 16 B �
 }
 ```
 
-**输入校验规则（第 20、35.1 章冻结；HLI 与计算驱动在创建 / 记录期执行）**——违反任一条返回 `InvalidArgument`，**不产生包、不下发硬件**；执行期只做确定性中止（§3.3），不做语义修复：
+**输入校验规则**由第 20 章和 35.1 固定记录接口。非法参数在记录期拒绝并返回表中对应状态。命令包和间接参数由消费端按执行期契约检查，出错则中止提交。
 
 | 编号 | 规则 |
 |---|---|
@@ -585,7 +584,7 @@ struct DispatchArgsIndirect {              // 7 u32 = 28 B；起始地址 16 B �
 
 ### 3.12 workgroup / wave / CU 映射与计算确定性（第 4、15、29、30、31 章冻结，ADR-046）
 
-图形线把 32 个 lane 合成一个 quad 处理像素；计算线的并行单位是 **workgroup（调度单位）→ wave（执行单位）→ lane（线程）**。以下公式是唯一映射，任何单元不得另立一套：
+图形像素阶段按 2×2 quad 组织覆盖、辅助 lane 与导数计算，每个 quad 涉及 4 个 lane。计算侧按 workgroup、32-lane wave 和 lane 建模，身份按以下公式确定：
 
 ```
 threadsPerGroup = block.x * block.y * block.z
@@ -600,10 +599,10 @@ globalThreadId  = workgroupId * threadsPerGroup + gtid
 
 - **M-01 身份唯一**：`tid / gtid / waveId / workgroupId` 只由 `grid` 与 `block` 决定，与线程完成顺序、CU 数量、SE 数量无关；`serial` 与 `parallel` 下同一线程的 ID 必须逐值相同。
 - **M-02 末波部分有效**：`LaneMask` 为有效 lane 集合（组线程数非 32 倍数时末波部分有效）；**无效 lane 不执行访存 / 原子 / barrier**。此点与第 25 章"2×2 quad 内任一 lane 有效则 4 lane 全执行"**不同源**：quad 规则只服务导数与像素着色一致性，**禁止移植到计算通路**（否则 warps 执行数判据失真）。
-- **M-03 组驻留整体性（防死锁的唯一手段）**：`wavesPerGroup` 个波必须同时驻留同一 CU；预算 `wavesPerGroup × (VGPR + SGPR 占用) + ldsStaticBytes` 超限时**整个 workgroup 排队**，不得部分驻留、不得跨 CU 拼装。因此组内 barrier 永远可达，不存在"等不到对端波"的死锁。
+- **M-03 组整体驻留**：同一 workgroup 的波在同一 CU 成组驻留。波槽、VGPR、SGPR 和 LDS 分别记账。组级需求可满足但暂缺空闲额度时整组等待。整体驻留保障参与波具有推进条件，barrier 还须满足 M-04/M-05。
 - **M-04 barrier 一致到达**：组内全部活跃线程必须在一致控制流到达同一 `BARRIER` PC；非一致控制流由 ISA 层检测并返回 `InvalidIsa` 中止（给可定位错误，不写成未定义行为）。
-- **M-05 推进顺序**：组内波按 `waveIdInGroup` 升序推进；跨组顺序策略 A 按 `workgroupId` 升序、策略 B 由 CU 原子领取，两者均不得改变硬判据（§5.4）。
-- **M-06 occupancy 上限固定**（ADR-038）：CU 驻留波数、每 CU 的 VGPR/SGPR/LDS 总量、输入/输出 FIFO 深度固定且可配置（2026-11-20 定案：驻留 **16 waves/CU**、LDS **64 KiB/CU**、FIFO **8 项**，登记 `bit-budget.md` §7.1 **B-036/B-037/B-039**）；超限**排队等释放**，不报错、不降级。排队**仅限**"组级需求本身可满足（`wavesPerGroup ≤` 驻留波数、`ldsStaticBytes ≤` CU LDS）、仅当前被其它组暂占"的情形；需求本身超上限在 HLI/驱动记录期被 §3.11 D-13 直接 `InvalidArgument` 拒绝，避免"永远排不上且无进展"的挂起。
+- **M-05 推进顺序**：组内波按 `waveIdInGroup` 升序推进；跨组顺序策略 A 按 `workgroupId` 升序、策略 B 由 CU 原子领取，两者均不得改变硬判据（[路线图 §5.4](roadmap.md)）。
+- **M-06 occupancy 上限固定**（ADR-038）：CU 驻留波数、每 CU 的 VGPR/SGPR/LDS 总量、输入/输出 FIFO 深度由容量登记固定（2026-11-20 定案：驻留 **16 waves/CU**、LDS **64 KiB/CU**、FIFO **8 项**，登记 `bit-budget.md` §7.1 **B-036/B-037/B-039**）；超限**排队等释放**，不报错、不降级。排队**仅限**"组级需求本身可满足（`wavesPerGroup ≤` 驻留波数、`ldsStaticBytes ≤` CU LDS）、仅当前被其它组暂占"的情形；需求本身超上限在 HLI/驱动记录期被 §3.11 D-13 直接 `InvalidArgument` 拒绝，避免"永远排不上且无进展"的挂起。
 - **M-07 组边界不隐式同步**：workgroup 结束不等于 device 可见；dispatch 间、kernel 间可见性一律走 §3.13 的显式 barrier / fence，禁止把"提交完成"当同步。
 - **M-08 确定性**：计算通路无时间输入；需随机数的 kernel 用固定种子、按 `gtid` 升序消费（§7.1 规则 5）。
 
@@ -636,9 +635,9 @@ globalThreadId  = workgroupId * threadsPerGroup + gtid
 
 - **S-01 LDS 永不进 VA/PA**：LDS 只经 `shader/shared` 的索引与 bank 访问；任何以 VA 触达 LDS 的指令判 `InvalidIsa`（与 ADR-016 的"片上存储不走 VA"同源）。
 - **S-02 无隐式全局刷新**：dispatch 边界不自动 flush / invalidate；可见性只由 `BARRIER` + fence 建立，保证每条读写都能定位到机制（§1.1）。
-- **S-03 作用域在载荷内表达**：`0x0E` 载荷携带 `scope ∈ {Workgroup, Device}`、`access ∈ {READ, WRITE, RW}`（粗粒度集合，不做逐访问位掩码，ADR-031）；**禁止为此新增顶层包号**（ADR-043）。
+- **S-03 资源屏障编码**：命令包 `0x0E` 固定为三个 dword，依次是 `kind/scope/memOrder/accessMask`、`srcStageMask` 和 `dstStageMask`。枚举和值域见 [命令包 §2.3](design/command-mmio.md)与 [同步原语](design/sync-primitives.md)。组内同步由 ISA `BARRIER` 执行。
 - **S-04 计算写回**：buffer store 由 memory 子系统直写（不经 OM）；image store 复用第 21 章 tiling 编码与 `common/format` 转换；RT 写回与计算写回**共用同一格式转换与写掩码实现**，不得复制两份（ADR-032 的实现级推论）。
-- **S-05 缓存口径**：L1 写穿 L2、L2 为 coherence point（与 §3.6、第 12 章一致）；`cache_enable=off` 只影响统计，不改变结果（§5.1）。
+- **S-05 缓存口径**：L1 写穿、L2 写回，L2 是缓存一致性点。`cache_enable=off` 旁路缓存，开关前后的定义结果和可见性判据一致，统计可以不同。
 - **S-06 故障同路**：未映射 / 未驻留与图形一致（`NotMapped` / `NotResident` + 中止当前提交），禁止静默读 0，禁止为计算单独开"宽松读"路径。
 
 计算 scratch（per-thread 栈 / 寄存器溢出）放 GART，per-thread base 由驱动经参数区传入；分配走第 11 章确定性分配器，同 `translation.seed` 下布局逐字节可复现。
@@ -654,7 +653,7 @@ globalThreadId  = workgroupId * threadsPerGroup + gtid
 |---|---|---|---|---|
 | ISA 与 Shader ABI | `isa-abi.md` | 5、16 | 64 bit 定长编码、opcode `[62:56]` + `[63]=SFLAG`、VGPR/SGPR 固定分区（`kVgprBase*`） | `common/isa.h`、`SymbolBindings` |
 | 内存系统 | `memory-system.md` | 3、11、12、14 | 三类地址、页表/TLB、三堆与分配器、缓存/驻留、主机同步与确定性 | `IMemorySubsystem` |
-| 同步原语 | `sync-primitives.md` | 2、32、33 | fence / timeline semaphore / event / barrier / 内存序作用域；`PREDICATE`=0x0D、`BARRIER`=0x0E、0x0F 预留 | `SIGNAL`/`WAIT`/`BARRIER`/`PREDICATE` 包 |
+| 同步原语 | `sync-primitives.md` | 2、20、30、32、33、40 | 队列 fence/timeline、event、命令包屏障与 ISA 组内屏障 | `SIGNAL`/`WAIT`/`BARRIER`/`PREDICATE` 包、ISA barrier |
 | 编译器管线 | `compiler.md` | 17~19 | 前端(SSA+分歧)、后端(优化/寄存器分配/发射)、LLVM 对照 | `common` ISA/ABI |
 | 命令包、stateId 与 MMIO | `command-mmio.md` | 1、2、10 | 包头与版本（高级 `version=2` 且拒绝 v1）、包类型登记、stateId（dword 索引，`0x40+2n`）、MMIO 分段 | `common/packet.h`、MMIO |
 | 轻量日志、硬件统计与断言 | `logging.md` | 1、高级 A | `GD_LOG`、MMIO 统计计数器、三套断言 | `GD_LOG` 宏 |
@@ -665,18 +664,14 @@ globalThreadId  = workgroupId * threadsPerGroup + gtid
 | 纹理单元 | `texture-unit.md` | 7、21 | 格式解码、tiling、mip/LOD、过滤、采样器、比较采样 | `SAMPLE`/`SAMPLE_CMP` |
 | 启动、复位与关闭 | `boot-reset.md` | 10、36 | 启动序列、复位路径、watchdog、故障分层、逻辑特权 | `Result`、`ResetRequired` |
 
-**计算线文档归属**（同属 `compute-line.md`，子节分工固定；模块内部细节不进本文件，本文件只持层间契约）：
+**计算线资料分工**
 
-| `compute-line.md` 子节 | 内容 | 本文件对应契约 |
-|---|---|---|
-| §1 计算最小通路 | kernel → module/function → 参数区 → dispatch → workgroup/CU → wave → LDS/atomic/barrier → 写回 → fence | §2.2、§3.3 |
-| §2 对象模型 | MUSA-like context/module/function/stream/event 与 HLI 映射 | §3.4、§3.11 |
-| §3 地址空间与作用域 | 五类访问的模块化实现、L1/L2 口径、scratch 分配 | §3.13 |
-| §4 dispatch 打包与间接参数 | `DispatchDesc` 落地、间接参数读取时机、校验实现 | §3.11 |
-| §5 workgroup/wave/CU 映射与 occupancy 预算 | 映射公式实现、组驻留账本、FIFO 与背压 | §3.12 |
-| §6 计算业务目录 WA | 12 类 workload 的 kernel 规格与硬件行为预期 | §7.9 |
-| §7 驱动 API 面与 HLI 映射 | 计算驱动函数面、错误码映射、生命周期 | §3.4、§3.9 |
-| §8 验收与差分口径 | 数值容差、结构断言、双入口等价 | `roadmap.md` §6.7 |
+| 文档 | 内容 |
+|---|---|
+| [计算通路](design/compute-line.md) | 直连 HLI 路径、共用单元、计算驱动映射与启动边界 |
+| [计算驱动](design/compute-driver.md) | 对象生命周期、module/launch ABI、stream/event 和 stage3 演示 |
+| [执行与并行](design/execution-parallel.md)、[同步原语](design/sync-primitives.md) | workgroup/wave 驻留与执行、组内同步、队列依赖和内存作用域 |
+| [场景规约](design/scene-specs.md) | 业务输入、探针、容差与双入口判据 |
 
 项目级范围和阶段见任务规划；模块设计文档的登记位：包类型 / `stateId` / MMIO 段 / opcode 区段的权威登记表见 `roadmap.md` §7.3，增量在 `command-mmio.md`、`isa-abi.md` 对应节登记。位宽与地址空间余量（包类型、MMIO、stateId、GPU VA、ISA opcode、环/堆容量）的集中审计见 `docs/design/bit-budget.md`（**唯一审计基准**：任一涉及包 / MMIO / ISA / 页表分配的章节开工前强制对照，见 `bit-budget.md` §1 与 `roadmap.md` §7.3/§7.4）。
 
@@ -697,7 +692,9 @@ gpu-driver-model/
 ├── kmd/
 ├── hli/
 ├── umd/
-│   ├── graphics/{api/{vulkan,d3d12,gl},pal,shader,os}
+│   ├── graphics/{api/{vulkan,d3d12,gl},pal}/
+│   ├── shader/{frontend,ir,opt,regalloc,emit,llvm}/
+│   ├── os/
 │   └── compute/
 ├── apps/
 │   ├── scene_e0_selftest/ … scene_e5_end_to_end/
@@ -716,9 +713,10 @@ gpu-driver-model/
 ├── third_party/
 │   └── stb_image_write.h
 ├── docs/
+│   ├── README.md
 │   ├── roadmap.md
 │   ├── architecture-design.md
-│   ├── design/isa-abi.md … compute-driver.md（§4 的 12 个独立模块设计文档）
+│   ├── design/isa-abi.md … compute-driver.md（模块设计见 §4）
 │   ├── adr/ADR-<三位序号>-<kebab-title>.md
 │   ├── design/scene-specs.md（场景规约单份：每场景一节）
 │   ├── stage1/01-contracts-min.md … 09-end-to-end.md
@@ -732,7 +730,7 @@ gpu-driver-model/
     └── golden/          基线
 ```
 
-规则：`hw_sim` 不 include 任何 `kmd/umd/apps` 头；`common` 不 include 任何上层头；章文档路径与文件名严格遵循 `roadmap.md` §7.3 与 §0.1（`stage1/NN-<slug>.md`、`stage2/NN-<slug>.md`）；独立模块设计文档统一放 `docs/design/` 下，文件名为 §4 索引所列 `NN-<slug>.md`（如 `memory-system.md`）。
+代码依赖按 §2.5。实施文档按 `stage1/`、`stage2/`、`stage3/` 和 `NN-<slug>.md` 定位。模块设计以 §4 中的 `docs/design/` 文件为入口。
 
 ---
 
@@ -763,7 +761,7 @@ gpu-driver-model/
 1. 无时间输入：着色器与位姿不用 `uTime`、`clock()`、墙钟差值。
 2. 位姿可复算：只由 `(scene_id, frame_index, camera_params, model_matrix)` 决定；`frame_index=n` 与直接以 n 初始化一致。
 3. 遍历顺序固定：图元、像素、描述符、资源顺序显式定义。
-4. 归约顺序固定：`ballot/shuffle/atomic add` 按 lane 升序或原子累加，不依赖完成顺序。
+4. 场景要求确定的浮点归约使用场景规约规定的顺序与树形组合。无数据竞争的工作组可以并行，已定义的原子负载按原子语义和场景断言验证。
 5. 随机固定种子且消费顺序固定。
 6. 平局可判：深度相等、时间戳相等、稳定排序给出 tie-break。
 7. 内存序显式：`Relaxed/Acquire/Release/AcqRel/SeqCst` + `Workgroup/Device` 作用域；shared 栅栏与全局屏障分开。
@@ -774,11 +772,11 @@ gpu-driver-model/
 
 - 软观测：耗时、加速比、缓存/TLB 命中率、每 SE 波分布、每线程负载、非探针像素。
 - 统计输出：`state_inspector` 只读 MMIO、队列与统计，不反向写状态。
-- 日志与统计不得进入硬判据。
+- 人工 trace、宿主耗时和性能统计用于观察。场景规格明确登记的命令、状态或结果计数可以作为结构断言。
 
 ### 7.3 错误
 
-- 所有错误可定位到 `{unit, packetType, dwordOffset, va, code}`；无位置的错误视为日志缺陷。
+- 错误按 §3.9 记录适用字段。参数与对象错误可在提交前定位，执行期错误使用实际包位置和资源地址。
 - 错误路径不分配大对象、不递归、不抛异常。
 - 第 36 章只做"故障注入 → 定位 → reset → 重跑一致"。
 
@@ -790,9 +788,9 @@ gpu-driver-model/
 | 2 | 控制流栈必须是 `{pc, mask}` 结构体，不做位域 | 代码审查 |
 | 3 | 热循环内不得动态分配 | 代码审查 + 计数断言 |
 | 4 | GART 只 bump，周期性缓冲跨帧复用 | 分配计数 |
-| 5 | 所有访存统一 VA → TLB → L2 | 绕过翻译的直连检查 |
+| 5 | 设备存储经 IMemorySubsystem。flat、缓存旁路和片上局部存储各按自身契约处理 | 地址访问与可见性检查 |
 | 6 | 命令包不得跨环尾；不足用 `NOP` 填充 | 环边界测试 |
-| 7 | 程序结束必须 flush 写回后再 `EXIT` | 终态检查 |
+| 7 | 跨 dispatch 或队列的资源可见性由场景所需的显式 barrier 和 fence 建立 | 写入、同步、消费的对照 |
 | 8 | 不得引入时间输入与未定义顺序 | 差分测试 |
 | 9 | 硬件单元不得判断上层是 UMD 还是计算驱动 | 依赖/分支审查 |
 | 10 | 不支持的能力必须返回 `NotSupported`，不得静默降级 | capability 测试 |
