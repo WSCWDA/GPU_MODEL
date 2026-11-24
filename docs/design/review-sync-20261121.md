@@ -1,6 +1,6 @@
 # 设计评审剩余问题
 
-本文跟踪 [设计文档问题评审（2026-11-20）](../设计文档问题评审-20261120.md) 与 [GPU 软模型设计评审改进建议](<../GPU 软模型设计评审改进建议文档.txt>) 中仍需处理的问题。沿用原评审编号。文档问题以责任章节中的契约、任务和验收条件一致为关闭依据，实施验证见第 2 节。
+本文跟踪 [设计文档问题评审（2026-11-20）](../设计文档问题评审-20261120.md) 与 [GPU 软模型设计评审改进建议](<../GPU 软模型设计评审改进建议文档.txt>) 中仍需处理的问题。沿用原评审编号。`BACK-*` 是对照[旧功能总览](https://github.com/WSCWDA/GPU_MODEL/blob/c80b321ce55ab7b6f0a167245d381b450cc7c8d3/docs/back/GPU_MODEL_%E8%AE%BE%E8%AE%A1%E6%80%9D%E8%B7%AF%E4%B8%8E%E7%AB%A0%E8%8A%82%E5%8A%9F%E8%83%BD%E6%80%BB%E8%A7%88.md)与现行设计时发现的待修项。文档问题以责任章节中的契约、任务和验收条件一致为关闭依据，实施验证见第 2 节。
 
 ## 1. 文档待修项
 
@@ -14,6 +14,10 @@
 | P2-04 · Flip 生效时机 | [第 13 章](../stage2/13-copy-display.md) §3.2 仍写“扫描线超过 flip 地址后才可见”，§4.3 和 D13.4 按 VBlank/下一 vsync 切换 front。 | 使用同一个生效点，并让 D13.3 能检查同一帧的扫描线来自同一个 front 快照。 |
 | P2-16 · S18 输入与期待输出 | [第 31 章](../stage2/31-se-cu-array.md)把 S18 `case-1` 的 block 写成 `(8,8,1)`，[场景规约](scene-specs.md)使用 `(16,16)`。场景表给出 `8×8` 个 workgroup、每组 `16×16` 个线程以及 1,024 个输出元素，但未写明有效域或输出映射。`case-3` 沿用 `case-1`。 | 标明早期单测采用完整场景输入还是自选的小尺寸向量。冻结实际 dispatch、有效域及预期写入数量，使 `case-1/3` 可复用同一输入。 |
 | A41/A42 · WA-02 回归范围 | [第 41 章](../stage3/41-workgroup-collab-indirect.md) §10 将 WA-02 全集交给第 42 章回归；[A42](../stage3/42-end-to-end-acceptance.md)中 S18 `case-5`（WA-02）保留为 HLI 回归，计算驱动归约由 C4 验收。 | 明确归约边界样例分别落在 C4 或 HLI 回归，并统一第 41 章待定项与第 42 章矩阵。 |
+| BACK-01 · ISA 代码归属与升级路径 | [架构 §2.4](../architecture-design.md)将第 5、16 章的编码和解释器归入 `hw_sim/isa`；[第 5 章](../stage1/05-isa-min.md)却将解码和 `ToInstr` 放在 `hw_sim/shader/isa`，[第 16 章](../stage2/16-isa-assembler.md)改用 `hw_sim/isa`，章节间未说明复用或迁移。 | 明确第 5、16 章的编码、解码、指令语义和 wave 状态分别由谁负责。保留一套公共编码契约，并明确初级工具和解释器如何接入高级路径。 |
+| BACK-02 · 35.1 前后的录包与提交边界 | [第 20 章](../stage2/20-resource-binding.md)和[第 33 章](../stage2/33-cmd-chain-multiengine.md)把资源绑定或命令生成放在 PAL 目录，[第 32 章](../stage2/32-queue-sync.md)甚至在 PAL 的 `Queue::Submit` 标注写 ring 和 doorbell；[架构 §3.4](../architecture-design.md)要求 PAL 经 `IHliCommandList`，且 35.1 前允许场景使用薄门面或测试支架。 | 指定正式 HLI 就绪前的资源、队列和命令支架及各自的共用转换代码；35.1 明确接入点，PAL 按对象接口记录，实际命令序列化和 ring/doorbell 的责任与 HLI、KMD/FW 分层一致。早期验收能独立执行。 |
+| BACK-03 · 所有权移交顺序 | [第 32 章](../stage2/32-queue-sync.md) §3.3 在生产者队列先写 `SIGNAL`、再执行 release 屏障。消费队列因此可能在资源释放前通过 `WAIT`，与 [S16](scene-specs.md) 的所有权判据不一致。 | 生产者完成写入与 release 后发布信号，消费者依次完成 WAIT、acquire 和访问。S16 用延迟 release 的交错验证消费者不能提前读。 |
+| BACK-04 · 屏障目标与验收范围 | [D20.9](../stage2/20-resource-binding.md)和 [S16](scene-specs.md)要求区分合法与非法子资源范围，并验证转移前后的访问。[命令包 §2.3](command-mmio.md)的三 dword 载荷只有类型、作用域、内存序、访问和阶段掩码，当前正文未规定资源、子资源范围或队列所有权如何关联到这条屏障。 | 结合教学范围，明确记录层校验、执行层状态及目标来源。若一期仅在执行层建模粗粒度屏障，判据需明确哪些检查在记录层完成，哪些场景验证队列移交与可见性。 |
 
 ## 2. 实施待验证项
 

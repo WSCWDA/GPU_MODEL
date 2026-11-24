@@ -2,7 +2,7 @@
 
 > 定位：章级任务分解与执行路线图。它将 [项目总体设计与任务规划](README.md) 中的正式阶段和工作包展开为章号、任务、依赖与门禁，不另行决定项目总体范围或产品顺序。
 > 文档职责：项目范围、阶段和最终交付以任务规划为主干；本文件维护章号、章级任务、依赖、ADR、配置键及逐章验收；`architecture-design.md` 维护模块树与层间契约；`docs/design/` 维护模块内部机制；`scene-specs.md` 是场景输入与判据的唯一权威；各章文档细化实现。
-> 范围与正式阶段见 [README](README.md)。[架构设计](architecture-design.md)维护层间接口，[场景规约](design/scene-specs.md)维护输入和判据。模块覆盖参考 [历史功能总览](back/GPU_MODEL_设计思路与章节功能总览.md)，任务号与门禁使用现行口径。
+> 范围与正式阶段见 [README](README.md)。[架构设计](architecture-design.md)维护模块树和层间接口，[场景规约](design/scene-specs.md)维护输入和判据。42 章的任务编号、里程碑和依赖见本文件 §2.1。
 
 ---
 
