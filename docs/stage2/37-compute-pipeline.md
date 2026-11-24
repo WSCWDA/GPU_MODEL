@@ -247,4 +247,4 @@ CP 解析 DISPATCH(0x04) → Compute 引擎
 
 ## 2026-11-21 评审同步说明
 
-本章按 `review-sync-20261121.md` §2.4–2.5 重划：最大 workgroup 512 threads；indirect ABI 28 bytes；本章只交付硬件 Compute 通路与直连 HLI 验收。参数打包、stream/event、驱动侧 indirect/UAV/query API 的重复任务/DoD 标记 `SUPERSEDED → stage3 39–41`。
+workgroup 容量和间接派发 ABI 见 [架构设计 §3.11](../architecture-design.md)。本章交付 Compute 硬件通路和直连 HLI 验收。旧参数打包、Stream/Event 和驱动侧 API 任务已退役，实施归第 39–41 章。

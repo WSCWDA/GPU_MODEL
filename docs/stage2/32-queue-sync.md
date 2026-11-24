@@ -77,7 +77,7 @@ public:
 - `SIGNAL` 为 `0x0A`、`WAIT` 为 `0x0B`，`BARRIER` 为 `0x0E`。包号和载荷以 [命令包登记](../design/command-mmio.md) 为准。
 - `WAIT` 只挂起本队列后续包。等待以 [同步原语 §2.1](../design/sync-primitives.md#21-提交完成与失败传播) 定义的成功值或失败完成唤醒。
 
-> 一期队列沿用第 10 章直连 ring 寄存器模型，多队列依赖通过内存 semaphore 表达。间接环描述表和 FW 活动窗口切换作为后续扩展，见 [评审裁决 §2.2](../design/review-sync-20261121.md)。
+> 一期队列沿用 [第 10 章 §3.4](10-device-ring-cp.md) 的直连 ring 寄存器模型，多队列依赖通过内存 semaphore 表达。间接环描述表和 FW 活动窗口切换作为后续扩展。
 >
 > 本章沿用 `stateId` 0~7 的直接槽与 `0x50~0x7F` 保留段，semaphore 通过设备内存 VA 引用。
 
@@ -214,4 +214,4 @@ Queue.WaitSemaphore(v): 达到目标则继续；生产者失败则结束依赖�
 
 ## 2026-11-21 评审同步说明
 
-本章 BARRIER 使用 `review-sync-20261121.md` §2.3 的唯一 3-dword信封；一期采用第 10 章直连寄存器 ring 模型，多队列内存描述表/活动窗口切换为后续 capability（§2.2）。
+本章 BARRIER 的 3-dword 载荷见 [命令包登记 §2.3](../design/command-mmio.md)。

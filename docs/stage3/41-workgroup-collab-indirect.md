@@ -225,4 +225,4 @@ workgroup → 首波执行 → LDS 初始化 → BARRIER(Workgroup) → 计算
 
 ## 2026-11-21 评审同步说明
 
-本章只负责驱动侧三维映射/API 契约封装及 indirect/UAV/query 接入，不重复实现第 37 章硬件执行。block 上限和 28-byte indirect ABI、barrier 信封分别按 `review-sync-20261121.md` §2.3–2.5。
+本章交付三维派发、间接、UAV 和查询的驱动接入。容量与间接 ABI 见 [架构设计 §3.11](../architecture-design.md)，BARRIER 载荷见 [命令包登记 §2.3](../design/command-mmio.md)。

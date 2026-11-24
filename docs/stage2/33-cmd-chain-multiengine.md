@@ -212,4 +212,4 @@ for s in [0,sliceCount):
 
 ## 2026-11-21 评审同步说明
 
-本章 DISPATCH_INDIRECT 参数固定为 28-byte、16-byte-aligned `{grid[3],block[3],reserved0}`，见 `review-sync-20261121.md` §2.4；旧 12-byte grid-only布局标记 `SUPERSEDED`。本章 BARRIER 同步 §2.3。
+DISPATCH_INDIRECT 参数与 BARRIER 载荷分别见 [命令包登记 §2.1、§2.3](../design/command-mmio.md)。旧 12-byte grid-only 间接参数布局已退役。

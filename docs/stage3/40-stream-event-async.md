@@ -202,4 +202,4 @@ Query：只读目标状态，主机主动同步使用 StreamSynchronize 或 fenc
 
 ## 2026-11-21 评审同步说明
 
-本章负责 stream/event/timeline 的驱动可见编排；硬件队列与异步执行由第 32 章提供。BARRIER 编码不得自成格式，使用 `review-sync-20261121.md` §2.3。
+本章负责多 Stream 与 Event 的驱动编排。队列与异步推进复用第 32 章，BARRIER 编码见 [命令包登记 §2.3](../design/command-mmio.md)。

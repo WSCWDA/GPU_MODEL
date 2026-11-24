@@ -236,4 +236,4 @@ AcqRel/SeqCst：双向可见序。
 
 ## 2026-11-21 评审同步说明
 
-本章组内执行 barrier 仍由 ISA/LDS 原语实现；对外 BARRIER 包按 `review-sync-20261121.md` §2.3，不另定义 `{memOrder,scope}` 二字段载荷。跨-wave 可达性按 §2.7 的 wave 步进模型。
+组内执行 barrier 使用本章的 ISA/LDS 原语。宿主侧 BARRIER 包见 [命令包登记 §2.3](../design/command-mmio.md)，跨 wave 步进见 [并行执行设计](../design/execution-parallel.md)。

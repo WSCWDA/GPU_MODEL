@@ -278,6 +278,6 @@ struct ErrorRecord {
 
 ## 2026-11-21 评审同步说明
 
-本章的 `Result=11`、`D1.1` 恰 11 值、回归全局冻结条款均被 `review-sync-20261121.md` §2.1 替代。终版为 16 个 Result；契约变更按 roadmap §7.4 的 ADR + SUPERSEDED 流程。
+一期 Result 集合以本章 §3.2 为准，变更按 [路线图 §7.4](../roadmap.md) 的 ADR 和 SUPERSEDED 流程执行。
 
 > 旧 `D1.1` 中“恰 11 个取值”及 `§4` 的“取值数 = 11”属于已退役判据，更新为对 §3.2 16 值集合做唯一性与快照比对。

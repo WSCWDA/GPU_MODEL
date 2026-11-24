@@ -266,4 +266,4 @@ grid 边界：work-id >= gridTotal → 越界 → 不执行（提前空转 EXIT�
 
 ## 2026-11-21 评审同步说明
 
-本章旧版“全 CU ticket/servingTicket 锁包围执行”条款被 `review-sync-20261121.md` §2.7 替代。并行 DoD 应证明 CU/workgroup slot 可并发推进、barrier 可达、race-free 结果稳定；不可只证明静态分配顺序。
+全 CU ticket/servingTicket 锁包围执行的旧方案已退役。并行验收检查 CU/workgroup slot 可并发推进、barrier 可达和 race-free 结果稳定，见 [并行执行设计](../design/execution-parallel.md)。

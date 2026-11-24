@@ -220,4 +220,4 @@ workgroup 完成只更新进展观测；不得以墙钟或 scheduler tick 决定
 
 ## 2026-11-21 评审同步说明
 
-watchdog 以 `review-sync-20261121.md` §2.7 的每-wave 指令预算实现，不使用墙钟 tick；达到预算返回 Timeout 并携带 wave/PC/dispatch 诊断。删除“Result 枚举扩展冻结”与终版 16 值相冲突的表述。
+watchdog 的每 wave 指令预算见 [启动与复位](../design/boot-reset.md)。公共 Result 集合见 [第 1 章 §3.2](../stage1/01-contracts-min.md)。

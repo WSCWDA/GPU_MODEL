@@ -62,4 +62,4 @@ CU 驻留 wave 数、SGPR/VGPR/LDS 总容量、FIFO 深度、描述符堆容量�
 
 ## 2026-11-21 评审同步说明
 
-并行执行模型按 `review-sync-20261121.md` §2.7 收口：不得用 CU-wide ticket lock 串行化执行；serial 是参考，parallel 使用多个 CPU worker 执行 CU/workgroup slot，并以确定性 wave 步进保障 barrier 可达。墙钟 watchdog 由每-wave 指令预算取代。
+并行执行细节见 [第 31 章](../stage2/31-se-cu-array.md)。serial 提供基线，parallel 使用多个 CPU worker 推进 CU/workgroup slot，同一 CU 通过确定性的 wave 步进支持组内 barrier。每 wave 指令预算见 [启动与复位](boot-reset.md)。

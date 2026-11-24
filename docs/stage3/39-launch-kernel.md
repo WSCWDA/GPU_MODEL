@@ -214,4 +214,4 @@ CP 解析 DISPATCH(0x04) → Compute 引擎
 
 ## 2026-11-21 评审同步说明
 
-本章 block 上限固定为 512 threads（16 waves × 32），按 `review-sync-20261121.md` §2.4；本章唯一负责驱动侧 kernel 参数布局、参数打包和 launch 配置。硬件指令执行与 wave 生成属于第 37 章。
+block 容量上限见 [架构设计 §3.11](../architecture-design.md)。本章交付应用参数打包、最小 Stream 和首次 LaunchKernel。硬件指令执行与 wave 生成属第 37 章。

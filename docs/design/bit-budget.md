@@ -301,7 +301,7 @@
 1. **命令包类型**：**采用 A**——`0x0F` 定义 `EXTENDED` 转义 + 16 bit `packet-specific` 子操作码，或复用已有包载荷 `SubOp`；不新增顶层包号硬编码；取号前 `roadmap.md` §7.3 / §7.4。
 2. **GPU VA**：**采用 36 bit**（两级各 4096 项 = 64 GiB/AS，与代码及 4 GiB/8 GiB 堆基址一致）；历史 30 bit/1 GiB 表述废止。
 3. **MMIO 窗口**：**保持 256 dword**，不扩 512；大块状态一律移出 MMIO 放 GPU 内存，MMIO 只存根指针/控制/计数（扩展时复用未列满段 + 内存状态表）。
-4. **多队列**：一期沿用第 10 章的直连 ring 寄存器模型，跨队列同步使用内存 semaphore。间接环描述表及活动窗口切换留作后续扩展，见 [评审裁决 §2.2](review-sync-20261121.md)。
+4. **多队列**：一期沿用 [第 10 章 §3.4](../stage2/10-device-ring-cp.md) 的直连 ring 寄存器模型，跨队列同步使用内存 semaphore。间接环描述表及活动窗口切换留作后续扩展。
 5. **stateId**：直接槽为 0~7，`0x50~0x7F` 保留。索引需求扩展时优先考虑内存间接状态表，并按新增用例登记。
 
 6. **MMIO 偏移口径（**2026-11-20 已裁定**）**：**代码统一为 dword 索引**，与 `command-mmio.md` §4 一致（字节偏移语义废止，§3.3 的同一数值两边含义不同问题消除）。**需执行（代码不在本轮文档范围）**：按 §4 分段一次性重排 `hw_sim/include/hw_sim/mmio.h` 的 `stateId`/PSO/多上下文区并回写第 2/10 章偏移表；已登记 **B-042**（`roadmap.md` §7.3）并**前置为 A 阶段任务**：随第 10 章开工首任务（T10.1）完成重排与回写，A 门禁"MMIO 与 bit-budget 一致"**无豁免**（`roadmap.md` §2.3 A 行，2026-11-20 评审定案）。
@@ -312,4 +312,4 @@
 
 ## 2026-11-21 评审同步说明
 
-同步裁决：Result 终版、MMIO 唯一偏移、BARRIER 3-dword ABI、512-thread 上限和 DISPATCH_INDIRECT 28-byte ABI 见 `review-sync-20261121.md` §2。请将相应容量/编号纳入登记表；旧预算与之冲突时标记 `SUPERSEDED`。
+公共 Result 见 [第 1 章 §3.2](../stage1/01-contracts-min.md)，包和 MMIO 见 [命令与 MMIO 登记](command-mmio.md)，计算容量与间接派发见 [架构设计 §3.11](../architecture-design.md)。契约变更及旧预算退役按 [路线图 §7.4](../roadmap.md) 执行。

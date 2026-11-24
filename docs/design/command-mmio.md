@@ -167,4 +167,4 @@ PSO 暂存区字段 → 偏移（dword 索引，第 6 章冻结，含 `depthBase
 
 ## 2026-11-21 评审同步说明
 
-本文件中的 MMIO 分段、RT_SIZE、BARRIER payload、DISPATCH_INDIRECT payload 如与同步裁决不一致，按 `review-sync-20261121.md` §2.2–2.4 修订；旧表/旧载荷视为 `SUPERSEDED`。本文件仍是包、stateId 与 MMIO 登记的唯一 design 入口。
+命令包、stateId 与 MMIO 分段以本文件为准。寄存器的具体偏移见 [第 10 章 §3.4](../stage2/10-device-ring-cp.md)。旧版载荷的退役流程见 [路线图 §7.4](../roadmap.md)。

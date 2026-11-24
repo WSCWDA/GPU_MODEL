@@ -266,4 +266,4 @@ u64    LastSubmittedFence();          // 诊断用，不参与判据
 
 ## 2026-11-21 评审同步说明
 
-本章 MMIO 表及“保留段全部 NotSupported”类判据，以 `review-sync-20261121.md` §2.2 为准：本章只验证自身登记偏移，偏移唯一表由 design/command-mmio.md 与第 10 章承载。
+本章 MMIO 判据检查初级子集。MMIO 分段与高级偏移分别见 [命令与 MMIO 登记](../design/command-mmio.md)和 [第 10 章 §3.4](../stage2/10-device-ring-cp.md)，子集对齐待修项见 [设计评审剩余问题](../design/review-sync-20261121.md)。

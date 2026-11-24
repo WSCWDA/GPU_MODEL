@@ -285,4 +285,4 @@ FENCE 包载荷 {u64 value} → CP 写 FENCE_MON(0x08) → 触发中断(INT_STAT
 
 ## 2026-11-21 评审同步说明
 
-本章 MMIO 表为唯一硬件寄存器映射落地点，必须按 `review-sync-20261121.md` §2.2 同步：RT_WIDTH/HEIGHT=0xE0/0xE1，DEV_RING_ID=0x30；PSO 与保留偏移按 canonical table。CP ADVANCE 推进 head/read pointer；第 2 章是子集视图。
+寄存器偏移见本章 §3.4，MMIO 分段、PSO 暂存区与 stateId 见 [命令与 MMIO 登记](../design/command-mmio.md)。CP ADVANCE 推进读指针。初级子集尚待对齐的条目见 [设计评审剩余问题](../design/review-sync-20261121.md)。

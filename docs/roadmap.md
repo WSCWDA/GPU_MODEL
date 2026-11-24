@@ -962,7 +962,7 @@ Mesa（图形）与 MUSA（计算）分层借鉴的对应表见 `docs/design/com
 
 ## 2026-11-21 设计评审同步入口
 
-依据 `docs/设计文档问题评审-20261120.md` 与 `docs/GPU 软模型设计评审改进建议文档.txt` 完成的跨章裁决与修订记录，见 [design/review-sync-20261121.md](design/review-sync-20261121.md)。该记录明确 Result/MMIO/BARRIER/block 与 indirect ABI、DoD 退役流程，以及第 35/37/39–42 章任务边界。
+[设计评审剩余问题](design/review-sync-20261121.md)追踪待修项和实施验证。正式约束由各模块和章节维护。
 
 ### DoD 修订与 SUPERSEDED 流程
 

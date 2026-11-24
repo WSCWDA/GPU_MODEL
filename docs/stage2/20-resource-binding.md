@@ -302,4 +302,4 @@ DRAW/DISPATCH → 引擎按 stateId 5 基址读描述符
 
 ## 2026-11-21 评审同步说明
 
-本章的 BARRIER 载荷必须使用 `review-sync-20261121.md` §2.3 的 3-dword统一信封；描述符/PSO 入口冲突按 §3 P1-06 收口，旧编码不得作为并行 ABI 保留。
+BARRIER 使用 [命令包登记 §2.3](../design/command-mmio.md) 的 3-dword 载荷。Pipeline 对象经 T20.15 转换成既有 `SHADER_PSO`。
