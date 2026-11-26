@@ -59,7 +59,7 @@
 
 ```cpp
 struct DeviceDesc {
-    u32  rtWidth;      // 只保存尺寸用于环/资源校验；RT_SIZE 唯一由 CLEAR 锁存（Q-35）
+    u32  rtWidth;      // 只保存尺寸用于环/资源校验；`CLEAR` 分别锁存 `RT_WIDTH/RT_HEIGHT`（Q-35）
     u32  rtHeight;     // 同上，不写 MMIO
     u32  ringSizeDwords;   // 必须为 2 的幂，>= 64
     u32  streamVersion;    // 期望的命令流版本，当前 1
@@ -97,32 +97,9 @@ u64    LastSubmittedFence();          // 诊断用，不参与判据
 }
 ```
 
-### 3.3 MMIO 寄存器（本章只实现 0x00~0x3F 段）
+### 3.3 MMIO 寄存器（初级子集）
 
-| 偏移 | 名称 | 读写 | 语义 |
-|---|---|---|---|
-| 0x00 | `RING_BASE_LO` | RW | 环基址低 32 bit（`GpuVAddr`） |
-| 0x01 | `RING_BASE_HI` | RW | 环基址高 32 bit |
-| 0x02 | `RING_SIZE` | RW | 环大小（dword，2 的幂） |
-| 0x03 | `RING_HEAD` | RO | CP 已消费位置（dword 索引） |
-| 0x04 | `RING_TAIL` | RW | 驱动写入位置（dword 索引） |
-| 0x05 | `DOORBELL` | WO | 写任意值触发 CP 取指 |
-| 0x08 | `FENCE_VALUE_LO` | RO | 当前完成值低 32 bit |
-| 0x09 | `FENCE_VALUE_HI` | RO | 当前完成值高 32 bit |
-| 0x0A | `FENCE_STATUS` | RO | bit0 = 完成位；bit1 = 忙碌 |
-| 0x10 | `CP_STATUS` | RO | CP 状态机当前状态（见 §4） |
-| 0x20 | `ERROR_CODE` | RO | 最近一次 `Result` 数值 |
-| 0x21 | `ERROR_PKT_TYPE` | RO | 出错包类型 |
-| 0x22 | `ERROR_DWORD_OFFSET` | RO | 出错 dword 偏移 |
-| 0xE0 | `RT_WIDTH` | RW | RT 宽度（完整 32 bit，由 `CLEAR` 锁存） |
-| 0xE1 | `RT_HEIGHT` | RW | RT 高度（完整 32 bit，由 `CLEAR` 锁存） |
-| 0x38 | `STREAM_VERSION_ECHO` | RO | 最近接受的命令流版本（仅回显） |
-
-约束：
-- MMIO 偏移一律为 dword 索引（Q-31）。
-- 单元内部成员全部私有，外部只能经 MMIO 读写（ADR-037）。
-- 段内偏移由本章定义并登记；新增偏移必须在 `../design/command-mmio.md` §4 对应段登记。
-- `0x08~0x0A` 是 fence 的最小载体：CP 写值即完成通知，不引入中断载荷。
+[公共 MMIO 登记 §4](../design/command-mmio.md)维护偏移、权限和位宽。本章使用 `RING_WPTR/RPTR/SIZE`、`RING_BASE_LO/HI`、`DOORBELL`、`FENCE_MON_LO/HI`、`FENCE_STATUS`、`CP_STATUS`、`ERROR_*` 和 `CMD_VERSION`。第 3 章加入 RT 宽、高与所需 stateId。初级同步提交通过 fence 读回观察完成，第 10 章增加中断。
 
 ### 3.4 错误语义
 
@@ -172,13 +149,13 @@ u64    LastSubmittedFence();          // 诊断用，不参与判据
 ```
 门面计算命令流总 dword → 若 tail 到环尾剩余 < 总长：
     写 NOP 包填满到环尾（count = 剩余 dword）→ tail 回绕到 0
-再写入各包（每包 count 含头）→ 更新 RING_TAIL → 写 DOORBELL
+再写入各包（每包 count 含头）→ 更新 RING_WPTR → 写 DOORBELL
 ```
 
 ### 4.3 fence 语义
 
-- 每个 `FENCE` 包载荷为 64 bit 目标值；CP 写 `FENCE_VALUE_LO/HI` 并置完成位，随后清忙碌位。
-- `Wait()` 只做断言：`FENCE_VALUE >= LastSubmittedFence` 且完成位置位，否则返回 `Internal` 并记录。
+- 每个 `FENCE` 包载荷为 64 bit 目标值；CP 写 `FENCE_MON_LO/HI` 并置完成位，随后清忙碌位。
+- `Wait()` 只做断言：`FENCE_MON >= LastSubmittedFence` 且完成位置位，否则返回 `Internal` 并记录。
 - 完成计数以"已写 fence 的包数"为准，本章规定**一次提交恰产生一个 fence**。
 
 ---
@@ -203,10 +180,11 @@ u64    LastSubmittedFence();          // 诊断用，不参与判据
 | DoD | 判据（机器可判） | 级别 |
 |---|---|---|
 | D2.1 | 头文件可独立编译；MMIO 偏移表与 §3.3 逐行一致（脚本比对）；`DrawDesc` 字段顺序与字节偏移有 `static_assert` | L1 契约 |
-| ~~D2.2~~ | **SUPERSEDED**：旧版把 `0x40~0xFF` 整段视为保留区，现与 stateId、PSO 暂存区等分配冲突。替代判据：仅对本章登记的 MMIO 子集验证读写权限、越界和只读寄存器；映射唯一表以 `command-mmio.md` §3 与第 10 章为准 | 退役记录 |
+| ~~D2.2~~ | **SUPERSEDED**：旧初级偏移和整段保留断言由 ADR-054 替代。 | 退役记录 |
+| D2.2 | 核对 §3.3 启用寄存器的公共偏移、权限和位宽。覆盖越界、只读写入拒绝、64 bit fence 高低位还原与门铃触发 | L1 契约 |
 | D2.3 | 以 `sizeDwords=64` 连续写入 100 个包后 `head/tail` 始终在 `[0,64)`；任意包不跨环尾（逐包检查 `offset+count ≤ size`）；空环时 `Pump` 不发生状态变化 | L1 契约 |
 | D2.4 | 对 `[HEADER, NOP, FENCE]` 序列，状态转移轨迹为 `Idle→Fetch→Validate→Dispatch→Advance→Idle`（`CP_STATUS` 逐次匹配）；`count=0`、`count=4096`、首包非 HEADER 三种输入均被拒且错误偏移精确 | L1 契约 |
-| D2.5 | 提交 N 次（N=1、8、64）后 `FENCE_VALUE` 严格等于最后一次提交的 fence 值、单调递增且在 `Submit` 返回时已完成；`Wait` 验证该值；完成计数 == N | L1 契约 |
+| D2.5 | 提交 N 次（N=1、8、64）后 `FENCE_MON` 严格等于最后一次提交的 fence 值、单调递增且在 `Submit` 返回时已完成；`Wait` 验证该值；完成计数 == N | L1 契约 |
 | D2.6 | 六类非法输入各触发一次（环大小非 2 幂/<64、非法 `count`、非首包 `STREAM_HEADER`、版本不匹配、跨尾残留、越界 `tail`）：返回码、`ERROR_CODE/ERROR_PKT_TYPE/ERROR_DWORD_OFFSET` 三寄存器与 `GD_LOG` 行三者一致；不崩溃、不静默继续 | L1 契约 |
 | D2.7 | `scene_e1` 以 `rt_size=256x256` 提交 1 次空命令流：`Submit` 返回 `Ok`、`Wait` 返回 `Ok`、`LastSubmittedFence()==1`；场景只 include 门面头文件（编译期检查 include 图） | L1 契约 + A2 |
 | D2.8 | A2 全绿：E1 提交子集（读回缓冲尚未引入，本章只判提交与完成）+ 专有判据；连续两次运行 fence 序列与错误记录完全一致 | L1 契约 |
@@ -220,7 +198,7 @@ u64    LastSubmittedFence();          // 诊断用，不参与判据
 | 项 | 内容 |
 |---|---|
 | 输入 | 背景色 `0.25` 灰（`0xFF3F3F3F`）、`rt_size=256x256`、单次提交 |
-| 本章产物 | 环内存快照、`FENCE_VALUE`、`CP_STATUS` 轨迹、错误记录（无错误时为空） |
+| 本章产物 | 环内存快照、`FENCE_MON`、`CP_STATUS` 轨迹、错误记录（无错误时为空） |
 | 主判据 | 提交返回 `Ok`；`Wait` 返回 `Ok`；fence 值 = 提交序号 |
 | 本章专有判据 | ① 命令不跨环尾：任意 `count` 下 `packetStart + count ≤ ringSize`；② 完成计数 = 提交数 |
 | 回归项 | 无（首章实现） |
@@ -234,11 +212,11 @@ u64    LastSubmittedFence();          // 诊断用，不参与判据
 |---|---|
 | 确定性 | 单线程顺序消费；`head/tail` 推进与包派发顺序固定；包序不受任何容器遍历影响 |
 | 时间无关 | `Wait` 是值断言，不轮询时钟；无超时参数 |
-| 可观测 | `CP_STATUS`、`FENCE_VALUE/STATUS`、`ERROR_*` 三组 MMIO 只读寄存器；`--trace=cp` 打印状态转移 |
+| 可观测 | `CP_STATUS`、`FENCE_MON/STATUS`、`ERROR_*` 三组 MMIO 只读寄存器；`--trace=cp` 打印状态转移 |
 | 契约影响 | 新增 MMIO 偏移必须在 `command-mmio.md` §4 登记；`DrawDesc` 字段只许追加 |
 | 简化登记 | 单环不回绕压测、无中断、无 watchdog（§9） |
 | 计算兼容 | CP 按包类型分派，本章虽只有 `NOP/HEADER/FENCE`，但派发表结构预留 `DISPATCH` 分支 |
-| 配置与回退 | `rt_size` 只用于环/资源尺寸校验（`RT_SIZE` 唯一由 `CLEAR` 锁存）；`exec_mode=parallel` 报"策略 B 未实现" |
+| 配置与回退 | `rt_size` 只用于环/资源尺寸校验（`CLEAR` 分别锁存 `RT_WIDTH/RT_HEIGHT`）；`exec_mode=parallel` 报"策略 B 未实现" |
 | 调试钩子 | `--trace=cp` 输出每步 `{state, head, tail, pktType, dwordOffset}`，仅供人工 |
 | trace 契约 | 字段不承诺稳定、不参与判据、CI 不解析 |
 | 契约变更 | 包头布局、MMIO 分段、fence 语义为冻结项；变更需 ADR 并回归 E0/E1 |

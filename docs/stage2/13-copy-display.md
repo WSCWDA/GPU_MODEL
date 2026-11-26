@@ -14,7 +14,7 @@
 
 1. 独立 Copy Engine：`COPY_MEM` 不再由 CP 同步执行，改由 CP `Push` 到引擎（`sa=nullptr`），`Execute`/握手排空。
 2. Display 控制器：逐行从显存（RT VA）读像素 → 行消隐 → 数显输出 → 场消隐 → vsync；分辨率/刷新率/消隐期可配置。
-3. Flip 双缓冲：`CLEAR`/提交完成推进 front/back，显示读取 front；无撕裂由"扫描线之后才 flip"保证。
+3. Flip 双缓冲：将写完的缓冲登记为候选 front，每帧扫描使用同一锁存缓冲。
 4. vsync 由扫描位置触发；`frame_index` 由提交驱动、禁 vsync/墙钟。
 5. 扫描输出可配置分辨率（`rt_size`）且与 RT 尺寸一致；显示帧从 `front` 缓冲读。
 6. CopyEngine 与 Display 均走 `IMemorySubsystem::Translate`，不得绕过翻译直连堆。
@@ -79,13 +79,13 @@ public:
 };
 ```
 
-- `FlipTo` 只改指针：若在扫描中，翻转完成时机受 vsync 制约（本模拟为"扫描线超过 flip 地址后才可见"，见 D13.3）。
+- `FlipTo` 登记下一帧的 front VA，可见区的请求在 VBlank 接收，VBlank 内请求更新候选。下一帧首条可见扫描线锁存候选 VA。
 - 输出缓冲从 `front` VA 读像素，字节序 `[B,G,R,A]`（ADR-015）。
 
 ### 3.3 帧时序
 
 - 一帧 = 可见行(高) + 场消隐；行消隐在每行末端。
-- `vsync` = 场消隐起始；此时允许 flip 生效（无撕裂：flip 地址只在 vsync 后切换扫描指针）。
+- `vsync` 为进入 VBlank 的逻辑扫描事件，首条可见扫描线锁存本帧缓冲。
 - `frame_index` 由提交驱动（每帧 +1），不由 vsync 推进。
 
 ---
@@ -103,20 +103,14 @@ Pull COPY_MEM → 校验区间 → 分块(4KiB)升序 → 每块 Translate src/d
 
 ```
 ScanNextLine: y=ScanY()
-  可见区 → 读 front VA 的第 y 行 → 输出缓冲写一行
+  可见区 → 从本帧锁存的 front VA 读第 y 行
   行消隐 / 场消隐 → 推进 ScanY，VBlank=场消隐 → 触发 vsync 回调
   场消隐结束 → y 回 0（下一帧）
 ```
 
-### 4.3 Flip 与撕裂
+### 4.3 Flip 与撕裂（ADR-058）
 
-```
-提交(CLEAR/DRAW 到 back) 完成 → FlipTo(front=newVa)
-若在 vsync 窗口内（VBlank=true）→ 立即更新 front 指针
-否则 → 延迟到下一个 vsync 生效（本模拟以"扫描指针在下一帧开头取 front"实现）
-```
-
-无撕裂判据：翻转期间读出的一行永远是同一 front 的整行，不出现混合（见 D13.3 用"扫描指针取front快照"验证）。
+可见区请求延至 VBlank 更新候选，VBlank 内以最后接受的候选为准。下一帧首条可见线锁存该 VA，保持至本帧扫描完成。场景在扫描期间保留该缓冲并避免复用其存储。旧的扫描线与地址比较判据为 **SUPERSEDED**。
 
 ---
 
@@ -149,8 +143,8 @@ ScanNextLine: y=ScanY()
 |---|---|---|
 | D13.1 | 接口独立编译；`DisplayDesc` 默认值冻结（宽=高、refreshHz、消隐行） | L1 契约 |
 | D13.2 | `COPY_MEM(256B)` 后 `Download(dstVa)` 与 `srcVa` 逐字节一致；`sa` 传 `nullptr` 不炸 | L1 契约 |
-| D13.3 | 无撕裂：模拟扫描中执行 100 次 flip 序列，读出的每行像素都来自单一 front 快照（无前后帧残影） | L1 契约 |
-| D13.4 | `FlipTo` 后下一帧扫描从新 front 读；`VBlank` 窗口内 flip 立即生效，窗口外下一 vsync 生效 | L1 契约 |
+| D13.3 | 当前帧中途提出 flip，两缓冲使用可按行区分的图案。当前帧全部匹配旧 front，下一帧全部匹配新 front | L1 契约 |
+| D13.4 | 分别在可见区和 VBlank 请求 flip。前者在进入 VBlank 更新候选，后者直接更新候选。下一帧首可见行锁存有效 VA | L1 契约 |
 | D13.5 | CopyEngine 在扫描进行中仍可执行（软模拟单线程分片），完成 fence 值单调 | L1 契约 |
 | D13.6 | Display 读像素走翻译：`rtVa` 位于未映射区 → `NotMapped` 报错 | L1 契约 |
 | D13.7 | `rt_size=256x256` 与标准 16:9 `1280x720` 两种输入下，Display 经 `Download` 生成的 CPU 快照尺寸/字节序与对应 GPU front buffer 逐字节一致；不得暴露可绕过翻译的显存指针 | L1 契约 + L2 |
@@ -168,7 +162,7 @@ ScanNextLine: y=ScanY()
 | 输入 | S2：CopyEngine 把一段灰度源拷贝到 `back`，flip 后 Display 扫描；负向：`rtVa` 指向未映射区 |
 | 产物 | CopyEngine 填充前后源/目的、Display 扫描帧、flip 快照 |
 | 主判据 | `CopyEngine 填充 = 出屏结果`（逐像素）；S2 全流程输出与 read-back 一致 |
-| 本章专有判据 | ① CopyEngine 填充=出屏扫描结果（首行到末行）；② 双缓冲 flip 无撕裂（每行单一 front 快照） |
+| 本章专有判据 | CopyEngine 填充与扫描读回一致。可见区中途翻转前后，两整帧分别对应各自锁存的 front |
 | 回归项 | R13：`scene_e1` 与第 8 章基线一致（Display 迁移不破基线）；未列明历史 A 门禁不自动阻断 |
 | 后续补齐 | 多引擎 Copy 并发与 slice 拷贝在第 33 章；display 多 head/缩放范围外 |
 
@@ -209,5 +203,5 @@ ScanNextLine: y=ScanY()
 ## 10. 待定项
 
 - CPU 读回只通过 `Download(frontVa)` 生成独立 CPU 快照；`FrontBufferSnapshot()` 返回该快照，不暴露 GPU 显存指针。窗口 blit 消费 CPU 快照，不直接读取 GPU VA；GPU 侧访问仍统一走 `IMemorySubsystem` 的翻译路径。
-- vsync 窗口的 flip 生效精确位置（场消隐起始 vs 末尾）只影响软观测的翻转计数，不影响像素正确性；以 D13.3 的"无撕裂"为准，不承诺更细时序。
+- flip 根据逻辑扫描位置推进，执行 D13.3/D13.4 的整帧判据。
 - 双缓冲的 front/back 在 `wave` 未排空时 flip 是否允许，受限语义留到第 32 章 fence 真异步后统一。

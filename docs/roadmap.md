@@ -88,16 +88,21 @@
 | ADR-046 | 计算线业务契约补齐（不新增任何编号） | 补齐 `DISPATCH` 载荷与校验、workgroup·wave·CU 映射与组驻留、计算地址空间与作用域、共用单元计算语义、计算业务目录 WA；全部落在既有章号 / 任务号 / 场景号 / 包号 / 配置键内；不改 `hw_sim` 模块树，唯一计算专属目录仍是 `umd/compute`（ADR-009）；落点 `architecture-design.md` §3.11~§3.13、§7.8~§7.9 与本文 §6.5~§6.8 |
 | ADR-047 | 计算驱动开发线 = stage3 新章 38~42（2026-11-19 新增） | 在 1~37 章基础之上，以独立 **stage3 计算驱动开发线（docs/stage3/，新章 38~42）** 承载 MUSA 风格计算驱动（`umd/compute`：context/module/function/stream/event、LaunchKernel、参数打包）的落地与 demo；不新增包号/opcode/stateId/MMIO/配置键（复用 `DISPATCH`=0x04 等，ADR-043）；不新增 `hw_sim` 单元/目录（ADR-009）；驱动对象与 ABI 迁出到 `docs/design/compute-driver.md`；主验收 S18/S19 经计算驱动入口与直连 HLI 入口双入口等价（A42）；落点本文 §0.2/§2.1/§2.2、`docs/design/compute-driver.md` |
 | ADR-048 | 计算通路与计算驱动的分工 | 第 37 章消费 `DISPATCH` 和 `SET_KERNEL_ARGS` 并验直连 HLI；主机参数打包与最小 Stream 归 39，多 Stream/Event 归 40，驱动侧包装归 41，双入口验收归 42。35.1 固定共用 HLI 对象面 |
-| ADR-049 | S19 纳入计算↔图形互操作 `case-4`（2026-11-20 新增，P1-9 定案） | S19 新增 `case-4`：图形写 RT → fence → 计算 image load → **UAV store 路径**写回 → 比对；判据 = 同一 `(x,y,format)` 字节布局逐字节一致；判据对照对象为 20 章 image 描述符 + 26 章格式转换表，**不依赖 26 章 OM 写回探针**；WA 归属 = WA-08 扩展子 case（`architecture-design.md` §7.9）；不新增包号/opcode/stateId/MMIO/配置键 |
+| ADR-049 | S19 计算↔图形互操作 case-4 | 图形写 RT，经 ADR-055 的整资源移交后计算 image load 并经 UAV store 写回。以第 20 章描述符和第 26 章格式转换为依据比较同一 `(x,y,format)` 的字节布局。 |
 | ADR-050 | Tess/GS patch staging 与确定性细分公式（2026-11-21，P1-27/32/33） | Tessellation patch 在 v1 使用独立 stage-local buffer，不并入 workgroup LDS；factor ABI 为 `factor[0..7]`；tri/quad/isoline 的有效因子、clamp/ceil、顶点计数与非法输入按 `stage2/28-tess-gs.md` §3~§4 唯一执行；patch 不跨切片 |
 | ADR-051 | PREDICATE 载荷与跳过边界（2026-11-21，P1-37/38） | `PREDICATE` 唯一载荷 `{predVa,mask,cond,skipDwords,reserved0}`；不匹配时仅跳过 `skipDwords` 指定的完整命令包序列，并校验目标边界；载荷详见 `command-mmio.md` §2.4 |
 | ADR-052 | Compute context/event/reset 生命周期（2026-11-21，P1-41/42/43/45） | 一设备多 context、context:ASID 1:1；Event 自有 timeline semaphore，可跨队列等待；第 39 章引入最小 Stream，第 40 章扩展 Event；复位令受影响 in-flight 提交进入失败终态，应用显式重提 |
 | ADR-053 | 驱动教学任务与验收边界 | 20 校验预构造参数，37 消费，39 打包并闭合单队列；32 负责队列终态，35.1 验证最小图形 UMD，40 验证双 UMD，41 接入既有能力，42 复用场景进行语义对照 |
+| ADR-054 | 公共 MMIO 唯一表 | 初级和高级采用统一 dword 偏移。第 10 章的指针和门铃分配保留，ring 基址登记在 0x06/0x07，CP_STATUS 在 0x11。RT 宽高分别锁存，64 bit fence 成对读回。见 [公共登记 §4](design/command-mmio.md)。B-042 验各章启用子集。 |
+| ADR-055 | 整资源所有权与移交顺序 | BARRIER 保持 3 dword。不可变提交描述绑定资源、源和目标队列家族及信号。20 验记录范围，32 验 release→SIGNAL→WAIT→acquire，40 复用。见 [同步原语 §2.2](design/sync-primitives.md) 与 S16。 |
+| ADR-056 | ISA 与早期提交路径复用 | 第 5、16 章共用 ISA 解码与指令入口，区分 subgroup 宽度和 lane ID。20、32、33 通过早期支架复用命令转换和 KMD，35.1 接入正式 HLI。 |
+| ADR-057 | 故障分流、复位终态与预算边界 | 普通页错误只结束当前提交，引擎级故障或超时触发单引擎复位。旧终态按队列 generation/提交序号保留，停稳后释放引用。每 wave 预算耗尽且仍运行时超时。沿用公共 Result。 |
+| ADR-058 | 分章验收与场景输入对齐 | A11 验映射和无缓存基线，A12 验缓存维护。第 13 章验证整帧锁存，S3 的 1× 覆盖精确，S9 独立定义多样本容差。S18 基本用例登记有效域，C4 归 A41，A42 汇总并保留 WA-02 HLI 回归。 |
 
 ### 0.4 异常处理简化（ADR-011）
 
 - **只处理一般错误**：非法 VA、非法包类型/长度、ISA 解码失败、越界绑定等"能定位到单元 + 位置"的问题。
-- **最小手段**：接口返回 `Result` + 一条错误日志 + 一条错误记录 `{unit, packetType, dwordOffset, va, code}`；不做重试、不做全链路错误传播、不做自动恢复。
+- **最小手段**：接口返回 `Result` 并记录故障位置。已接受工作以提交终态通知等待方，调用方显式重提。
 - 应用和驱动参数错误通过返回值交给调用方。硬件执行错误记录后中止当前提交。初级以错误返回收口，第 36 章接入引擎级复位。
 - **与第 36 章的关系**：第 36 章只做到"故障可定位 + reset 后可重跑"，不扩展到容错运行；复位为**引擎级**（仅重编程该 ring），不做设备级重启（详见 `docs/design/boot-reset.md`）。
 
@@ -276,7 +281,7 @@
 | C | 28 | Tess + GS | L | 4 | T28.1~T28.16 | 16 | M28.1~M28.3 | S6 | 27 |
 | D | 29 | 波内协作 | M | 2 | T29.1~T29.10 | 10 | M29.1~M29.2 | S10，计算 wave 输入独立单测 | 15、16 |
 | D | 30 | 组内协作 | L | 5 | T30.1~T30.14 | 14 | M30.1~M30.3 | S10，S19 case-0/1 仅作单测输入 | 12、29 |
-| D | 31 | SE + CU 阵列 | L | 5 | T31.1~T31.16 | 16 | M31.1~M31.3 | S11，S18 case-1/2 仅作映射单测输入 | 11、23、30 |
+| D | 31 | SE + CU 阵列 | L | 5 | T31.1~T31.16 | 16 | M31.1~M31.3 | S11、章内 map_2d/map_3d 单测 | 11、23、30 |
 | E | 32 | 队列 + 同步 | M | 3 | T32.1~T32.9 | 9 | M32.1~M32.2 | S12（Compute 测试流）、S16，等待、失败传播和所有权验证 | 10、13、20、31 |
 | E | 33 | 命令链 + 多引擎 | M | 3 | T33.1~T33.9 | 9 | M33.1~M33.2 | S12 IB/间接绘制子集，S19 case-3 仅作参数单测输入 | 32 |
 | E | 34 | 查询 | M | 2 | T34.1~T34.9 | 9 | M34.1~M34.2 | S7、S2 | 31，谓词接入依赖 33 |
@@ -503,7 +508,7 @@
 | MMIO 偏移单位 | 2、3、6 | 一律 dword 索引；stateId n → `0x40+2n`，`0x50~0x7F` 保留（Q-31） |
 | 命令包号 | 32、33 | `PREDICATE=0x0D`、`BARRIER=0x0E`、`EXTENDED=0x0F`，载荷和子操作码见 [命令包登记](design/command-mmio.md) |
 
-> **初级提前落地备注（决策 #46，Q-36/Q-34/Q-35/Q-26/Q-27）**：ch3 写 `stateId 0/1`（第 10 章迁 FW，`docs/design/memory-system.md` §2、`stage1/03`）；ch5 以 `stateId=4` 承载常量区（`docs/design/command-mmio.md` §4、`stage1/05`）；PSO 暂存区补「字段→偏移」表含 `depthBaseVa`；`RT_SIZE` 唯一由 `CLEAR` 锁存（`stage1/02`/`stage1/03`，ch2 只存尺寸供校验）；`COPY_MEM` 仅 `dst==src` 允许重叠、其余 `InvalidArgument`（`stage1/03` D3.7）；跨章场景按当前交付能力选择子集（§8.2）。
+> **初级提前落地备注（决策 #46，Q-36/Q-34/Q-35/Q-26/Q-27）**：ch3 写 `stateId 0/1`（第 10 章迁 FW，`docs/design/memory-system.md` §2、`stage1/03`）；ch5 以 `stateId=4` 承载常量区（`docs/design/command-mmio.md` §4、`stage1/05`）；PSO 暂存区补「字段→偏移」表含 `depthBaseVa`；`CLEAR` 分别锁存 `RT_WIDTH/RT_HEIGHT`（`stage1/02`/`stage1/03`，ch2 只存尺寸供校验）；`COPY_MEM` 仅 `dst==src` 允许重叠、其余 `InvalidArgument`（`stage1/03` D3.7）；跨章场景按当前交付能力选择子集（§8.2）。
 
 ### 2.9 测试场景规约（单份场景文档）
 
@@ -869,7 +874,7 @@ Mesa（图形）与 MUSA（计算）分层借鉴的对应表见 `docs/design/com
 | B-034 | `DISPATCH_INDIRECT` | 间接派发 workgroup | PKT_TYPE `EXTENDED` → SubOp | `0x0F/0x0010` | 33、37、41 | ADR-043 | 永久 |
 | B-035 | `DMA_COPY` | DMA 引擎块拷贝 | PKT_TYPE `EXTENDED` → SubOp | `0x0F/0x0012` | 33 | ADR-043 | **2026-11-20 定案** |
 | B-036~B-041 | ADR-038 硬件上限六件套（CU LDS / CU 驻留波数 / `kMaxWorkgroups` / FIFO 深度 / 描述符堆项数 / `kMaxParamBufBytes`） | 上限与参数区容量登记 | `bit-budget.md` §7.1 登记位 | CU LDS 64 KiB/CU · 驻留 16 waves/CU · `kMaxWorkgroups` 2^20 · FIFO 8 项 · 描述符堆 64K 项 · `kMaxParamBufBytes` 4 KiB | 31、37 | ADR-038/043 | **2026-11-20 定案** |
-| B-042 | MMIO 偏移口径执行项 | 代码统一 dword 索引：重排 `mmio.h` stateId/PSO/多上下文并回写第 2/10 章 | MMIO（`hw_sim/include/hw_sim/mmio.h`） | 执行项（裁定值见 `bit-budget.md` §9 第 6 项） | 2、10 | ADR-043 | **2026-11-20 裁定并前置**：A 阶段**前置任务**，随第 10 章开工首任务（T10.1）完成，A 门禁**无豁免** |
+| B-042 | MMIO 实现审计 | 核对公共 dword 偏移、权限、位宽与各章启用子集 | MMIO (`hw_sim/include/hw_sim/mmio.h`) | [公共 MMIO 登记 §4](design/command-mmio.md) | 2、3、10、11 | ADR-043/054 | 各章核对自身子集，T10.1 汇总实现审计与前序回归，纳入阶段 A 门禁 |
 | B-043 | LDS/STS ISA opcode 分配 | `LDS=0x23`、`STS=0x24`；超出本表分配的 opcode 仍保留/拒绝 | opcode | 0x23/0x24 | 30 | ADR-043 | 永久 |
 | B-044 | `DRAW_INDIRECT` 子操作码 | `EXTENDED/0x0011` | PKT_TYPE `EXTENDED` → SubOp | `0x0F/0x0011` | 33 | ADR-043 | 永久 |
 | `C1`~`C5` | 计算驱动 demo 入口 | stage3 收尾 demo（module_probe / vector_add / async_pipeline / reduce / indirect_dispatch） | 应用目录 `apps/demo_c*`；权威位置 `docs/stage3/` 章文档 + `compute-driver.md` §10（输入规格见 `scene-specs.md` S18/S19 输入规格表） | — | 38~42 | ADR-047 | 永久 |
@@ -893,6 +898,8 @@ Mesa（图形）与 MUSA（计算）分层借鉴的对应表见 `docs/design/com
 3. **登记编号空间**（§7.3）后更新所有受影响场景的 DoD 与判据；
 4. 按 `R_n` 回归直接受影响且仍有效的已交付 E/S 判据。替换的旧 DoD 标为 `SUPERSEDED` 并注明接替项。阶段汇总按 §2.3 的正式矩阵执行。
 5. 评审通过后合并。
+
+实施期 CI 核对 Result、MMIO、包号/SubOp、stateId 和场景子例的快照。契约调整关联 ADR，并触发相应 `R_n`。验证缺 ADR 的变更被拒、有效变更触发受影响场景，以及具有接替项的 `SUPERSEDED` 判据退出阻断集合。
 
 禁止项：改契约不改判据；35.1 冻结后 UMD 阶段反向修改 HLI；为通过测试而修改探针期望值；未审计 `bit-budget.md` 直接硬编码新增编号。
 

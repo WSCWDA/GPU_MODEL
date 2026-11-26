@@ -74,9 +74,9 @@ struct EventDesc { SemaphoreHandle timeline; u64 nextValue; u64 lastRecordedValu
 ### 3.3 异步与互操作契约（第 32 章 + `architecture-design.md` §3.13"图形 ↔ 计算"行）
 
 - 计算队列与图形队列并发提交；**依赖只由 fence / semaphore 定义**，不依赖提交次序；
-- 计算 → 图形可见性 = 队列家族所有权转移（第 32 章）+ fence + `BARRIER(scope=Device)`；
-- 图形在 `WAIT` 前不得读计算产物（读旧值/竞态即判据失败）；
-- 所有权转移后同一缓冲的多读路径（图形采样 + 计算读）必须经显式同步建立（§3.13 一致性矩阵）。
+- 计算写入后按命令顺序记录整资源 release 和 Event SIGNAL，图形依次 WAIT、acquire、读资源。描述和缓存维护见 [同步原语 §2.2](../design/sync-primitives.md)。
+- 图形在 WAIT 成功且 acquire 完成后访问目标。
+- 若图形消费后将资源交还计算，按相反的源、目标家族再移交一次。
 
 ### 3.4 错误码映射
 
@@ -92,9 +92,9 @@ struct EventDesc { SemaphoreHandle timeline; u64 nextValue; u64 lastRecordedValu
 ### 4.1 stream/event 时序
 
 ```
-t0 计算队列: LaunchKernel(k1) → Event.Record(e1)      [提交]
+t0 计算队列提交: LaunchKernel(k1) → Release → Event.Record(e1) 对应 SIGNAL
 t1 图形队列: graphics UMD 提交 WAIT(e1) → 获取资源所有权 → draw/读 UAV
-t2 计算队列: LaunchKernel(k2) → Event.Record(e2)
+t2 计算队列: LaunchKernel(k2，使用独立资源) → Event.Record(e2)
 t3 回读:   主机显式同步 Stream → Query(e2)=Reached → 数值比对
 ```
 
@@ -107,7 +107,7 @@ Query：只读目标状态，主机主动同步使用 StreamSynchronize 或 fenc
 
 ### 4.3 错误处理
 
-- 依赖错误（如 `WAIT` 前读计算产物）为**确定性判据失败**（探针/数值比对），非驱动崩溃；
+- 目标家族在 acquire 前访问返回 `InvalidArgument`，由 S16 的负向用例验证。
 - timeline 回卷 / 值序错误在提交期 `InvalidArgument`（值序单调由第 32 章保证）。
 
 ---
@@ -141,7 +141,7 @@ Query：只读目标状态，主机主动同步使用 StreamSynchronize 或 fenc
 | D40.1 | Stream/Event 头文件独立编译；优先级不可变、Stream 与 HLI 队列 1:1 映射；同一队列重复创建 Stream → `InvalidArgument`，不同家族队列（Graphics/Compute）可并存 | L1 契约 |
 | D40.2 | 多 Stream 独立推进、各自 FIFO，沿用第 39 章提交路径；同步返回完成结果，pending 时 `StreamDestroy` 与有 live Stream 时 `ContextDestroy` 返回 `Busy`，显式同步后可逆序销毁 | L1 契约 |
 | D40.3 | 包序含正确 `SIGNAL`/`WAIT`；重新 Record 后旧 WAIT 仍保留目标快照；换生产者 Record 被拒；Query 非阻塞区分未达成、达成和失败 | L1 契约 |
-| D40.4 | 图形 UMD 与计算 UMD 走不同队列；计算信号及所有权转移后图形才读；注入生产者失败后，依赖绘制不读取数据且获得失败完成 | L1 + L2 |
+| D40.4 | 图形与计算 UMD 经不同队列执行 release→SIGNAL→WAIT→acquire。延迟 release 时图形继续等待，信号前生产者失败时依赖绘制失败，正常移交后读到计算结果 | L1 + L2 |
 | D40.5 | 双 UMD 的 C3（WA-11）结果与串行参考逐值一致；S12/S16 回归不退化 | 横切 |
 | D40.6 | A40 全绿（D40.1~D40.5 + `serial`/`parallel` 硬判据一致） | L1 + L2 + 横切 |
 

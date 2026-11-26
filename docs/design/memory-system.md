@@ -78,7 +78,7 @@
 
 ## 6. 主机-GPU 缓存同步语义
 
-区分 `HOST_VISIBLE` / `HOST_COHERENT`，以及 `Flush`（CPU 缓存写回 GPU）、`Invalidate`（GPU 修改后 CPU 缓存失效）。初级 flat 内存简化为全部 coherent；高级第 11 章完整实现内存域与 flush/invalidate。
+`HOST_VISIBLE` 定义主机映射权限，`HOST_COHERENT` 定义约定同步边界后的自动可见性。第 11 章用无缓存存储验证权限与提交/完成边界，第 12 章在模型内完成 CPU→GPU flush 与 GPU→CPU invalidate，核对写回和消费者读值。
 
 ## 7. 分配确定性与内存 Sanitizer
 

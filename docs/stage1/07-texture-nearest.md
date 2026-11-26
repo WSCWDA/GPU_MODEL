@@ -4,7 +4,7 @@
 
 > 本章引入第一类采样资源：RGBA8 纹理的地址计算（UV → 纹素）、nearest 采样与越界 clamp 语义，以及 `SAMPLE` 指令的最小实现；同时把校验体系从"进程内手工断言"升级为"CPU 参考模型 + 全图逐字节 / 结构断言"（初级不引入探针表，Q-39），为高级阶段的双轨校验奠定基础。
 > 与本章相关的设计说明：`../design/texture-unit.md` §1~§2（环节约定与初级最小集）；`../design/validation-model.md` §1~§4（校验分层、容差；初级不引入探针表）；`../design/memory-system.md` §7（分配确定性）；第 5 章（`LD/ST`/`SAMPLE` 区段）。
-> 落地模块：`hw_sim/texture/nearest`（初级版）、`common/format.h` 追加纹理格式、`hw_sim/shader/isa` 追加 `SAMPLE` 语义、`tools/ref_model`、`tools/image_diff`、`apps/scene_e3_textured_quad`。
+> 落地模块：`hw_sim/texture/nearest`（初级版）、`common/format.h` 追加纹理格式、`hw_sim/isa` 追加 `SAMPLE` 语义、`tools/ref_model`、`tools/image_diff`、`apps/scene_e3_textured_quad`。
 
 ---
 

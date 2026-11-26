@@ -4,7 +4,7 @@
 
 > 本章多队列、多环落地：Graphics/Compute/Copy 三队列家族（每家族独立 ring 实例），`SIGNAL`/`WAIT` timeline semaphore、事件完成标记、跨队列家族所有权转移、以及异步计算队列。队列内命令按记录顺序、跨队列只由 fence/semaphore 定义顺序（ADR-024）。设计说明见 `../design/sync-primitives.md` §1~§2。
 > 与本章相关的设计说明：`../architecture-design.md` §3.3（IEngine）、§3.5（KMD Submit 扩展 queueId）；ADR-024（屏障/所有权转移）；`../design/command-mmio.md`（SIGNAL/WAIT/PREDICATE/BARRIER 包登记）；第 10 章单环扩展为多环。
-> 落地模块：`hw_sim/core/multiqueue`、`kmd/submission`（多队列）、`umd/graphics/pal/queue`、`apps/scene_s12_multiengine`、`apps/scene_s16_barrier_ownership`。
+> 落地模块：`hw_sim/core/multiqueue`、`kmd/submission`、章内队列支架及 S12/S16。35.1 HLI 队列复用该提交路径。
 
 ---
 
@@ -50,20 +50,9 @@ Gfx Queue       Compute Queue   Copy Queue     (每队列各自 ring+tail+fence)
 
 ## 3. 输入输出契约
 
-### 3.1 队列对象（`pal/queue/queue.h`）
+### 3.1 章内队列支架
 
-```cpp
-struct QueueDesc { u32 familyId; uint8_t priority; }; // Graphics=0, Compute=1, Copy=2
-class Queue {
-public:
-    Result Submit(const CommandList&);   // 写本 ring + doorbell
-    Result Signal(u64 value);            // 命令流内 SIGNAL
-    Result WaitSemaphore(u64 value);     // 命令流内 WAIT（阻塞至值）
-    Result WaitHost(u64 value);          // 主机等待（值断言）
-};
-```
-
-- 每队列一个 fence timeline：`currentValue/maxValue`；`SIGNAL` 推进、`WAIT` 挂起后续。
+`QueueDesc.familyId` 取 0（Graphics）、1（Compute）或 2（Copy）。支架使用共用包编码与 `IKmDdi::Submit`，由 KMD 写 ring、更新写指针并触发 FW 门铃路径。35.1 将同一链路封装为 HLI 队列。主机等待读取已接受提交的终态，命令流 SIGNAL/WAIT 使用指定 semaphore。
 
 ### 3.2 包（`command-mmio.md` §2 登记扩展）
 
@@ -84,11 +73,11 @@ public:
 ### 3.3 所有权转移
 
 ```
-释放（release）：QueueA.Signal(value); BARRIER(release accessMask)
-获取（acquire）：QueueB.WaitSemaphore(value); BARRIER(acquire accessMask)
+源队列：写资源 → ownership Release 完成 → SIGNAL
+目标队列：WAIT 成功 → ownership Acquire 完成 → 访问资源
 ```
 
-- 转移独立于普通内存屏障（ADR-024）。
+使用 [同步原语 §2.2](../design/sync-primitives.md) 的不可变提交描述和整资源配对校验。目标取得所有权后允许访问。
 
 ---
 
@@ -135,7 +124,7 @@ Queue.WaitSemaphore(v): 达到目标则继续；生产者失败则结束依赖�
 | T32.3 | ② 主体 | timeline semaphore：SIGNAL 写值、WAIT 阻塞、值单调 |
 | T32.4 | ② 主体 | 提交接受、成功/失败完成和主机等待。已知生产信号失败时结束依赖提交 |
 | T32.5 | ② 主体 | BARRIER 在队列内（执行/内存/布局）粗粒度语义 |
-| T32.6 | ② 主体 | 所有权转移（release/acquire 显式） |
+| T32.6 | ② 主体 | 实现整资源所有权与提交描述配对，release 完成后发布信号，WAIT 后 acquire |
 | T32.7 | ② 主体 | 用 Compute 家族队列的受控生产者与图形/Copy 验证跨队列推进和失败传播。实际 kernel 接入归 T37.10 |
 | T32.8 | ③ 接入 | `scene_s12_multiengine`（三队列交错依赖）、`scene_s16_barrier_ownership`（所有权转移 + 跨队列 barrier）接入 |
 | T32.9 | ④ 验收 | A32：S12/S16 全绿 + 专有判据 + R32 回归项 |
@@ -151,7 +140,7 @@ Queue.WaitSemaphore(v): 达到目标则继续；生产者失败则结束依赖�
 | D32.3 | WAIT 观察对应成功或失败终态；对同一 semaphore 测试递增、等值幂等、递减 `SIGNAL` 返回 `InvalidArgument` 且成功值保持 | L1 契约 |
 | D32.4 | 失败提交唤醒主机等待并传出错误，后续 fence 成功值不掩盖失败。释放在飞引用 | L1 契约 |
 | D32.5 | BARRIER：release 后 acquire 读可见；`READ→WRITE` 不越级 | L1 契约 |
-| D32.6 | 所有权：QueueB 在 acquire 前不读 QueueA 写的数据；acquire 后读到 | L1 契约 |
+| D32.6 | 正常移交后读到生产值，延迟 release 时 WAIT 停驻，缺 acquire 或目标错配被拒且保持状态。信号前生产者失败可达依赖方 | L1 契约 |
 | D32.7 | WAIT 停驻当前队列；晚到生产者可唤醒；已绑定失败信号不能被后续成功值覆盖；独立队列持续推进。关闭时无法满足的等待进入失败终态 | L1 契约 |
 | D32.8 | S12/S16 探针通过 | L2 + A32 |
 | D32.9 | A32 全绿：三引擎交错依赖正确、timeline semaphore 值序正确、跨队列家族所有权转移、计算异步队列不破坏依赖 + R32 回归项 | L1 + L2 |

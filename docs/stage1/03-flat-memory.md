@@ -17,7 +17,7 @@
 3. bump 分配器：顺序分配、不回收、不重叠；耗尽返回 `OutOfMemory`；分配序列可复现。
 4. 资源生命周期：上传（host→GPU）、读回（GPU→host）、同一数据多句柄读取一致。
 5. `SET_STATE_BASE` 写入 `stateId 0`（RT 基址）与 `stateId 1`（页表基址，本章恒等）；
-6. `CLEAR` 包：锁存 RT 尺寸到 MMIO `0x30` 段并按 BGRA 填充；
+6. `CLEAR` 验证参数和目标范围后分别锁存 RT 宽、高，再按 BGRA 填充。
 7. `COPY_MEM` 包：块拷贝，经由内存子系统执行（第 13 章迁到独立 Copy 引擎，包格式不变）。
 
 ### 1.2 非目标
@@ -95,8 +95,8 @@ Result Alloc(const AllocDesc&, AllocResult* out);
 
 | 包 | 载荷 | CP 行为 |
 |---|---|---|
-| `SET_STATE_BASE` (0x02) | `{u32 stateId; u32 reserved; u64 baseVa;}` | 写 `stateId` 基址表（MMIO `0x40~0x7F` 对应项） |
-| `CLEAR` (0x08) | `{u32 rtWidth; u32 rtHeight; u32 colorArgb;}` | 锁存 `RT_SIZE`（0x30），按 BGRA 填充 `stateId 0` 指向的 RT |
+| `SET_STATE_BASE` (0x02) | `{u32 stateId; u32 reserved; u64 baseVa;}` | 写入已登记的 stateId 基址槽，初级使用 0/1 |
+| `CLEAR` (0x08) | `{u32 rtWidth; u32 rtHeight; u32 colorArgb;}` | 分别锁存 `RT_WIDTH(0xE0)` 和 `RT_HEIGHT(0xE1)`，按 BGRA 填充 RT |
 | `COPY_MEM` (0x05) | `{u64 dstVa; u64 srcVa; u64 bytes;}` | 经 `IMemorySubsystem` 逐段拷贝；区间重叠且非恒等 → `InvalidArgument` |
 
 `stateId` 取值见 `../design/command-mmio.md` §3；本章只使用 0（RT 基址）与 1（页表基址）。
@@ -129,7 +129,7 @@ DumpAllocs() → 按 va 升序输出
 ### 4.2 `CLEAR` 包处理
 
 ```
-解析载荷 → 校验 rtWidth/rtHeight ≤ 8192 → 写 MMIO RT_SIZE（宽低16|高高16）
+解析载荷 → 校验宽高及目标区间 → 分别锁存完整 32 bit 宽、高
 → 读取 stateId 0 基址 → 计算 bytes = w*h*4
 → 对每个像素写 [B,G,R,A]（由 0xAARRGGBB 拆解）
 → 区间越界 → NotMapped + 错误记录（不部分填充）
@@ -170,7 +170,7 @@ DumpAllocs() → 按 va 升序输出
 | D3.3 | 写入 `[va, va+N)` 后读回逐字节相等（N=0、1、4096、4097）；跨越未映射空洞的读返回 `NotMapped` 且 `ErrorRecord.va` 等于空洞起点。**新增 L1 契约单测（正常+非法边界，部分失败语义）**：多页范围（≥4097 B）其中一页未映射 → 整体返回 `NotMapped`，且**无半写副作用**（目标区间任何已映射字节不得被部分修改） | L1 契约 |
 | D3.4 | 连续 1000 次分配区间两两不重叠（脚本校验 `[va, va+bytes)`）；把容量耗到 0 后下一次分配返回 `OutOfMemory` 且 `nextVa` 不变；同一调用序列两次运行 VA 序列完全相同 | L1 契约 |
 | D3.5 | `SET_STATE_BASE(stateId=0, va)` 后 `0x40/0x41` 回读等于 va 的低/高 32 bit；`stateId=8` 被拒 | L1 契约 |
-| D3.6 | `CLEAR(256,256,0xFF3F3F3F)` 后 RT 区间每个字节序列为 `[63,63,63,255]`；`RT_SIZE` 寄存器为 `0x0100_0100`；宽 0 或 >8192 返回 `InvalidArgument` 且目标区间零字节变更 | L1 契约 |
+| D3.6 | 单测 CLEAR(256,128) 后 RT 像素为预期 BGRA，宽、高寄存器分别为 256、128。非法尺寸返回 `InvalidArgument`，目标字节及寄存器保持原值 | L1 契约 |
 | D3.7 | `COPY_MEM` 源→目标逐字节相等；`dst==src` 返回 `Ok`；部分重叠返回 `InvalidArgument` 且目标不变；`bytes=0` 返回 `Ok` | L1 契约 |
 | D3.8 | `scene_e1` 提交后 `Download` RT 全图等于 `(63,63,63,255)`；门面公开头中不含 `IMemorySubsystem` 之外的内存类型；`scene_e4_mesh` 可上传约 1 千三角形顶点（`1.5 万 dword` 级）并原样读回 | L1 契约 + A3 |
 | D3.9 | A3 全绿：E1 的"读回缓冲 = 显存内容"子项通过；E4 的"资源上传/读回"子项通过（渲染判据待第 6 章）；同一数据两个句柄（不同 VA 同内容）读回一致 | L1 契约 |

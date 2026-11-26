@@ -33,7 +33,7 @@
 
 ### 1.2 全局容差口径（唯一）
 
-- 颜色 **±2/通道**、深度 **±1 LSB**、覆盖率 **±1/16 子样本**、计算 fp32 **≤1 ULP 为通过、>1 ULP 阻断**、计数 / 状态类 **0 容差**（不进探针表、直接用断言）。
+- 颜色 **±2/通道**、深度 **±1 LSB**。1× 覆盖集合与计数零容差。S9 每像素多样本覆盖率是覆盖样本数除以配置样本数，绝对容差 **1/16**。计算 fp32 **≤1 ULP 通过、>1 ULP 阻断**。
 - 所谓"像素零容差"只适用于 **1x 覆盖率与 L1 结构 / 计数断言**，不适用于浮点滤波后的颜色（Q-60）。
 - 容差集中管理于 `tools/ref_model/tolerances.toml`，禁止散落在场景代码里。
 
@@ -225,7 +225,7 @@
 
 - 元信息：高级 / 章 25、27 / 阻断；入口 `apps/scene_s9_msaa`。
 - 输入：斜边三角 2x/4x + sample 插值。
-- 主判据：coverage / resolve ±1/16、Hi-Z 拒绝计数；per-sample 插值可区分；与 CPU 参考模型一致（L2）。
+- 主判据：多样本归一化覆盖率与参考绝对差 ≤1/16，resolve 按颜色探针比较。Hi-Z 拒绝计数用于观测，per-sample 插值可区分（L2）。
 - 回归矩阵：`serial` / `parallel`。
 - 引用：章 25/27 DoD。
 
@@ -256,8 +256,8 @@
 ### S13 `scene_s13_fault` — 故障注入
 
 - 元信息：高级 / 章 36 / 阻断；入口 `apps/scene_s13_fault`。
-- 输入：非法 VA / 非法包 / 死循环（`FaultInject` 菜单）。
-- 主判据：每类故障定位到单元与位置（日志带 `{unit, packetType, dwordOffset, va, code}`）；reset 后重跑 S2 成功；引擎级复位仅重编程该 ring（L1）。
+- 输入：普通未映射或未驻留、可单次中止的非法包、引擎级故障及 watchdog。覆盖预算内退出、恰好耗尽并退出、耗尽仍运行和合法长派发。
+- 主判据：普通页错误失败完成且同队列继续运行。复位类故障仅重编程对应 ring，复位前后读取同一旧提交失败，重建后的 S2 通过。Watchdog 边界按 D36.4。
 - 回归矩阵：`serial`；注入点隔离。
 - 引用：章 36 DoD、`36-error-paths.md`、`design/boot-reset.md`。
 
@@ -280,8 +280,8 @@
 ### S16 `scene_s16_barrier_ownership` — 屏障 + 所有权转移
 
 - 元信息：高级 / 章 32 / 阻断；入口 `apps/scene_s16_barrier_ownership`。
-- 输入：子资源布局转换 + 跨队列移交。
-- 主判据：屏障后结果符合预期；非法范围报错；未转移即访问报错（L1 + L2）。
+- 输入：记录期子资源范围校验，以及 Copy→Graphics 整资源移交。构造正常、延迟 release、缺 acquire 与目标错配。
+- 主判据：记录期非法范围被拒，执行期 release 前 WAIT 停驻，acquire 前访问被拒。配对错误保持原状态，成功移交后整资源读回精确一致。
 - 回归矩阵：`serial` / `parallel`。
 - 引用：章 32 DoD。
 
@@ -305,9 +305,9 @@
 | 子 case | 覆盖 | 输入规模 | 数据类型 / 格式 | 生成规则 | 期望产物（元素数 · 布局 · 比对对象） |
 |---|---|---|---|---|---|
 | case-0 | 1D 基础 | grid 8 × block 32 | int32 ×2 | LCG 0x5EED | 256 int32 元素（逐字节）+ blockIdx/threadIdx 探针 = ref_model case0 |
-| case-1 | 2D 基础 | grid (8×8) × block (16×16) | int32 ×2 | LCG 0x5EED | 1 024 int32 元素（逐字节）+ 二维 id 探针 = ref_model case1 |
-| case-2 | 3D + 越界 | grid (4×4×5) × block (8×8×8)（z 维超出 512 有效域 1 层） | int32 ×2 | LCG 0x5EED | 512 有效元素逐字节；**越界 work-item 不写任何内存**（M-01/M-02 越界前哨 buffer 探针） |
-| case-3 | 经计算驱动 | 与 case-1 同参数，HLI 侧使用 case-1 等价输入 | int32 ×2 | LCG 0x5EED | A39 首验，A42 比对关键命令语义和零容差探针 |
+| case-1 | 2D 基础 | grid (2,2,1)，block (16,16,1)，有效域 (32,32,1) | int32 ×2 | LCG 0x5EED | 恰写 1 024 个 int32，逐字节一致，二维 ID 与参考一致 |
+| case-2 | 3D + 越界 | grid (2,2,3)，block (4,4,3)，有效域 (8,8,8) | int32 ×2 | LCG 0x5EED | 576 个 work-item，恰写 512 个 int32。最后一层 Z workgroup 只写其中两层，越界哨兵保持 |
+| case-3 | 经计算驱动 | 与 case-1 复用同一 grid、block、有效域和数据 | int32 ×2 | LCG 0x5EED | A39 首验，A42 比较直连 HLI 的关键命令语义与零容差探针 |
 | case-4 | WA-01 | N = 65 536 | int32 ×2 + fp32 ×2 | LCG 0x5EED | 65 536 int32（逐字节）+ 65 536 fp32（≤1 ULP）= ref_model wa01 |
 | case-5 | WA-02 | N = 262 144 | fp32 | LCG 0x5EED | 组级 2 048 + 全局 1 fp32（≤1 ULP + 归约顺序断言强制）= ref_model wa02 |
 | case-6 | WA-03 | N = 16 384 | uint32 | LCG 0x5EED | 16 384 uint32（逐字节，Blelloch 前缀和）= ref_model wa03 |
@@ -317,6 +317,8 @@
 | case-10 | WA-07 | N = 4 096 | int32（含重复键） | LCG 0x5EED | 4 096 int32（逐字节 + 稳定 tie-break）= ref_model wa07 |
 | case-11 | WA-08 | 256×256 | RGBA8 UNORM | LCG 0x5EED | 256×256 RGBA8（逐字节，固定舍入）= ref_model wa08 |
 | case-12 | WA-09 | 65 536 粒子 | fp32（6 DoF） | LCG 0x5EED | 65 536×2 fp32 位置（≤1 ULP + RNG 消费序断言）= ref_model wa09 |
+
+kernel 参数携带各轴有效域。全局坐标按 `groupId * block + localId` 计算。有效坐标才写 `x + X * (y + Y * z)`，`X/Y` 为有效域宽高。身份探针与存储索引分别比较，case-2 检查有效写入数和越界哨兵。旧的未指定有效域的 S18 输入为 **SUPERSEDED**（ADR-058）。
 
 **D-13 静态可调度性负向样例（37 章 T37.1 / A37 必测，不占 case 号）**：
 
@@ -333,7 +335,7 @@
 | C1 `module_probe` | — | 1 个 kernel module blob（固定 fixture 字节流） | 符号表文本（name/entryOffset/paramBytes/vgprCount/ldsBytes），两次运行逐字节一致（无数值比对） |
 | C2 `vector_add` | = case-4（WA-01） | 同上 | 同上 |
 | C3 `async_pipeline` | = S19 case-2（WA-11） | 见 S19 表 | 见 S19 表 |
-| C4 `reduce` | = case-5（WA-02） | 同上 | 同上 |
+| C4 `reduce` | case-5（WA-02）及局部边界 | case-5 基线加部分活跃 ADD、MIN/MAX 单波样例 | A41 验参考 ≤1 ULP、归约顺序正确及跨策略硬探针精确一致 |
 | C5 `indirect_dispatch` | = S19 case-3（WA-12） | 见 S19 表 | 见 S19 表 |
 
 - 回归矩阵：`serial` / `parallel`。
@@ -343,7 +345,7 @@
 
 - 元信息：高级 / 章 30、32、33、37（A37 主验收）、38~42（A-stage3 双入口）/ 阻断；入口 `apps/scene_s19_compute_memory`。
 - 输入：LDS / 原子 / barrier + 间接 dispatch + 异步计算。
-- 主判据：workgroup / device 作用域符合语义；间接 dispatch 与直接 dispatch 等价；计算 → 图形 fence 后结果可见（L2）。
+- 主判据：workgroup/device 作用域符合语义，间接派发与直接等价，跨队列完成 release→SIGNAL→WAIT→acquire 后目标读到生产结果（L2）。
 - 子 case：`case-0` 作用域与 barrier 基础；`case-1` 非规则访问 gather/scatter（WA-10）；`case-2` 多 kernel 流水 + async compute（WA-11）；`case-3` 间接 dispatch + 谓词（WA-12）；`case-4` 计算 ↔ 图形互操作（P1-9，**2026-11-20 定案纳入**，ADR-049，WA-08 扩展子 case）。子 case 编号以本节为**唯一权威**。
 
 **S19 子 case 输入规格表（2026-11-20 定案，改值走 §7.4）**：生成规则 / 容差口径同 S18 表（LCG seed `0x5EED`，§1.2 数值口径）。
@@ -356,7 +358,7 @@
 | case-3 | WA-12 | N = 10 242（GPU 侧参数 buffer 生成） | uint32 间接参数（grid/block/paramBufVa） | LCG 0x5EED | 与同参数直接 dispatch 输出**逐字节一致**（ref_model wa12） |
 | case-4 | WA-08 扩展 | 256×256 | RGBA8 UNORM | LCG 0x5EED | UAV store 写回 256×256 RGBA8，同 `(x,y,format)` 逐字节一致（对照 20 章 image 描述符 + 26 章格式转换表，ADR-049） |
 - 并发语义（P1-7，已澄清口径）："计算队列与图形队列并发" = FW 在包粒度 Round-Robin 交错推进；**硬判据对交错顺序不敏感**，种子化交错顺序下结果不变；同刻并行不在本期。
-- **计算 ↔ 图形互操作（P1-9，2026-11-20 定案，ADR-049）**：`case-4` = 图形写 RT → fence → 计算 image load → **UAV store 路径**写回 → 比对（判据对照对象为 20 章 image 描述符 + 26 章格式转换表，**不依赖 26 章 OM 写回探针**）；判据 = 同一 `(x,y,format)` 字节布局**逐字节一致**。
+- **计算 ↔ 图形互操作（ADR-049/055）**：case-4 图形写 RT，经整资源移交后计算 image load，计算通过 UAV store 写回。按第 20 章 image 描述符、第 26 章格式转换表比对 `(x,y,format)` 字节布局。
 - 回归矩阵：`serial` / `parallel`。
 - 引用：章 30/32/33/37 DoD、`design/compute-driver.md`；stage3 仅作双入口等价验收（`api_backend=compute`，第 42 章主验收）。
 
@@ -382,7 +384,7 @@
 | 10 | S1 + S13 | 环回绕正确、包不跨环尾（NOP 填充）；非法包报类型与偏移；`cmd_packet_version` 不匹配拒绝；fence 语义顺序 |
 | 11 | S2 + S0 | 同数据两 VA 读回一致；页表项翻转后原 VA 失效；TLB 命中计数递增 |
 | 12 | S2 + S3 + S11 | 缓存/写缓冲数据流与 flush 可见性正确；统计仅作软观测，不以 hit/miss 比例作为通过门槛；`cache_enable` 开关前后一致 |
-| 13 | S2 | CopyEngine 填充 = 出屏结果；双缓冲无撕裂 |
+| 13 | S2 | CopyEngine 填充等于扫描结果，翻转前后整帧分别取旧、新 front |
 | 14 | S5 + S11 | 超显存结果一致；逐出前经第 12 章 flush 完成；两上下文互不污染；抢占恢复正确 |
 | 15 | S3 | LaneMask 轨迹符合预期；多次调度顺序确定 |
 | 16 | S0 | 汇编往返二进制相同；全区段编码/解码覆盖无失败（执行语义由 opcode 所属硬件单元负责：ALU/控制流见第 4/5/15 章，Tess/GS 见第 28 章，subgroup 见第 29 章，LDS/原子/barrier 见第 30 章） |
@@ -394,18 +396,18 @@
 | 22 | S5 | 索引与非索引顶点流一致；primitive restart、step rate 正确；`baseVertex`/`baseInstance` 偏移与 `InstanceID` 正确；内建 ID 只读 SGPR/专用寄存器 |
 | 23 | S5 | 命令数恒为 1；顶点数不受单次派发容量限制；切片容量归前端派发器、VGT 只产顶点流；切片边界图元完整；顶点流常驻复用不随帧增长 |
 | 24 | S3 + S5 + S6 | 出界/跨近平面与参考裁剪器一致；guard band 无裂缝；退化图元丢弃；多视口索引校验正确；Clip/Cull Distance 逐顶点逐图元剔除正确；背面剔除在 PA 判定、OM 只保存状态；距离区写超声明 count 报 L1 错 |
-| 25 | S3 + S9 | 共享边不重不漏；覆盖率与 CPU 参考模型一致（±1/16）；scissor 外无写入；三种插值可区分；点/线规则正确 |
+| 25 | S3 + S9 的 1× 光栅子集 | 覆盖集合精确、共享边无重漏、S3 颜色 ±2/通道，scissor、插值与点线规则正确 |
 | 26 | S7 + S8 + S14 | 深度/模板/混合/MRT/剔除正确；LoadOp/StoreOp 正确；双源混合与逻辑 Op 正确；PS 输出到 UNORM/SNORM/UINT/SINT/sRGB 的格式转换与舍入确定；写 UAV 时 Early-Z 禁用 |
 | 27 | S9 + S7 | coverage/resolve 正确；early-Z 不改结果；fast clear 元数据与 Hi-Z 拒绝计数可输出 |
 | 28 | S6 | patch 载荷无丢失（本章自建 patch 缓冲，C 阶段不依赖 LDS）；三图元模式正确；细分因子与模式符合公式；输出域属性完整 |
 | 29 | S10，独立 wave 输入 | ballot/shuffle/归约/导数结果确定，部分活跃时按操作使用单位元 |
 | 30 | S10，S19 case-0/1 只作单测输入 | LDS 转置、原子、组内 barrier 和作用域按独立 workgroup 用例验证 |
-| 31 | S11，S18 case-1/2 只作映射单测输入 | 并行组合结果一致，TLB 失效后无脏读，映射、部分组与越界行为确定 |
-| 32 | S12 队列子集、S16 | 图形、拷贝和测试 Compute 队列验证依赖，WAIT 停驻及已知生产者失败传播，timeline 值序、屏障和所有权移交 |
+| 31 | S11 和章内独立映射向量 | 并行一致，TLB 失效无脏读，二维/三维映射及边界确定。正式 S18 输入归场景表 |
+| 32 | S12 队列子集、S16 | 三队列等待与失败传播，整资源 release→SIGNAL→WAIT→acquire，延迟 release 和缺 acquire 负向用例 |
 | 33 | S12 IB/间接绘制子集，S19 case-3 只作参数单测输入 | IB、间接 draw、predicate 与直接路径对照。间接 dispatch 只对照参数描述符，输出等价归 37/42。验证 DMA 切片拷贝 |
 | 34 | S7 + S2 | 遮挡 query = 0；timestamp 单调不减；统计不参与正确性；查询可作 GPU 侧谓词 |
 | 35 | S17 + S2 + S3 + S4 + S5 | HLI 主路径和最小图形 UMD 同场景通过，外部适配器按能力声明；动态状态取命令缓冲快照，能力位由 HLI 提供 |
-| 36 | S13 | 故障定位到单元；reset 后 S2 重跑成功 |
+| 36 | S13 | 普通页错误与复位分流、旧提交终态、显式重提、其他引擎持续运行和 watchdog 边界 |
 | 37 | S18 case-0~2/4~12、S19 case-0~4 | 直连 HLI 跑通参数消费、uniform、调度/协作/写回和完成值。S18 case-3 首验见 A39 |
 | 38 | Demo C1 `module_probe` | `MUSA_MODULE_HDR` 字段与 blob 逐字节一致；符号表解析正确（name/entryOffset/paramBytes/vgprCount/ldsBytes）；Function 入口解析 + 4B 对齐；截断/坏 header/越段返回确定错误（`InvalidIsa`/`NotMapped`）且无泄漏 |
 | 39 | S18 case-3、Demo C2 `vector_add` | 最小 Stream 可独立提交、同步和销毁；六条参数检查，参数缓冲存活至终态；两入口关键包等价、探针零容差、fp32 CPU 参考 ≤1 ULP |
@@ -426,3 +428,4 @@
 | v3-定案 | 2026-11-20 | v2 全部候选**定案**（D1~D11）：§1.2 数值口径 fp32 ≤1 ULP 可配置 + 归约顺序断言强制；S18 `case-4..12` / S19 `case-1..3` WA 绑定；S19 并发口径定稿。**P1-9 互操作 case 正式纳入为 S19 `case-4`（ADR-049，UAV store 路径，WA-08 扩展）** | ADR-048/049 + 评审定案（D1~D11） |
 | v4-二轮评审 | 2026-11-20 | 二轮评审 13 项全部闭环：S18/S19 补**子 case 输入规格表**（规模/类型/种子 `0x5EED`/期望产物，Demo C1~C5 同表）消除与 `architecture` §7.9 的循环引用；§4 行 39/41 与全库 0 ULP 统一为"判据 ≤1 ULP、同序 FMA 期望 0 ULP 告警不阻断"；行 41 互操作判据改 ADR-049 口径（UAV store，不依赖 OM 探针）；case 编号统一**不补零**；S18/S19 元信息章号补主验收/A-stage3 归属；v1 行"36 章总表"加历史括注 | 二轮评审（处置记录已并入各权威文档，原清单文件已删） |
 | v5-规格补全 | 2026-11-20 | 规格表补全（讨论定案）：S18 `case-0..3`（1D/2D/3D+越界/经驱动）与 S19 `case-0`（作用域/barrier）基础 case 补输入规格行；新增 **D-13 静态可调度性负向样例 D13-a/b/c**（超驻留波数/超 LDS/超 `kMaxWorkgroups` → `InvalidArgument` 不下发，37 章 T37.1/A37 必测）；WA 规格数值（GEMM 256³、N 规模、seed `0x5EED`）经确认生效 | 评审确认（原清单文件已删） |
+| v6 | 2026-11-26 | 对齐 S3/S9 覆盖、S13 故障分流、S16 整资源移交、S18 有效域和 C4 验收归属 | ADR-055/057/058 |

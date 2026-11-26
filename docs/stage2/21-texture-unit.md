@@ -4,7 +4,7 @@
 
 > 本章把初级"nearest 单层 RGBA8"的纹理采样替换为完整硬件纹理单元：格式解码（含 sRGB）、线性/tile 两种布局、mip/LOD/过滤、数组/Cubemap 寻址、独立采样器对象、以及异步纹理采样（延迟隐藏，ADR-036）。设计说明见 `../design/texture-unit.md` §1~§4。
 > 与本章相关的设计说明：`../design/texture-unit.md`（M21.1~M21.3 / 错误语义 / 延迟隐藏）；ADR-036（波挂起唤醒）；`../design/memory-system.md` §8（采样走 IMemory + 缓存）；`../design/command-mmio.md` §3（`stateId 3/5` 纹理/采样器描述符堆基址；采样器并入 `stateId 5`）。
-> 落地模块：`hw_sim/texture/`（format/tiling/mip/filter/address）、`umd/graphics/pal`（sampler 对象）、`hw_sim/shader`（采样挂起/唤醒接入）、`apps/scene_s4_textured_quad`、`apps/scene_s14_bindless_uav`。
+> 落地模块：`hw_sim/texture`（采样、布局和格式）、`hli/detail` 的采样器数据和章内支架、`hw_sim/shader`（采样挂起及唤醒）、S4/S14。35.1 的 HLI 复用采样器数据。
 
 ---
 
@@ -70,7 +70,7 @@ struct TextureDesc {
 };
 ```
 
-### 3.2 采样器（`pal/binding/sampler.h` 侧对象）
+### 3.2 采样器（共用绑定数据）
 
 ```cpp
 struct SamplerDesc {

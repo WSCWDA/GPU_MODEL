@@ -4,7 +4,7 @@
 
 > 本章在 10（单环 CP）、13（Copy 引擎）、32（多队列）之上补齐命令间接层：IB（Indirect Buffer）链、间接绘制/派发（`INDIRECT`）、GPU 侧谓词（`PREDICATE`）、以及多引擎（Copy/DMA）并发。间接与直接结果等价是核心判据；DMA 切片拷贝正确。
 > 与本章相关的设计说明：`../architecture-design.md` §3.3（IEngine 握手）；`../design/command-mmio.md` §2（`INDIRECT` 0x0C / `PREDICATE` 0x0D / `stateId 7` IB 基址）；ADR-024（屏障延续）；第 20 章（描述符配合）、第 32 章（队列）。
-> 落地模块：`hw_sim/core/cp` 扩展（IB/INDIRECT/PREDICATE）、`hw_sim/periph/copy`（DMA 切片）、`umd/graphics/pal/cmd_gen`、`apps/scene_s12_multiengine`；计算间接包只做单元级解析/参数等价测试，S19 主验收归第 37 章。
+> 落地模块：`hw_sim/core/cp` 的 IB、间接和谓词解释，`hw_sim/periph/copy` 的 DMA 切片，`hli/detail` 的共用命令转换，以及通过 KMD 提交的 S12 章内支架。计算间接端到端由第 37 章验收。
 
 ---
 

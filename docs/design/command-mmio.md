@@ -85,7 +85,7 @@
 | 1 | `srcStageMask` | 来源阶段位图 |
 | 2 | `dstStageMask` | 目标阶段位图 |
 
-未知枚举、保留位或非法组合返回 `InvalidPacket`。Workgroup 执行屏障在 ISA/LDS 同步点实现，不通过该 CP 包模拟；此包仅表达资源、设备、队列可见依赖。20/30/32/41 章不得另定义载荷布局。
+未知枚举、保留位或非法组合返回 `InvalidPacket`。Workgroup 执行屏障在 ISA/LDS 同步点实现，不通过该 CP 包模拟；此包仅表达资源、设备、队列可见依赖。20/30/32/41 章沿用该布局，资源与所有权目标见 [同步原语 §2.2](sync-primitives.md) 的提交描述。
 
 ### 2.4 `PREDICATE`（0x0D）载荷
 
@@ -128,7 +128,28 @@
 - RT 尺寸由 `CLEAR` 锁存到 `RT_WIDTH(0xE0)` 与 `RT_HEIGHT(0xE1)` 两个完整 32 bit 寄存器，`DRAW` 不携带尺寸。
 - PSO 暂存区字段顺序由第 20~26 章共同维护，新增字段只能追加。
 - `0x38` 的命令流版本只是回显，判定以 `STREAM_HEADER` 为准。
-- 段内具体偏移由落地章定义；新增先在本节登记。
+- 下表集中登记公共寄存器的 dword 偏移、权限和语义。未登记的偏移按对应段的预留规则处理。
+
+| dword 偏移 | 寄存器 | 提交侧访问 | 语义 |
+|---|---|---|---|
+| 0x00 | `RING_WPTR` | RW | ring 写指针 |
+| 0x01 | `RING_RPTR` | RO | CP 已消费位置 |
+| 0x02 | `RING_SIZE` | RW | 容量，单位 dword |
+| 0x04 | `DOORBELL` | WO | 通知 CP 有命令可消费 |
+| 0x06 / 0x07 | `RING_BASE_LO/HI` | RW | ring GPU VA 低、高 32 bit |
+| 0x08 / 0x09 | `FENCE_MON_LO/HI` | RO | 同一次快照中 64 bit 成功 fence 的低、高 32 bit |
+| 0x0A | `FENCE_STATUS` | RO | bit0 完成，bit1 忙碌 |
+| 0x10 | `CP_CTRL` | RW | CP 启停控制 |
+| 0x11 | `CP_STATUS` | RO | CP 当前状态 |
+| 0x14 | `INT_STATUS` | RO | 待处理的中断状态，由 FW/KMD 确认 |
+| 0x18 | `CTX_STATE` | RO | 当前上下文状态 |
+| 0x20 / 0x21 / 0x22 | `ERROR_CODE` / `ERROR_PKT_TYPE` / `ERROR_DWORD_OFFSET` | RO | 最近错误的状态、包类型与包内偏移 |
+| 0x24 / 0x28 | `DEBUG0` / `HW_STATS_BASE` | RO | 诊断值和统计读回起点 |
+| 0x30 / 0x38 | `DEV_RING_ID` / `CMD_VERSION` | RO | 设备/ring 标识及最近接受的命令流版本 |
+| 0xE0 / 0xE1 | `RT_WIDTH` / `RT_HEIGHT` | RO | 合法 CLEAR 分别锁存的 32 bit 宽、高 |
+| 0xF0 | `RESET_CTRL` | WO（特权） | 第 10 章接入诊断，第 36 章接入引擎级复位 |
+
+提交侧权限与设备内部更新分开。初级提交返回后直接读取 fence，高级等待按 [同步原语 §2.1](sync-primitives.md) 查询指定提交的终态。
 
 PSO 暂存区字段 → 偏移（dword 索引，第 6 章冻结，含 `depthBaseVa`，Q-34）：
 
@@ -167,4 +188,4 @@ PSO 暂存区字段 → 偏移（dword 索引，第 6 章冻结，含 `depthBase
 
 ## 2026-11-21 评审同步说明
 
-命令包、stateId 与 MMIO 分段以本文件为准。寄存器的具体偏移见 [第 10 章 §3.4](../stage2/10-device-ring-cp.md)。旧版载荷的退役流程见 [路线图 §7.4](../roadmap.md)。
+命令包、stateId 与公共 MMIO 偏移以本文件为准。第 2、3、10、11 章核对各自使用的子集，见 ADR-054。

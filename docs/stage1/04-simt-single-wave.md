@@ -4,7 +4,7 @@
 
 > 本章建立全项目的执行模型：warp（波）宽度 32、VGPR/SGPR 固定分区、活动掩码/谓词、无分歧线性执行、内建 ID，以及着色核的唯一接口 `IShaderArray::Dispatch`。着色器程序在本章以"内存内指令结构"表示（第 5 章把它规范化为二进制编码），执行语义与寄存器终态是本章验收对象。
 > 与本章相关的设计说明：`../architecture-design.md` §3.1（`IShaderArray::Dispatch` 契约）、§3.3（`IEngine.Push` 携带着色核）；`../design/execution-parallel.md` §1~§3（时间无关与确定性）；`../design/isa-abi.md` §3（VGPR/SGPR 分区、LaneMask、控制流栈）；`../design/isa-abi.md` §1（内存内指令结构 → 第 5 章编码过渡）。
-> 落地模块：`hw_sim/shader/wave`、`hw_sim/shader/isa`（语义执行部分）、`apps/scene_e2_triangle`（本章只验着色输出寄存器终态）。
+> 落地模块：`hw_sim/shader/wave`（波状态与已构造 Instr 的执行）和 `apps/scene_e2_triangle`（寄存器终态）。第 5 章从 `hw_sim/isa` 接入二进制解码。
 
 ---
 

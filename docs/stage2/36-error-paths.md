@@ -22,7 +22,7 @@
 
 ### 1.2 非目标
 
-- 不做细粒度页错误恢复/wave 暂停-恢复（呈现复位即可）。
+- 普通页错误结束当前提交，修正映射后可显式重提。
 - 不做完整容错/ECC。
 - 不做中断驱动的恢复握手（中断只通知）。
 - 不做应用层错误穿透到硬件（红线：应用逻辑错误不触发设备复位）。
@@ -37,55 +37,33 @@
     ▼                                ▼
  firmware/watchdog（每引擎活跃标记）  kmd/reset（复位管理器）
  wave 超出指令预算/引擎错误 → watchdog 判定 → 停止该引擎 → 复位该引擎 → 重建上下文
-    │                                │测试：注入故障 → 定位 → reset → 重跑
+    │                                │测试：中止后继续提交，或复位后显式重提
     ▼
  应用/CI：S13 → log_analyze/mem_audit/spec_runner
 ```
 
-- watchdog 使用模型逻辑预算而非墙钟 tick：每 wave 退休指令计数；单 wave 达到 `kMaxInstructionsPerWave=2^24` 返回 `Timeout`。引擎进展统计用于区分长任务与无进展，超时只复位对应引擎。
+- Watchdog 按单 wave 的退休指令数判断，预算和正常退出边界见 [启动与复位 §4](../design/boot-reset.md)。
 
 ---
 
 ## 3. 输入输出契约
 
-### 3.1 错误记录（`common/result.h` 扩展）
+### 3.1 错误记录
 
-```cpp
-struct ErrorRecord {
-    u32  unit;           // 枚举：cp/ia/frontend/raster/om/texture/shader/copy/display/...
-    u32  packetType;
-    u32  dwordOffset;    // 包内偏移（含头）
-    u64  va;             // 出错资源 VA（0 表示不适用）
-    Result code;         // NotMapped/InvalidPacket/InvalidIsa/ResetRequired...
-};
-```
+引用 [第 1 章 §3.2](../stage1/01-contracts-min.md) 定义的公共 `Result` 和 `ErrorRecord`。KMD 保留原错误及提交、引擎与命令位置。公共 `dwordOffset` 沿用包内偏移，定位所需的包起点随提交诊断保存。
 
-- 错误记录进入 `kmd` 保留表；`ResetRequired` 是硬件复位唯一入口（ADR-031）。
+### 3.2 复位管理（ADR-052/057）
 
-### 3.2 复位管理
+先停驻故障引擎的 CP，等待已分派的 worker 停止访问该引擎的在飞资源。再丢弃未完成包、登记失败终态与未执行的信号、释放对应硬件引用，然后重编程该 ring。
 
-```cpp
-class ResetManager {   // kmd/reset
-public:
-    Result ArmWatchdog(u32 engineId, u64 instructionBudget);
-    Result OnEngineProgress(u32 engineId, u32 workgroupId); // 逻辑进展记录，不按墙钟喂狗
-    Result ResetEngine(EngineType);          // 单引擎复位：停 CP→丢包→清 fence→reboot ring
-    const ErrorRecord& LastError() const;
-};
-```
+| 操作 | 可观察行为 |
+|---|---|
+| 等待已接受的旧提交 | 按队列 generation 与提交序号得到原终态。预算耗尽的提交保留 `Timeout`，因复位被丢弃的其余提交返回 `DeviceLost`。等待开始于复位前、查询开始于复位后都得到同一结果。 |
+| 复位期间提交 / 复位后使用旧队列或 Stream 提交 | 分别返回 `Busy` / `DeviceLost`。新队列使用新的逻辑身份。 |
+| 使用已销毁对象 | 返回 `InvalidArgument`。未销毁对象的用户引用仍遵循原生命周期。 |
+| 引用释放 | 故障引擎停稳后逐条释放丢弃提交的引用。其他引擎与有效引用继续工作。两类引用归零才回收资源。 |
 
-- 复位动作包括停止该引擎 ring、清空内部 FIFO、保留失败完成和诊断并重编程该 ring，其他引擎继续推进。
-
-**引擎复位时序伪代码（`ADR-041` 双引用计数 × 复位语义，3 行演示引用计数 / fence / 句柄有效性）：**
-
-```
-① 提交 A/B/C（ring）→ 均未完成，A/B/C 各自 hwRef++ 且入 ring；
-② ResetEngine(Graphics) → 该引擎丢弃未完成包、fence 监视清零 → A/B/C 的硬件提交引用立即归零（hwRef=0），in-flight fence 不再可等；
-    应用此时 Destroy 缓冲 B（userRef--，userRef=0 且 hwRef 已归零）→ 立即 FreeGpuMem，无悬垂；对象句柄（ID）对外标记 invalid/reuse 禁；
-③ 重新提交 D（新命令）→ D 的 hwRef 从 0 重新建立（=1）、新 fence timeline 单调，旧句柄（B）再提交/绑定 → 返回 InvalidArgument（句柄失效，不静默复用）。
-```
-
-- 语义要点：复位只丢**该引擎**在飞引用；其它引擎引用不受影响；句柄有效性以"复位即失效"为界，禁止复位后无需重建就复用旧资源句柄。新增 **L1 契约单测（正常+非法边界）**：①复位瞬间在飞提交的 hwRef 立刻归零且 fence 不可等；②`Destroy` 后资源内存被真正回收（`mem_audit` 无 UAF）；③复位后复用旧句柄 → `InvalidArgument`。
+旧记录保留至设备提交查询生命周期结束，后来的成功 fence 保持其独立终态。受影响的产物按架构 §3.10 处理，应用初始化所需资源后显式重提。
 
 ### 3.3 故障注入菜单（测试入口）
 
@@ -101,32 +79,25 @@ Result InjectFault1(FaultInject, const FaultSite&);  // 指定单元/包
 
 ## 4. 内部数据流
 
-### 4.1 错误流（正常→复位→重跑）
+### 4.1 故障分流（S13）
 
-```
-引擎检测故障 → 构造 ErrorRecord → 置 ResetRequired → 停止提交
-→ KMD 记录错误 → 复位该引擎（丢包/清 fence/重 boot）
-→ 应用可重跑同一固定输入 → 与首次一致（若输入确定无 fault: 重跑成功）
-S13 断言：注入每类故障 → 错误记录字段精确 → reset 完成 → 重跑 S2 成功
-```
+| 故障 | 结果与后续行为 |
+|---|---|
+| 未映射、未驻留 | 分别返回 `NotMapped` / `NotResident`，记录 VA，当前提交失败，同一队列继续接收合法提交。 |
+| 可定位的非法包、版本、ISA 或描述符越界 | 沿入口契约拒绝或中止当前提交，并记录对应错误。 |
+| 分配耗尽、ring 容量不足 | 分别返回 `OutOfMemory`、`Busy`，保留其他有效提交。 |
+| 死循环超时、显式注入引擎级故障 | 根因分别记录 `Timeout` 或原错误，按 §3.2 复位，应用显式重提。 |
 
-### 4.2 watchdog（按引擎）
+### 4.2 Watchdog
 
-```
-每条 wave 指令退休：instructionCount[wave]++
-达到 kMaxInstructionsPerWave=2^24 → Timeout + wave/PC/dispatch 诊断 → ResetEngine(engine)
-workgroup 完成只更新进展观测；不得以墙钟或 scheduler tick 决定硬件结果。
-（不复位其它健全引擎——不整设备一刀切）
-```
-
-- 死循环着色器（`DeadlockGlitch` 注入）触发 watchdog → 只复位 shader/该引擎（见 fault 菜单）。
+每个 wave 独立累计退休指令。最后一条指令耗尽预算并正常退出时先判定成功。预算耗尽且仍运行时返回 `Timeout`，保留 wave、PC 和 dispatch，触发对应引擎复位。workgroup 进展和墙钟用于观测。
 
 ### 4.3 日志与审计
 
 - 错误日志：`[level][unit][submodule] ... packetType/dwordOffset/va/code` 单行。
 - `log_analyze`：错误计数、去重、Top 单元报告。
 - `mem_audit`：快照解析泄漏/UAF。
-- `spec_runner`：跑 S13 回归矩阵（每个故障注入子 case + reset 重跑）。
+- `spec_runner` 运行 S13 故障分流、复位终态及 watchdog 边界回归。
 
 ---
 
@@ -134,15 +105,15 @@ workgroup 完成只更新进展观测；不得以墙钟或 scheduler tick 决定
 
 | 任务 | 段 | 内容 |
 |---|---|---|
-| T36.1 | ① 契约 | `ErrorRecord`/`ResetManager`/`FaultInject` 枚举/错误记录保留表落头文件 |
+| T36.1 | ① 契约 | 引用第 1 章 Result 与 ErrorRecord，定义复位管理、故障注入和完成映射 |
 | T36.2 | ② 主体 | 错误记录构造与 `Result` 规范化（全单元统一定位钩子） |
-| T36.3 | ② 主体 | `ResetRequired` → 单引擎复位路径（停 CP/丢包/清 fence/reboot ring） |
+| T36.3 | ② 主体 | 停驻并等待故障引擎 worker，按旧提交登记失败、释放引用并重编程 ring |
 | T36.4 | ② 主体 | watchdog：每引擎活跃标记 + 超时决定只复位对应引擎 |
 | T36.5 | ② 主体 | 故障注入菜单（BadPacket/BadIsa/OomLoop/UnmappedVa/Deadlock/RingOverflow/BadVersion/DescriptorOOB） |
 | T36.6 | ② 主体 | 错误记录保留表 + LastError + 日志定位（unit/type/offset/va/code） |
 | T36.7 | ② 主体 | 复位后上下文重建 + 重跑一致性（固定输入） |
 | T36.8 | ② 主体 | `log_analyze`/`mem_audit` 工具接入（错误统计、泄漏/UAF） |
-| T36.9 | ③ 接入 | `scene_s13_fault` 全故障矩阵 + reset 后重跑 S2 接入 |
+| T36.9 | ③ 接入 | 接入 S13 的提交中止、引擎复位重提和 watchdog 边界 |
 | T36.10 | ④ 验收 | A36：S13 全绿 + 专有判据 + 已交付硬件范围内的 E1~E5/S0~S17 回归（E0 单独 L1 自检；S18/S19 归 37/42） |
 
 ---
@@ -151,16 +122,16 @@ workgroup 完成只更新进展观测；不得以墙钟或 scheduler tick 决定
 
 | DoD | 判据（机器可判） | 级别 |
 |---|---|---|
-| D36.1 | 接口独立编译；`ErrorRecord` 字段固定；`Result` 枚举扩展冻结 | L1 契约 |
+| D36.1 | 接口独立编译并引用第 1 章 16 值快照。逐项核对调用错误、ErrorRecord 与提交终态，旧枚举独立冻结判据为 **SUPERSEDED** | L1 契约 |
 | D36.2 | 每类故障定位到 `{unit, packetType, dwordOffset, va, code}`（注入→断言字段） | L1 契约 |
-| D36.3 | 在飞提交和关联信号标记失败。主机与跨队列等待按第 32 章的完成规则退出。复位期间提交返回 `Busy`，旧队列 generation 返回 `DeviceLost`，独立引擎继续推进 | L1 契约 |
-| D36.4 | watchdog：死循环只在对应引擎触发复位；其它引擎提交正常 | L1 契约 |
+| D36.3 | 复位前等待与复位后查询均得到同一旧提交终态，未执行信号的失败可达依赖方。停稳后释放丢弃提交引用一次，其他引擎及有效引用持续可用 | L1 契约 |
+| D36.4 | 单 wave 在预算内、恰好耗尽并退出均成功，耗尽且仍运行返回 `Timeout`，保留 wave/PC/dispatch。多 wave 合法长派发按单 wave 计数通过，仅超时引擎复位 | L1 契约 |
 | D36.5 | 8 类注入菜单各命中（BadPacket/BadIsa/OomLoop/UnmappedVa/Deadlock/BadVersion/DescriptorOOB/RingOverflow） | L1 契约 |
 | D36.6 | 错误保留表在复位后仍可读（LastError）；日志含 unit/type/offset/va/code | L1 契约 |
-| D36.7 | 复位期间提交返回 `Busy`，旧 queue/stream generation 返回 `DeviceLost`；应用重建受影响资源并显式重提 S2 后输出与首次一致 | 横切零容差 |
+| D36.7 | 复位期间提交返回 `Busy`，旧 queue/stream 重新提交返回 `DeviceLost`，已销毁资源句柄返回 `InvalidArgument`。重建并显式重提 S2 后结果一致 | 横切零容差 |
 | D36.8 | `log_analyze` 报告正确错误计数；`mem_audit` 标识泄漏/UAF | L1 契约 |
-| D36.9 | `scene_s13_fault` 全故障矩阵探针通过（8 类 × 目标单元；显式重建并重提后 S2 一致） | L2 + A36 |
-| D36.10 | A36 全绿：故障定位到单元、显式重建并重提后 S2 结果一致；E1~E5/S0~S17 已交付范围回归不退化（E0 单独 L1 自检，S18/S19 归 37/42） | L1 + L2 + 横切 |
+| D36.9 | S13 普通页错误后同一队列继续提交，复位子用例验证旧终态、其他引擎持续运行及显式重提结果 | L2 + A36 |
+| D36.10 | A36 通过故障分流、复位终态、重提、watchdog 边界及已交付场景回归，E0 单独 L1 自检 | L1 + L2 + 横切 |
 
 ---
 
@@ -170,10 +141,10 @@ workgroup 完成只更新进展观测；不得以墙钟或 scheduler tick 决定
 
 | 项 | 内容 |
 |---|---|
-| 输入 | 8 类故障注入 × 若干目标单元；每类之后 reset + 重跑 S2；双重配置（serial/parallel） |
+| 输入 | S13 故障分流、旧提交终态和 watchdog 边界，执行策略按场景规约 |
 | 产物 | 错误记录（unit/type/offset/va/code）、watchdog 日志、reset 后 S2 结果 |
-| 主判据 | 每类故障：定位到单元与位置 + reset 后 S2 重跑成功；watchdog 只复位对应引擎 |
-| 本章专有判据 | ① 故障定位到单元；② reset 后 S2 重跑成功；③ watchdog 按引擎监控、不做全设备一刀切 |
+| 主判据 | 普通页错误保持队列可用，复位仅影响故障引擎，旧终态可查询，显式重提结果一致 |
+| 本章专有判据 | 故障位置、错误映射、提交终态、引用生命周期及单 wave 预算边界可独立断言 |
 | 回归项 | R36：已交付 E1–E5、S0–S17 的适用判据不因错误处理退化；E0 单独 L1 自检；未列明历史 A 门禁不自动阻断 |
 | 后续补齐 | 项目最终 E/S 全场景回归与双入口计算验证由第 42 章 A-stage3 收口 |
 

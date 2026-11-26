@@ -4,7 +4,7 @@
 
 > 本章把第 4 章的"内存内指令结构"规范化为 64 bit 定长二进制编码，并交付汇编器/反汇编器与指令语义表。约 20 条指令、线性编码（无压缩）；标量/向量分区位预留，本章只实现向量指令。E0 的"汇编往返"判据在此补全，E2 的着色样例改用编码投递。
 > 与本章相关的设计说明：`../design/isa-abi.md` §1~§2、§3（64 bit 编码、opcode 区段、ABI 分区）；`../architecture-design.md` §3.1（`IShaderArray`）；第 4 章（执行器消费语义）。
-> 落地模块：`common/include/common/isa.h`、`hw_sim/shader/isa`（解码/语义表）、`tools/isa_asm`、`tools/isa_disasm`、`apps/scene_e0_selftest`（往返子集补全）、`apps/scene_e2_triangle`。
+> 落地模块：`common/include/common/isa.h`（编码契约）、`hw_sim/isa`（最小解码和指令入口）、汇编与反汇编工具、E0 往返自检和 E2 三角形。wave 状态由 `hw_sim/shader/wave` 持有。
 
 ---
 
@@ -137,7 +137,7 @@ bin1           ──isa_disasm─► 规范化文本
 
 ### 4.3 语义表 → 执行器
 
-`shader/isa` 提供 `std::optional<Instr> ToInstr(u64 word)`：解码 + 字段拾取，产出第 4 章 `Instr`（`op/dst/srcA/srcB/imm`），随后由通道 4 执行器按 lane 执行。语义表必须与 `common/isa.h` 枚举**单向一致**（工具脚本校验：助记符、opcode、分区无漂移）。
+`hw_sim/isa` 提供 `std::optional<Instr> ToInstr(u64 word)`：解码 + 字段拾取，产出第 4 章 `Instr`（`op/dst/srcA/srcB/imm`），随后由通道 4 执行器按 lane 执行。语义表必须与 `common/isa.h` 枚举**单向一致**（工具脚本校验：助记符、opcode、分区无漂移）。
 
 ---
 

@@ -120,26 +120,9 @@ public:
 | 环填充 | 包不得跨环尾；空间不足时在环尾写 `NOP`(0x07,count=1) 填充后再续包 |
 | 包表 | `STREAM_HEADER` 与版本/引擎/标志、`FENCE`(0x01)、`SET_STATE_BASE`(0x02)、`DRAW`(0x03)、`COPY_MEM`(0x05)、`SHADER_PSO`(0x06)、`NOP`(0x07)、`CLEAR`(0x08)——初章派发表的最小集合 |
 
-### 3.4 MMIO 分段（`../design/command-mmio.md` §4，本章落地 0x00~0x1F、0x20~0x2F、0x30、0x38、0xE0~0xE1、0xF0）
+### 3.4 MMIO 设备寄存器（ADR-054、B-042）
 
-本节 MMIO 偏移一律为 **dword 索引**（stateId n → `0x40+2n`，`0x50~0x7F` 保留，Q-31）。
-
-> ⚠️ stateId 编号纪律（三档，`../design/bit-budget.md` §3.1）：①`0~7` 直接 MMIO 映射（`0x40+2n`）冻结、兼容 E0~E5；②`0x50~0x7F`（stateId 8~31）只是**临时过渡缓冲**，不得作为长期设计；一旦耗尽必须切换为③GPU 内存间接状态表（MMIO 只存根指针）。**禁止继续在 MMIO 硬编码新增 stateId**；本章不新增 stateId，只读 `0x40~0x4F` 段。
-
-| 段 | 本章寄存器 | 用途 |
-|---|---|---|
-| 0x00~0x0F | RING_WPTR(0x00)、RING_RPTR(0x01)、RING_SIZE(0x02)、DOORBELL(0x04)、FENCE_MON(0x08) | ring 指针、doorbell、fence 监视 |
-| 0x10~0x1F | CP_CTRL(0x10)、INT_STATUS(0x14)、CTX_STATE(0x18) | CP 控制、中断、上下文状态 |
-| 0x20~0x2F | ERROR_CODE(0x20)、ERROR_PKT_TYPE(0x21)、ERROR_DWORD_OFFSET(0x22)、DEBUG0(0x24)、HW_STATS_BASE(0x28) | 错误定位、调试、性能计数 |
-| 0x30~0x3F | DEV_RING_ID(0x30)、CMD_VERSION(0x38) | 设备/ring ID、命令流版本回显 |
-| 0x40~0x4F | stateId 0~7 LO/HI 基址 | 当前上下文状态基址 |
-| 0x80~0xDF | PSO 暂存区 | SHADER_PSO 状态副本（第 6 章） |
-| 0xE0 | RT_WIDTH(0xE0) | RT 宽度（完整 32 bit） |
-| 0xE1 | RT_HEIGHT(0xE1) | RT 高度（完整 32 bit） |
-| 0xE2~0xEF | — | 多上下文 / 多队列 / SE / 并行统计预留 |
-| 0xF0~0xFF | RESET_CTRL(0xF0) | 系统保留 / 紧急复位（特权） |
-
-`CMD_VERSION`(0x38) 只回显 `STREAM_HEADER` 版本；判定以包为准。
+[公共 MMIO 登记 §4](../design/command-mmio.md)维护偏移和权限。第 10 章沿用初级寄存器，新增 CP 控制、中断、上下文、设备与 ring 标识、诊断和特权复位入口。PSO 与 stateId 引用同一登记。`CMD_VERSION` 仅回显近期接受值，版本判定依据 `STREAM_HEADER`。
 
 ---
 
@@ -167,8 +150,8 @@ IDLE → WAIT_RING（ring 非空？）→ FETCH_HEADER（读 1 dword 包头）
 ### 4.3 fence 与完成通知
 
 ```
-FENCE 包载荷 {u64 value} → CP 写 FENCE_MON(0x08) → 触发中断(INT_STATUS)
-→ KMD WaitFence(queueId, v) 读回 FENCE_MON，v > 已读值 → 完成
+FENCE 包载荷 {u64 value} → CP 更新 FENCE_MON_LO/HI 与 FENCE_STATUS → 触发中断
+→ KMD 查询指定提交，成功读回 64 bit fence，失败返回该提交的错误
 ```
 
 - 值单调递增；同一队列内提交顺序 = fence 写序。
@@ -180,9 +163,9 @@ FENCE 包载荷 {u64 value} → CP 写 FENCE_MON(0x08) → 触发中断(INT_STAT
 
 | 任务 | 段 | 内容 |
 |---|---|---|
-| T10.1 | ① 契约 | `IKmDdi`/`IFirmware`/`IEngine`/包头发送/MMIO 分段/错误记录结构落头文件并独立编译。**含 A 阶段前置执行项 B-042**：`mmio.h` 按 dword 索引重排 stateId/PSO/多上下文 + 回写第 2/10 章偏移表（裁定见 `bit-budget.md` §9 第 6 项、`roadmap.md` §2.3 A 行/§7.3，A 门禁无豁免） |
+| T10.1 | ① 契约 | 准备 DDI、固件和引擎接口及错误记录。B-042 核对 dword 偏移、权限、位宽，并审计第 2、3、11 章使用的子集 |
 | T10.2 | ② 主体 | 设备创建/销毁、能力查询（`config.commandVersion`、引擎列表）、MMIO bucket 复位清零 |
-| T10.3 | ② 主体 | MMIO 寄存器映射：`0x00~0x3F`、`0xF0` 读写 + 回读一致性、非法偏移拒绝 |
+| T10.3 | ② 主体 | 实现 §3.4 启用子集，验证读写权限、门铃等副作用及非法偏移拒绝 |
 | T10.4 | ② 主体 | HW→FW→KMD 创建及失败回滚。关闭时停止接收，推进已接受工作至终态，再停 CP 并逆序释放 |
 | T10.5 | ② 主体 | KMD DDI 入口 + 特权封装：`ResetEngine` 走 FW、页表根仅 FW 可写（ADR-040） |
 | T10.6 | ② 主体 | 环初始化/写读指针、tail/head 推进、满/空判定、回绕 |
@@ -210,9 +193,9 @@ FENCE 包载荷 {u64 value} → CP 写 FENCE_MON(0x08) → 触发中断(INT_STAT
 
 | DoD | 判据（机器可判） | 级别 |
 |---|---|---|
-| D10.1 | 三接口头文件独立编译；包头发送字段偏移 `static_assert`；MMIO 段号与 §3.4 表一一对应；**B-042 判据**：`mmio.h` 全部偏移为 dword 索引（脚本/`static_assert` 校验），第 2/10 章偏移表与代码逐项一致（脚本比对） | L1 契约 |
+| D10.1 | 接口独立编译并核对包头字段。按 B-042 将实现和启用子集分别对照公共表，检查偏移、权限、位宽和碰撞。旧整表相等判据为 **SUPERSEDED** | L1 契约 |
 | D10.2 | 设备创建两次得到两实例；能力查询 `version` 与构造参数一致；第二次创建前 MMIO 全 0 | L1 契约 |
-| D10.3 | 写后读回每个已登记寄存器逐字节相等；非法 MMIO 偏移访问返回 `InvalidArgument` 且不改状态 | L1 契约 |
+| D10.3 | RW 项可回读，RO 项通过设备事件更新并拒绝外部写入，WO 项验证触发效果。非法偏移返回 `InvalidArgument` 且保持状态 | L1 契约 |
 | D10.4 | HW→FW→KMD 创建顺序正确；任一级创建失败只回滚已建对象。带一个待处理提交关闭时先产生成功或失败完成，再停 CP；资源引用归零 | L1 契约 |
 | D10.5 | `ResetEngine` 使 CP 停止且 `ResetRequired` 置位；`scene` 模拟 UMD 写 `RESET_CTRL(0xF0)` 返回 `NotSupported`（特权拒绝） | L1 契约 |
 | D10.6 | `N=size-1` 填满环（可用容量）后 `tail+1==head`（满）；消费后 `head==tail`（空）；回绕一次后读写指针差值正确 | L1 契约 |
@@ -221,7 +204,7 @@ FENCE 包载荷 {u64 value} → CP 写 FENCE_MON(0x08) → 触发中断(INT_STAT
 | D10.9 | 环余量 < 包长时，环尾出现 `NOP(count=1)` 填充、包从环头完整落地，fence 值不减 | L1 契约 |
 | D10.10 | Push/Pump/Pop 的队列状态可以检查；FIFO 满返回 `Busy` 且可重推；非法包产生失败完成和位置记录。独立复位及重建验收归 A36 | L1 契约 |
 | D10.11 | 连续两个 `FENCE(1)`/`FENCE(2)`：`WaitFence(2)` 返回后 `FENCE_MON==2`；先等待大值再小值不跳序 | L1 契约 |
-| D10.12 | `ProgramRing` 后 MMIO 回读 `base/size`；`OnDoorbell` 后 `CP_STATE` 为 running | L1 契约 |
+| D10.12 | `ProgramRing` 后从 `RING_BASE_LO/HI`、`RING_SIZE` 还原地址和容量。`OnDoorbell` 后 `CP_STATUS` 为 running | L1 契约 |
 | D10.13 | `Submit` 后 ring tail 推进恰等于包长 dword；doorbell 计数 +1；`WaitFence` 读回完成值 | L1 契约 |
 | D10.14 | `scene_s1` 空命令流：无元素执行但 fence 从 a → b 单调推进且两次运行一致；命令链从场景到 CP 无断链 | L1 契约 + A10 |
 | D10.15 | A10 全绿：S1 空环专有判据（回绕/填充/非法包/fence 顺序）零容差；S13 报错子集（非法包、版本拒绝）可定位 `{unit,pktType,dwordOffset}` | L1 契约 |
@@ -285,4 +268,4 @@ FENCE 包载荷 {u64 value} → CP 写 FENCE_MON(0x08) → 触发中断(INT_STAT
 
 ## 2026-11-21 评审同步说明
 
-寄存器偏移见本章 §3.4，MMIO 分段、PSO 暂存区与 stateId 见 [命令与 MMIO 登记](../design/command-mmio.md)。CP ADVANCE 推进读指针。初级子集尚待对齐的条目见 [设计评审剩余问题](../design/review-sync-20261121.md)。
+公共偏移见 [命令与 MMIO 登记 §4](../design/command-mmio.md)，实现审计见 D10.1。

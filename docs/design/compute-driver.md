@@ -37,7 +37,7 @@
 
 1. 创建顺序：`Context → Module → Function → Stream/Event`，HLI 侧先建 device → queue；销毁严格逆序。
 2. 驱动对象销毁释放用户引用，完成或失败释放硬件引用。两者归零后回收底层内存。销毁无需隐式同步，仍有依赖的 Stream/Context 按对象契约返回 `Busy`。
-3. 设备丢失 / 引擎复位期间（第 36 章）：被丢弃命令的硬件提交引用即刻归零；驱动对象销毁必须安全且幂等（底层内存已回收时不得二次 free）。
+3. 设备丢失或引擎复位时，第 36 章等待故障引擎停稳，经失败完成释放被丢弃提交的引用。旧终态仍可查，销毁保持幂等。
 
 ## 3. `MUSA_MODULE_HDR` 二进制布局
 
@@ -110,7 +110,7 @@ module blob 布局（little-endian，字段 4 B 对齐；`entryOffset`/`codeBase
   - `Record(stream)` 在发信号的 stream 命令流插入 `SIGNAL`。首次接受的记录绑定一个生产者 stream，后续允许同一 stream 重录。只有提交接受后才发布新的记录值。
   - `Wait(stream)`：快照 Event 最近一次已记录值，在该 stream 插入 `WAIT(eventSemaphore,value)`；未记录过的 Event 返回 `InvalidArgument`。等待可跨队列；
   - `Query()` 非阻塞查询最近一次记录。尚未完成返回 `NotReached`，已成功返回 `Reached`，已失败映射该记录的非成功状态。此前已记录的 `Wait` 固定使用当时快照的信号值和状态。
-- 异步计算语义：计算队列与图形队列以 `SIGNAL/WAIT` 定义依赖（不依赖提交次序）；计算→图形可见性 = 队列家族所有权转移（第 32 章）+ fence + device barrier（§3.13 一致性矩阵"图形 ↔ 计算"行）。
+- 异步计算通过 SIGNAL/WAIT 表达依赖，共享资源按 [同步原语 §2.2](sync-primitives.md) 完成 release→SIGNAL→WAIT→acquire。
 
 ## 7. Runtime API 面（alloc / memcpy / launch）
 

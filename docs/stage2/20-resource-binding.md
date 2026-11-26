@@ -4,7 +4,7 @@
 
 > 本章建立图形与计算的统一对象模型：资源（描述存储）与视图（描述用途/切片）分离（ADR-023）、描述符堆（Bindless 一期）、管线对象（图形 stages + 计算 kernel 同构）、root signature 类绑定、资源状态与屏障（粗粒度访问掩码，ADR-024/031）、以及 kernel 参数区封装。它是 21（纹理）、22~26（几何/光栅/OM）与 37/stage3 38~42（计算，原 35.5）的公共底座。
 > 与本章相关的设计说明：`../architecture-design.md` §3.4（HLI 对象面将承此对象模型）、§3.8（`KernelArgsLayout`）；`../design/command-mmio.md` §3（`stateId 3/5` 纹理/绑定/采样器描述符堆基址）；`../design/sync-primitives.md` §2（屏障粗粒度）；ADR-023/024/025（资源视图分离/屏障/能力四档）、ADR-042（地址确定性）。
-> 落地模块：`umd/graphics/pal/{resource,binding,pipeline}`、`hw_sim`（`USE_RESOURCE/VIEW/DESCRIPTOR/STATES` 数据面）、`apps/scene_s4_textured_quad`、`apps/scene_s5_model`（借用资源）、`apps/scene_s14_bindless_uav`、`apps/scene_s18_compute_basic`（kernel 参数）。
+> 落地模块：`hli/detail` 的共用资源、绑定和管线转换、`hw_sim` 资源数据面、S4/S14 与 S5/S18 的局部用例。章内支架经 KMD 提交，35.1 接入公共 HLI 对象。
 
 ---
 
@@ -32,7 +32,7 @@
 ## 2. 单元框图
 
 ```
- 资源表（Umd/PAL 层）
+ 共用资源登记表
    Resource ──► View(SRV/UAV/CBV/RTV/DSV)
                  │
    DescriptorHeap ── Write(index) ──► 描述符表（stateId 5 基址）
@@ -47,13 +47,13 @@
    kernel args（参数缓冲 → uniform 区 v[56..67]）
 ```
 
-- 硬件单元只消费例行包（`BIND_DESCRIPTOR_TABLE` 等），不认识 UMD 概念；描述符/资源表是 UMD/PAL 侧对象。
+- 硬件单元只消费例行包（`BIND_DESCRIPTOR_TABLE` 等），不认识 UMD 概念；描述符与资源表属于驱动共用数据面。
 
 ---
 
 ## 3. 输入输出契约
 
-### 3.1 资源/视图（`pal/resource/resource.h`）
+### 3.1 资源/视图（共用数据结构）
 
 ```cpp
 struct ResourceDesc {
@@ -76,7 +76,7 @@ struct ViewDesc {
 };
 ```
 
-### 3.2 描述符堆（`pal/binding/descriptor_heap.h`）
+### 3.2 描述符堆（共用数据结构）
 
 ```cpp
 struct DescriptorHeapDesc { u32 capacity; Heap heap; }; // 登记 GART（GPU 可读）
@@ -92,7 +92,7 @@ public:
 - Bindless 一期：`GetGpuVa(index)` 直接给硬件 base + offset；允许在应用运行中改写 index 处视图；堆位于 GART，GPU 可读（Q-51）。
 - `Write` 越界 → `InvalidArgument`。
 
-### 3.3 管线对象（`pal/pipeline/pipeline.h`）
+### 3.3 管线对象（共用数据结构）
 
 ```cpp
 struct GraphicsStages { ShaderBin vs, ps, hs, ds, gs; ShaderIo io; };
@@ -172,14 +172,7 @@ DRAW/DISPATCH → 引擎按 stateId 5 基址读描述符
 
 ### 4.2 资源状态与屏障
 
-```
-资源初始状态（PSO 声明的初始布局）
-提交中使用 → 记录当前状态（READ/WRITE/ATTACHMENT/TRANSFER）
-跨阶段/跨提交转换 → BARRIER 包 → HW 执行 Cache FlushBank/Invalidate（12 章）→ 状态推进
-粗粒度掩码：不做 per-resource 位（ADR-031）
-```
-
-- 滥用（未按状态使用资源）不报错（无完整验证资源状态机，本期）——留待 pipeline validation（35.2 起）。但非法 subresource 范围（切片/层/mip 越界）必须报错。
+记录期检查视图、切片、层和 mip 范围，冻结命令对应的资源目标。共用 3 dword `BARRIER` 在执行层按粗粒度掩码维护缓存可见性。本章验收范围校验、粗粒度资源状态和普通资源屏障。第 32 章依 [同步原语 §2.2](../design/sync-primitives.md) 接入整资源移交。
 
 ### 4.3 描述符堆设备内存语义
 
@@ -203,7 +196,7 @@ DRAW/DISPATCH → 引擎按 stateId 5 基址读描述符
 | T20.6 | ② 主体 | Pipeline 计算对象：kernel + paramLayout（同构） |
 | T20.7 | ② 主体 | root signature 绑定槽：slot ↔（tableVa,index）映射、`BIND_DESCRIPTOR_TABLE` |
 | T20.8 | ② 主体 | 常量区/push constant：`SET_CONSTANT` 或 push 常量路径（35.1 收口） |
-| T20.9 | ② 主体 | 资源状态机情况：状态下推与跟踪（粗粒度） |
+| T20.9 | ② 主体 | 记录期验证资源和子资源范围，冻结目标及所需状态 |
 | T20.10 | ② 主体 | BARRIER 包：执行/内存/布局掩码 → 12 章缓存刷/失效 |
 | T20.11 | ② 主体 | 定义 `KernelArgsLayout` 的记录期校验，使用预先写好的参数缓冲记录 `SET_KERNEL_ARGS`。按函数签名打包主机字节由 T39.2 实现 |
 | T20.12 | ② 主体 | 视图/描述符非法：越界、未绑定、重解释非法格式 → 确定报错 |
@@ -234,13 +227,13 @@ DRAW/DISPATCH → 引擎按 stateId 5 基址读描述符
 | D20.6 | 计算 PSO 同构：`CreatePipeline(kernel)` + `Bind` 后 `SET_KERNEL_ARGS` 可查 | L1 契约 |
 | D20.7 | `BindRootDescriptors(slot, heapVa, idx)` → 命令流包内容与参数一致；slot 越界拒 | L1 契约 |
 | D20.8 | push constant 越界（超常量区）→ `InvalidArgument`；合法值进入 SB/常量区 | L1 契约 |
-| D20.9 | 资源状态随提交推进（READ→WRITE 需 BARRIER）；非法 subresource 范围报错 | L1 契约 |
+| D20.9 | 合法范围可记录并定位目标，READ→WRITE 经普通屏障推进。越界层、切片或 mip 返回 `InvalidArgument` 且无对应屏障包 | L1 契约 |
 | D20.10 | `BARRIER(kind=resource)` 的唯一 3-dword envelope 触发 12 章 Flush/Invalidate；`READ→WRITE` 后新值读回 | L1 契约 |
 | D20.11 | 用构造的缓冲、大小与偏移验证记录期校验。合法描述生成预期 `SET_KERNEL_ARGS`。重叠、越界、未映射、未驻留或 uniform 区不合法时返回对应错误且无包。硬件装载由 D37.4 验收 | L1 契约 |
 | D20.12 | 越界视图/未绑定描述符 → 确定报错（`NotMapped`/`InvalidArgument`），非静默 0 | L1 契约 |
 | D20.13 | 绑定新 PSO 后旧资源引用不被新提交使用；删除旧资源时提交未引用（引用计数/安全） | L1 契约 |
 | D20.14 | S4/S14 场景断言通过；S5 资源视图、S18 case-0~2 参数布局独立单测通过（不验收 S5/S18 端到端场景） | L1 + L2 |
-| D20.15 | Pipeline/状态输入经共用 lowering 生成预期 `SHADER_PSO` 字段，已接入的图形场景输出零容差。通过章内包支架复核，HLI 接线归 35.1 | 横切 |
+| D20.15 | 章内支架经共用转换生成既有 `SHADER_PSO` 并经 KMD 提交，图形探针通过。35.1 复用同一转换 | 横切 |
 | D20.16 | A20 全绿：S4/S14 场景、S5 资源视图与 S18 参数布局单测，及专有判据（常量/结构化缓冲/SSBO 取值、越界/未绑定报错、视图切片与格式重解释、管线替换完整、push constant 越界、非法子资源屏障报错、描述符堆设备内存语义）+ R20 | L1 + L2 |
 
 ---

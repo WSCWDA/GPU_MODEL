@@ -2,7 +2,7 @@
 
 > 项目范围、阶段位置和交付以[任务规划](../README.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
 
-> 本章是 **stage3 计算驱动开发线（38~42，ADR-047）** 的收口 / 验收章。把 stage3 全部能力（对象骨架 / LaunchKernel / stream-event 异步 / 组内协作与间接/UAV 写回）经**计算驱动入口**（`umd/compute`，`api_backend=compute`）与**直连 HLI 计算入口**（`api_backend=hli`）双跑：S18 `scene_s18_compute_basic`（blockIdx/threadIdx、越界 work-item 不写、grid 边界部分 workgroup、wave 归约与 CPU 参考一致）+ S19 `scene_s19_compute_memory`（LDS/原子/barrier、间接 dispatch、异步计算、作用域语义、计算→图形 fence 后结果可见）。主判据：**双入口探针零容差等价（同输入、关键命令语义等价、探针一致）**；A-stage3（A38~A42）全绿；E/S 场景回归不退化；`serial`/`parallel` 双策略一致。
+> 本章是 **stage3 计算驱动开发线（38~42，ADR-047）** 的收口 / 验收章。把 stage3 全部能力（对象骨架 / LaunchKernel / stream-event 异步 / 组内协作与间接/UAV 写回）经**计算驱动入口**（`umd/compute`，`api_backend=compute`）与**直连 HLI 计算入口**（`api_backend=hli`）双跑：S18 `scene_s18_compute_basic`（blockIdx/threadIdx、越界 work-item 不写、grid 边界部分 workgroup、wave 归约与 CPU 参考一致）+ S19 `scene_s19_compute_memory`（LDS/原子/barrier、间接 dispatch、异步计算、作用域语义、计算→图形移交完成后可见）。主判据：**双入口探针零容差等价（同输入、关键命令语义等价、探针一致）**；A-stage3（A38~A42）全绿；E/S 场景回归不退化；`serial`/`parallel` 双策略一致。
 > 设计权威：stage3 全链路契约见 `../design/compute-driver.md`；WA 目录见 `../architecture-design.md` §7.9，计算通路见 `../design/compute-line.md` §1/§2；kernel 参数与 `DispatchDesc` 见 `../architecture-design.md` §3.8/§3.11；映射与作用域见 §3.12/§3.13；错误码映射见 §3.9；场景与判据唯一权威 `../design/scene-specs.md` §3（S18/S19）、§4（第 42 行）。
 > 编号纪律：本章不新增编号（复用全量既有登记）；不新增配置键（入口选择复用 `api_backend=hli / compute`，ADR-047）；开工前对照 `../design/bit-budget.md` 审计（ADR-045）。
 
@@ -135,7 +135,7 @@ A-stage3 = A38（对象/装载）∧ A39（打包/派发）∧ A40（stream/even
 |---|---|---|
 | D42.1 | 等价矩阵单测全绿（4 组合 × 本章覆盖子集：S18 `case-0~3` / S19 `case-0~4`）；配置键不新增 | L1 契约 |
 | D42.2 | 语义对照接受同一逻辑资源的地址/句柄重分配和时间线基值变化；拒绝参数、作用域、依赖或失败终态的变化；uniform 快照与逻辑地址对应 | 横切 |
-| D42.3 | S18 `case-0~3` 与 S19 `case-0~4` 四组合硬探针零容差，含计算→图形 fence 后可见与图形→计算 UAV；S18 `case-4~12` 维持 HLI 基线 | L2 + 横切 |
+| D42.3 | S18 `case-0~3` 与 S19 `case-0~4` 四组合硬探针零容差，含计算→图形移交完成后可见与图形→计算 UAV；S18 `case-4~12` 维持 HLI 基线 | L2 + 横切 |
 | D42.4 | 非法参数、坏 module/function 和已失败 Event 命中对应错误；有效未达成 Query 非阻塞返回 `NotReached`；重复非法调用返回确定结果 | L1 |
 | D42.5 | A-stage3 全绿：A38~A41 + 本章 A42（D42.1~D42.4）汇总 + E1~E5/S0~S17 全部适用回归（E0 单独 L1 自检）+ 适用场景 `serial`/`parallel` 零容差 + ADR-032 分支审查 | L1 + L2 + 横切 |
 
@@ -151,7 +151,7 @@ A-stage3 = A38（对象/装载）∧ A39（打包/派发）∧ A40（stream/even
 | 产物 | 双入口命令包序列比对、S18/S19 探针表（双入口）、A-stage3 汇总表、错误映射日志 |
 | 主判据 | S18 `case-0~3`、S19 `case-0~4` 双入口关键命令语义等价，硬探针逐值零容差，`serial`/`parallel` 一致；S18 其余 case 保留 HLI 回归 |
 | 本章专有判据 | 非法参数和对象、执行失败有明确错误；有效未达成 Query 返回状态；共用单元按 ADR-032 审查 |
-| 回归项 | R42：E1~E5 与 S0~S17 不退化（E0 单独执行 L1 自检）；所有适用场景运行 `serial`/`parallel`，S10/S11/S12/S16/S17 重点复核；未列明历史 A 门禁不自动阻断 |
+| 回归项 | R42：E1~E5 与 S0~S17 适用场景，E0 单独 L1，S18 case-4~12（含 WA-02 case-5）保留 HLI 回归。C4 归 A41 验收，A42 汇总其结果，双入口矩阵沿用本节 |
 | 后续补齐 | `LaunchWithParamBuffer`、动态并行、可变 subgroup、真实 occupancy —— 二期 / 范围外，仅留 capability bit / 文档登记 |
 
 > 场景输入与探针单份规约见 `../design/scene-specs.md` §3（S18/S19 节）与 §4（第 42 行）；A-stage3 汇总以本节 + §4 表为唯一权威。

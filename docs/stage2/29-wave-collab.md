@@ -68,7 +68,7 @@
 | 内建 | 映射 |
 |---|---|
 | `SubgroupSize()` | 常量 32 |
-| `SubgroupInvocations()` | lane id（0..31） |
+| `SubgroupInvocationId()` | lane id（0..31） |
 | `Ballot(pred)` / `Shuffle` / `Broadcast` | 对应指令 |
 | `SubgroupReduce` | REDUCE 族 |
 
@@ -118,7 +118,7 @@
 
 | DoD | 判据（机器可判） | 级别 |
 |---|---|---|
-| D29.1 | 接口独立编译；`SubgroupSize=32`、内建区段映射冻结 | L1 契约 |
+| D29.1 | 接口独立编译。lane 0 和 17 的 `SubgroupSize()` 都返回 32，`SubgroupInvocationId()` 分别返回 0 和 17，沿用当前 opcode 映射 | L1 契约 |
 | D29.2 | `Ballot((lane%2)==0)` → 偶数位模式 `0x55555555`（活跃全波）；部分活跃仅含活跃位 | L1 契约 |
 | D29.3 | `ShuffleIdx(v, lane+1)` 各 lane 得 v[lane+1]；下界/上界外为 0 | L1 契约 |
 | D29.4 | `Broadcast(v, 5)` → 全波 v[5] | L1 契约 |

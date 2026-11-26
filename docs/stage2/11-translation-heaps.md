@@ -2,7 +2,7 @@
 
 > 项目范围、阶段位置和交付以[任务规划](../README.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
 
-> 本章把初级"单 VA 恒等映射"替换为真实 GPU 地址模型：两级页表/TLB、VRAM/GART/System 三堆、KMD 内存池、分配种子确定性、以及 flush/invalidate 主机同步。所有硬件单元统一走 `VA → TLB → L2 → 存储`，不得绕过翻译直连堆（ADR-042）。
+> 本章建立页表/TLB、三堆、内存池与确定性分配，定义主机映射权限和提交/完成边界。A11 使用直接存储路径，实际缓存维护由第 12 章接入。
 > 与本章相关的设计说明：`../architecture-design.md` §3.6（`IMemorySubsystem` 接口）；`../design/memory-system.md` §1~§3、§6~§7（三类地址、页表/TLB、堆/分配器、主机同步、分配确定性）；`../design/command-mmio.md` §3（`stateId 1` 页表根）。
 > 落地模块：`hw_sim/memory/{translation,heaps}`、`kmd/memory`、`umd/os`、`firmware/scheduler`（doorbell 写页表根）、`apps/scene_s0_selftest`、`apps/scene_s2_clear`。
 
@@ -160,7 +160,7 @@ Unmap(va, bytes): 校验已映射 → 释放 PTE → InvalidateTlb（全清，�
 | T11.6 | ② 主体 | KMD 内存池：页粒度分层、小对象池、元数据记录 |
 | T11.7 | ② 主体 | `Map/Unmap` 跨页建表/释放、重叠拒绝、TLB 失效联动 |
 | T11.8 | ② 主体 | 页错误入口：`NotMapped`/`NotResident` + VA、记录 `{unit,packetType,dwordOffset,va}` 后中止提交（不复位） |
-| T11.9 | ② 主体 | 内存域语义：`HOST_VISIBLE/HOST_COHERENT`；flush/invalidate 由第 12 章 `CacheSubsystem` 接入 |
+| T11.9 | ② 主体 | 实现 HOST_VISIBLE/HOST_COHERENT 的映射权限与提交、完成边界，使用无缓存基线 |
 | T11.10 | ② 主体 | 分配种子确定性：`SetMemoryPoolSeed` 后 VA 序列可复现 |
 | T11.11 | ② 主体 | 分配元数据快照 dump + 泄漏检测接口（供 `mem_audit`） |
 | T11.12 | ② 主体 | `SET_STATE_BASE(stateId=1)` + FW doorbell 页表根与 MMIO 回读 |
@@ -190,10 +190,10 @@ Unmap(va, bytes): 校验已映射 → 释放 PTE → InvalidateTlb（全清，�
 | D11.6 | 内存池元数据 `{size, tag}` 与分配一致；小对象复用不产生泄漏计数净增长 | L1 契约 |
 | D11.7 | `Map` 重叠区 → `InvalidArgument` 且两页不被破坏；`Unmap` 后 `Translate` 返回 `NotMapped` | L1 契约 |
 | D11.8 | 访问缺项 VA → `NotMapped` 且 `ErrorRecord.va` 精确；未驻留 → `NotResident`；当前提交中止且**不复位**，修正映射后重跑结果一致 | L1 契约 |
-| D11.9 | 第 12 章 `CacheSubsystem` 的 flush 后 GPU 读到 CPU 最新值；invalidate 后 CPU 读到 GPU 新值；两者为空操作时语义仍成立（模拟即刻一致） | L1 契约 |
+| D11.9 | 不可见内存拒绝主机映射。host 写后提交对 GPU 可见，GPU 写后等待成功对 host 可见。采用无缓存路径，旧 CacheSubsystem 依赖为 **SUPERSEDED**，实际维护由 D12.7 验收 | L1 契约 |
 | D11.10 | 相同输入 + 相同 seed：两次运行 100 次分配 VA 序列完全一致；不同 seed 生成不同序列 | L1 契约 |
 | D11.11 | 分配元数据快照可导出；模拟"分配后释放再引用"被 `mem_audit` 标记 UAF | L1 契约 |
-| D11.12 | `SET_STATE_BASE(stateId=1, root)` 后 MMIO `0x42/0x43` 回读等于 root 高/低 32 bit；doorbell 后 `CTX_STATE` 更新 | L1 契约 |
+| D11.12 | `SET_STATE_BASE(stateId=1, root)` 后 `0x42/0x43` 分别读回 root 低、高 32 bit，doorbell 后更新 `CTX_STATE` | L1 契约 |
 | D11.13 | 新旧实现下所有 `Read/Write` 调用点（着色器/Copy/Display/纹理）结果一致；代码搜索无直接 `Storage` 访问。**新增 L1 契约单测（正常+非法边界，部分失败语义）**：多页 `Write` 中一页未映射 → 整体 `NotMapped` 且无半写副作用（已映射页不被部分修改） | L1 契约 |
 | D11.14 | `scene_s2` 上传 N 顶点、映射读回逐字节相等；`scene_s0` 自检 `Translate`/TLB 命中无误 | L1 契约 |
 | D11.15 | A11 全绿：S2 主判据 + 专有判据（两 VA 一致、翻页失效、TLB 递增）+ S0 自检 + R11 回归项（E0~E5 已交付场景） | L1 契约 + L2 |

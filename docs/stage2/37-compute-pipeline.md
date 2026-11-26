@@ -197,7 +197,7 @@ CP 解析 DISPATCH(0x04) → Compute 引擎
 |---|---|
 | 输入 | S18：1D/2D/3D grid + block、kernel 参数、越界 work-item；S19：LDS / 原子 / barrier + 间接 dispatch + 异步计算；两者跑 `api_backend=hli`（直连）；（`api_backend=compute` 计算驱动入口归 stage3 42 双入口等价验收） |
 | 产物 | kernel 启动日志、命令包序列、RT/UAV/参数缓冲读回、S18/S19 探针表 |
-| 主判据 | S18/S19 的 blockIdx/threadIdx/越界/计数/shared/barrier/内存序 = ref_model（整数/索引零容差）；fp32 归约 ≤1 ULP + 归约顺序断言（`scene-specs.md` §1.2）；间接 dispatch 与直接等价；计算→图形 fence 后结果可见 |
+| 主判据 | S18/S19 的 blockIdx/threadIdx/越界/计数/shared/barrier/内存序 = ref_model（整数/索引零容差）；fp32 归约 ≤1 ULP + 归约顺序断言（`scene-specs.md` §1.2）；间接 dispatch 与直接等价；计算→图形完成整资源移交后可见 |
 | 本章专有判据 | 直连 HLI 双策略结果符合本章场景；以现有 D13-a/b/c 检查 HLI 记录期拒绝和无包，A39 复核计算驱动入口的错误映射；有效提交与组驻留可正常推进 |
 | 回归项 | R37：S10（波内/组内归约计算侧）、S11（并行）、S12（多引擎）、S16（所有权）在计算线接入后不退化；未列明历史 A 门禁不自动阻断 |
 | 后续补齐 | `LaunchWithParamBuffer`、动态并行、可变 subgroup、真实 occupancy 调优 —— 均二期 / 范围外，只留 capability bit 或文档登记 |

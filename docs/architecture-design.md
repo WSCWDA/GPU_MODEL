@@ -134,7 +134,7 @@ hw_sim/
     scheduler                    (15)  波调度 / CU 多 SIMD
     subgroup                     (29)  ballot / shuffle / reduction / 导数
     shared                       (30)  shared memory / atomic / barrier / 内存序
-  isa/                           (5,16) 编码 / 解释器 / 汇编 / 反汇编
+  isa/                           (5,16) 共用解码和指令入口，复用 shader/wave 状态
   texture/                       (21)  格式解码 / tiling / mip-LOD / 过滤 / 寻址
   frontend/
     ia                           (22)  索引 / 拓扑 / restart / step rate / 实例化
@@ -163,16 +163,14 @@ kmd/
   interrupt                      (10)  fence / 错误中断
   reset                          (36)  引擎复位 / 队列重建
 
-hli/                             (35.1) device / queue / resource / view / descriptor / pipeline / command / capability
+hli/
+  detail/                        (20,33) 共用资源/绑定数据与命令转换
+  device/queue/resource/view/descriptor/pipeline/command/capability   (35.1) 公共对象面
 
 umd/
-  graphics/api/{vulkan,d3d12,gl} (35.2~35.4)
-  graphics/pal/
-    resource                     (20)  Heap / Resource / Placement / 驻留
-    binding                      (20)  描述符堆 / root signature / binding table
-    pipeline                     (20,22~26) PSO / 着色阶段 / 固定功能状态
-    cmd_gen                      (33)  命令记录 / IB / 间接命令
-    queue                        (32)  队列 / fence / timeline semaphore
+  graphics/api/{vulkan,d3d12,gl}   (35.2~35.4)
+  graphics/pal/                  (35.1) 图形状态与 HLI 命令记录
+
   shader/
     frontend, ir                 (17)  词法/语法/语义 / SSA + CFG
     opt, regalloc, emit          (18)  优化 / 线性扫描 / 指令选择与发射
@@ -370,6 +368,8 @@ public:
 6. 动态状态在命令列表记录时快照，提交时按记录值执行；两个命令缓冲各自提交时动态状态互不干扰。
 7. 35.1 交付直连 HLI 代表用例、计算命令记录契约，以及 `umd/graphics/pal` 上的项目自有最小图形入口。该入口允许应用创建或引用资源视图、记录 Pipeline/Draw、提交并读回 S17 的代表图形结果。直连 HLI 路径用于同输入对照。35.2–35.4 随后按能力接入。S18/S19 的完整计算硬件验收在第 37 章。
 
+**早期提交（ADR-056）**：第 20、33 章在 `hli/detail` 提供共用资源/绑定数据和命令转换，第 32 章的场景支架经既有 KMD DDI 提交。35.1 用同一转换和提交链路接入 HLI 对象。正式 PAL 经 HLI 记录和提交，第 2 章初级薄门面保持原依赖。
+
 ### 3.5 KMD / FW 契约（第 10 章）
 
 ```cpp
@@ -400,10 +400,10 @@ public:
 
 规则：
 
-- `Submit` 只负责写入 ring、更新 tail、写 doorbell；真正的取指由 CP 完成，KMD 不得直接调用引擎。
+- KMD `Submit` 验证提交描述，再写入 ring、更新写指针并触发 doorbell。FW 激活上下文和 CP，CP 负责实际取指与派发。
 - doorbell 处理中，FW 只做"加载页表基址 + 启动 CP + 记录上下文"，不解析 draw。
-- 中断只做通知；KMD 从 MMIO 读回完成值，不依赖中断载荷。
-- 第 10 章冻结 DDI 形状；后续章只追加方法，不改变既有签名。
+- 中断负责通知。KMD 用逻辑 `queueId` 和 fence 目标定位接受的提交，记录保留 generation 与提交序号。旧终态仍可查询期间逻辑 ID 保持唯一，新队列使用新 ID。MMIO 成功 fence 用于读回和诊断。
+- DDI 方法签名保持。第 32 章在 `SubmitDesc` 中增加可选的不可变屏障描述，由 KMD 验证后交给 CP。已有调用可使用空描述。字段见 [同步原语 §2.2](design/sync-primitives.md)。
 
 ### 3.6 内存接口（第 3 / 11 章）
 
@@ -523,7 +523,7 @@ struct KernelArgsLayout {
 
 1. **正常销毁 = 逆创建顺序**，任一对象的销毁不等待除自身以外的提交：`IHliResource/View/Pipeline/DescriptorHeap` 可随时销毁，但底层 GPU 内存仅在**用户引用 AND 硬件提交引用双归零**后释放（见 §3.10、ADR-041）；HLI 保证"销毁后同一句柄再使用返回 `InvalidArgument`"，不产生悬空访问。
 2. **销毁不做隐式同步**：应用要求对象仍被 in-flight 命令引用时，销毁只减用户引用、不动硬件提交引用（硬件引用由 fence 完成回调释放）；是否阻塞由上层（UMD）决定，HLI 只维护引用计数与释放点。
-3. **异常路径（设备丢失 / 引擎复位期间）**：复位发生时（下节"引擎复位后的对象 / 命令 / 引用计数语义" + `boot-reset.md` §2）被丢弃命令的硬件提交引用**即刻释放**，不再等待永远不会完成的 fence；用户引用仍归应用持有（除非上层因 `DeviceLost` 选择销毁）。**销毁在复位期间必须安全且幂等**——底层内存已由复位路径回收的，`Destroy` 不得二次 free、不得崩溃。
+3. **异常路径（设备丢失或引擎复位）**：故障引擎停稳后，经失败完成释放被丢弃提交的硬件引用。其他引擎的引用及用户引用按原生命周期释放。销毁保持幂等。
 
 **引擎复位后的对象 / 命令 / 引用计数语义（第 36 章，问题 13）**——引擎级复位（仅重编程故障引擎的 ring），逐条明确：
 
@@ -637,14 +637,14 @@ globalThreadId  = workgroupId * threadsPerGroup + gtid
 | 同组 LDS | ISA `BARRIER(Workgroup)` 指令（非 `PKT_TYPE=0x0E` 包） | 读到旧值 / 竞态 |
 | 同组 global（同 CU） | ISA `BARRIER(Workgroup)` + workgroup 可见性规则；命令包级 resource barrier 不在 kernel 内插入 | 读到 L1 旧值 |
 | 跨组 / 跨 CU global | 命令包 `BARRIER(kind=resource,scope=Device)` + 写队列排空/失效 | 部分 CU 读到旧值 |
-| 跨 dispatch / 跨队列 | fence/timeline + 命令包 `BARRIER(kind=ownership,scope=Device)` | 顺序不可解释 |
-| 图形 ↔ 计算 | 队列家族所有权转移（32）+ fence + device barrier | RT / UAV 互不可见 |
+| 跨 dispatch / 跨队列 | 整资源 release→SIGNAL→WAIT→acquire，见 [同步原语 §2.2](design/sync-primitives.md) | 顺序或所有权不成立 |
+| 图形 ↔ 计算 | 复用整资源移交，release 排空、acquire 失效 | RT/UAV 读旧值 |
 
 **规则**
 
 - **S-01 LDS 永不进 VA/PA**：LDS 只经 `shader/shared` 的索引与 bank 访问；任何以 VA 触达 LDS 的指令判 `InvalidIsa`（与 ADR-016 的"片上存储不走 VA"同源）。
 - **S-02 无隐式全局刷新**：dispatch 边界不自动 flush / invalidate；可见性只由 `BARRIER` + fence 建立，保证每条读写都能定位到机制（§1.1）。
-- **S-03 资源屏障编码**：命令包 `0x0E` 固定为三个 dword，依次是 `kind/scope/memOrder/accessMask`、`srcStageMask` 和 `dstStageMask`。枚举和值域见 [命令包 §2.3](design/command-mmio.md)与 [同步原语](design/sync-primitives.md)。组内同步由 ISA `BARRIER` 执行。
+- **S-03 资源屏障编码**：命令包 `0x0E` 固定为三个 dword，字段见 [命令包 §2.3](design/command-mmio.md)。整资源目标随提交冻结并绑定包位置，见 [同步原语 §2.2](design/sync-primitives.md)。组内同步沿用 ISA `BARRIER`。
 - **S-04 计算写回**：buffer store 由 memory 子系统直写（不经 OM）；image store 复用第 21 章 tiling 编码与 `common/format` 转换；RT 写回与计算写回**共用同一格式转换与写掩码实现**，不得复制两份（ADR-032 的实现级推论）。
 - **S-05 缓存口径**：L1 写穿、L2 写回，L2 是缓存一致性点。`cache_enable=off` 旁路缓存，开关前后的定义结果和可见性判据一致，统计可以不同。
 - **S-06 故障同路**：未映射 / 未驻留与图形一致（`NotMapped` / `NotResident` + 中止当前提交），禁止静默读 0，禁止为计算单独开"宽松读"路径。
