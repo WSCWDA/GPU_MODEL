@@ -203,3 +203,17 @@ Query：只读目标状态，主机主动同步使用 StreamSynchronize 或 fenc
 ## 2026-11-21 评审同步说明
 
 本章负责多 Stream 与 Event 的驱动编排。队列与异步推进复用第 32 章，BARRIER 编码见 [命令包登记 §2.3](../design/command-mmio.md)。
+
+## 执行切分与 Git 提交模板
+
+先用章内最小输入验证本章新增模块和失败路径，再接入 §7 登记的场景子例，完成 A40 和适用的 R40 后提交。分配核对项为引用现有同步包、完成值与事件代际，新增或改动按 [编码与位段校验表](../design/allocation-audit.md)登记。
+
+```text
+feat(gpu-ch40): schedule asynchronous streams and events
+
+- 实现 stream/event、跨流依赖及回收生命周期。
+- 用 C3 对照事件次序、失败传播和资源回收。
+
+Tasks: T40.1–T40.6
+Validation: <实际执行的命令、用例和结果>
+```

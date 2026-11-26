@@ -245,3 +245,17 @@ u64    LastSubmittedFence();          // 诊断用，不参与判据
 ## 2026-11-21 评审同步说明
 
 本章 MMIO 判据检查初级子集。MMIO 分段与高级偏移分别见 [命令与 MMIO 登记](../design/command-mmio.md)和 [第 10 章 §3.4](../stage2/10-device-ring-cp.md)，子集对齐待修项见 [设计评审剩余问题](../design/review-sync-20261121.md)。
+
+## 执行切分与 Git 提交模板
+
+先用章内最小输入验证本章新增模块和失败路径，再接入 §7 登记的场景子例，完成 A2 和适用的 R2 后提交。分配核对项为MMIO 偏移、指针与 count 单位，新增或改动按 [编码与位段校验表](../design/allocation-audit.md)登记。
+
+```text
+feat(gpu-ch02): submit and retire work through a single ring
+
+- 完成设备初始化、单 ring、doorbell 与成功 fence 发布。
+- 验证 E1 的提交到完成子流程，覆盖回绕、非法包及不虚报 fence。
+
+Tasks: T2.1–T2.8
+Validation: <实际执行的命令、用例和结果>
+```

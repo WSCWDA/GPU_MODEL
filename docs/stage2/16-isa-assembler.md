@@ -205,3 +205,17 @@ bin → 每 u64 → decode → 文本 → 对齐缩进（不重算地址）
 - subgroup 区段（BALLOT/SHFL 等）在 29 章实现前以占位编码存在；若后期发现前缀/参数编码拥挤，29 章定案时可能追加 imm 位复用，须先申报 ADR（编码为冻结项）。
 - 特殊寄存器（`GET_*`）已有编码；`GET_PIXEL_POS` 等是否再细分（POS 坐标 vs 像素 id）留到光栅/OM 定案时统一。
 - 错误语义 `InvalidIsa` 的定位载体：本章用 `{unit, insnVa, opcode}`；第 36 章错误路径统一补 `packetType`/`dwordOffset` 语境。
+
+## 执行切分与 Git 提交模板
+
+先用章内最小输入验证本章新增模块和失败路径，再接入 §7 登记的场景子例，完成 A16 和适用的 R16 后提交。分配核对项为opcode 家族与操作数位域，新增或改动按 [编码与位段校验表](../design/allocation-audit.md)登记。
+
+```text
+feat(gpu-ch16): assemble and disassemble the shared ISA
+
+- 实现规范文本、编码、解码和反汇编工具。
+- 用 S0 逐字节往返和拒绝性用例对照 ISA 表。
+
+Tasks: T16.1–T16.11
+Validation: <实际执行的命令、用例和结果>
+```

@@ -110,7 +110,7 @@
 | T29.7 | ② 主体 | 编译器前端映射：内建 → subgroup opcode（17 章扩展） |
 | T29.8 | ② 主体 | 波内统计：`ballot/reduce` 调用计数 |
 | T29.9 | ③ 接入 | `scene_s10_reduce`（ballot/shuffle/reduce/deriv）接入；另以固定 wave 输入向量单测计算侧 subgroup 内建，不运行 S18 端到端场景 |
-| T29.10 | ④ 验收 | A29：S10 全绿 + subgroup 单元用例 + 专有判据 + R29 回归项 |
+| T29.10 | ④ 验收 | A29：独立 wave 向量、S10 像素着色器的 wave 探针、专有判据和 R29 |
 
 ---
 
@@ -132,7 +132,7 @@
 
 ## 7. 场景与判据（A29）
 
-**绑定场景：S10 `scene_s10_reduce`。计算侧 wave 输入向量只用于 subgroup 单元测试，不运行 S18 端到端场景；S18 主验收归第 37 章。**
+**绑定 S10 的单 wave 探针与独立 wave 输入。完整组内归约的 LDS/barrier 由 A30 验收，S18 端到端由 A37 验收。**
 
 | 项 | 内容 |
 |---|---|
@@ -180,3 +180,17 @@
 - `REDUCE` 在部分 lane 活跃时按 op 定义 identity（MIN=+∞、MAX=−∞），结果只由活跃 lane 决定；该口径已冻结（Q-62），stage3 38~42（MUSA kernel，原 35.5）的"仅活跃归约"语义直接沿用。
 - `DERIV` 与第 21 章纹理 LOD 的导数来源是否合并为同一实现点（quad 差分）——本期分别实现，若 S10 探针显示不一致再合并（属重构，不动契约）。
 - `Shuffle` 的边界外取值定 0；若某 API（35.x）要求实为"undefined but deterministic"，保持 0 并登记即可，不要求可配置。
+
+## 执行切分与 Git 提交模板
+
+先用章内最小输入验证本章新增模块和失败路径，再接入 §7 登记的场景子例，完成 A29 和适用的 R29 后提交。分配核对项为subgroup opcode、掩码与 lane 索引，新增或改动按 [编码与位段校验表](../design/allocation-audit.md)登记。
+
+```text
+feat(gpu-ch29): add deterministic subgroup operations
+
+- 实现 ballot、shuffle、broadcast、归约和导数。
+- 用固定 lane 输入与 S10 单波探针验证，组内屏障由 A30 验证。
+
+Tasks: T29.1–T29.10
+Validation: <实际执行的命令、用例和结果>
+```

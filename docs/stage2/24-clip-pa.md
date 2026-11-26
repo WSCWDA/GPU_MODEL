@@ -201,3 +201,17 @@ scissor 属于光栅（25 章）；这里只做视口与深度范围。
 - 多视口索引越界语义：真实 GPU 通常 clamp 到最后一个视口；本期报错取拒绝更利于定位。若 35.2（Vulkan 语义）要求 clamp 行为，需 ADR 记录切换。
 - guard band 具体数值（`guardBandScale=2.0`）是默认值，随 ref_model 容差是否稳定微调；不改变语义只变阈值时直接参照容差表。
 - `t` 使用 f32 计算；`±1/16` 仅用于诊断交点参数与 reference 的偏差。输出顶点按既定 viewport 规则量化，像素集合与结构探针要求零容差，禁止将参数容差扩散为像素容差。
+
+## 执行切分与 Git 提交模板
+
+先用章内最小输入验证本章新增模块和失败路径，再接入 §7 登记的场景子例，完成 A24 和适用的 R24 后提交。分配核对项为Clip/Cull VGPR、PSO 位与拓扑，新增或改动按 [编码与位段校验表](../design/allocation-audit.md)登记。
+
+```text
+feat(gpu-ch24): clip primitives and assemble raster input
+
+- 实现裁剪、距离输入、视口换算与 PA 剔除。
+- 单点检查裁剪边界与距离槽，再跑 S3/S5 既有子例。
+
+Tasks: T24.1–T24.10
+Validation: <实际执行的命令、用例和结果>
+```

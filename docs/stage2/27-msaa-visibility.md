@@ -208,3 +208,17 @@ resolve(sampleRT[n], outputRT):
 - resolve 的深度/颜色采样时机与 fast-clear 展开是"首访物化"；若多 RT 交叉清屏，元数据 version 冲突处理需在 31 章 SE/tile 并行下复核（多线程同时物化），登记到 31 章 §10。
 - Hi-Z 的精度级别（每 tile min/max 是否分层）只影响 `rejectedPrims` 软观测；正确性永远以逐样本为准。快速实现取单层，若统计无判别力再分层。
 - `perSample` 插值仅当 PS 声明 `sample` 修饰符时启用；该类 shader 由编译器（17~19）标注，本章只消费标注位，编译器侧语义在 19 章后定。
+
+## 执行切分与 Git 提交模板
+
+先用章内最小输入验证本章新增模块和失败路径，再接入 §7 登记的场景子例，完成 A27 和适用的 R27 后提交。分配核对项为样本覆盖位与 Hi-Z 状态，新增或改动按 [编码与位段校验表](../design/allocation-audit.md)登记。
+
+```text
+feat(gpu-ch27): resolve multisample coverage and visibility
+
+- 实现 MSAA、resolve 以及可见性捷径。
+- 用 S9 逐探针对照多样本结果，S7 验优化开关等价。
+
+Tasks: T27.1–T27.10
+Validation: <实际执行的命令、用例和结果>
+```

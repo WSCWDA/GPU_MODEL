@@ -264,3 +264,19 @@ LaunchKernel(fn, grid, block, args):
 ## 2026-11-21 评审同步说明
 
 35.1 的核心交付为 HLI 和项目自有最小图形 UMD。外部 API 适配器按 [路线图 §0.5](../roadmap.md) 分能力逐场景验收。任务超过约 2 人日须拆分。
+
+## 执行切分与 Git 提交模板
+
+先用章内最小输入验证本章新增模块和失败路径，再接入 §7 登记的场景子例，完成 A35.1 或对应适配器 A35.x 及适用的回归后提交。分配核对项为HLI 编码快照、能力位与记录期拒绝，新增或改动按 [编码与位段校验表](../design/allocation-audit.md)登记。
+
+```text
+feat(gpu-ch35): expose the shared HLI submission path
+
+- 完成 35.1 HLI 稳定面，并接通项目自有图形入口。
+- 用 S17 对照直连与自有入口，S15 验确定拒绝。
+
+Tasks: T35.01–T35.05
+Validation: <实际执行的命令、用例和结果>
+```
+
+35.2、35.3、35.4 随适配器各自交付，可分别使用 `feat(gpu-ch35): add the Vulkan adapter`、`feat(gpu-ch35): add the D3D12 adapter`、`feat(gpu-ch35): add the OpenGL adapter`。提交正文只填该适配器的 T35 编号和已验证能力。

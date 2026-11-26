@@ -62,7 +62,7 @@ fence / 回读 → 探针比对（计算驱动入口 vs 直连 HLI）
 struct KernelArgsLayout {
     GpuVAddr paramBufVa;           // 参数区 VA（HOST_VISIBLE|HOST_COHERENT）
     u32      paramBufByteSize;
-    u32      paramVgprBase;        // 默认 56（uniform 区起点 v[56]，合法域 v[56..67]）
+    u32      paramVgprBase;        // 默认 56（uniform 区起点 v[56]，合法基址 56..60）
     std::vector<u32> paramOffsets; // 每参数在参数区内的字节偏移
 };
 ```
@@ -73,7 +73,7 @@ struct KernelArgsLayout {
 2. `paramBufByteSize > 0` 且 ≤ `kMaxParamBufBytes` = 4 KiB（B-041，独立契约常量）；`v[56..67]` 只承载 `paramBufVa/grid/block` 描述符，不参与参数容量计算（与 VGPR uniform 分区容量解耦）；
 3. `paramOffsets` 严格递增且互不重叠，且每条 `offset + size ≤ paramBufByteSize`（size 由驱动按签名推导）；
 4. 参数按类型自然对齐：标量 4 B、`float2/vec2/int2` 8 B、`float4/vec4` 16 B；
-5. `paramVgprBase` 默认 56，合法域 `v[56..67]` 且不与 ABI 分区冲突（RT `v[44..55]`、临时量 `v[76..]` 拒绝）；
+5. `paramVgprBase` 默认 56，合法基址 `56..60`。在主机记录阶段校验 8 个连续槽的写入范围，拒绝 `55`、`61` 与 `UINT32_MAX`。硬件布局复用主规格 §3.8 与第 37 章。
 6. 只做静态结构校验，不断言取值语义（`DISPATCH` 包生成前完成）。
 
 ### 3.3 DispatchDesc（权威：`architecture-design.md` §3.11）
@@ -154,9 +154,9 @@ CP 解析 DISPATCH(0x04) → Compute 引擎
 |---|---|---|
 | D39.1 | 最小 Stream 头文件独立编译；单队列绑定、重复绑定拒绝、pending 销毁返回 `Busy`、显式同步后销毁；参数接口头文件独立编译，六条校验含参数缓冲 4096/4097 B 边界，D13-a/b/c 记录期单测全绿 | L1 契约 |
 | D39.2 | 每 `{ptr,bytes}` 按 `paramOffsets` 写入 GART；重叠/越区/无效参数区/未映射 → 报错且命令流不含 `SET_KERNEL_ARGS` | L1 契约 |
-| D39.3 | `LaunchKernel` 提交发出正确的 `DISPATCH`；延迟执行仍读到提交时的参数，终态后释放；`sa` 非空，`v[56..67]` 与第 37 章 `paramBufVa/grid/block` 探针一致 | L1 + L2 |
+| D39.3 | LaunchKernel 包与第 37 章布局相符，延迟执行读到记录时参数，终态后释放。基址 56/60 的 8 槽快照与 CP 边界样例一致 | L1 + L2 |
 | D39.4 | C2 整型逐字节一致，fp32 与 CPU 参考 ≤1 ULP，同输入两入口探针零容差；关键包按第 42 章 §3.1 等价 | 横切 |
-| D39.5 | A39 全绿：六条非法输入产生确定错误且无对应包；S18 `case-3` 与 `case-1` 同输入探针零容差及关键包等价；`case-0/1` 回归 | L1 + L2 + 横切 |
+| D39.5 | A39：六条参数校验含基址 55/61/UINT32_MAX 负例，失败无对应命令包。S18 case-3 对照 case-1 的同输入探针与关键包，回归 case-0/1 | L1 + L2 + 横切 |
 
 ---
 
@@ -215,3 +215,17 @@ CP 解析 DISPATCH(0x04) → Compute 引擎
 ## 2026-11-21 评审同步说明
 
 block 容量上限见 [架构设计 §3.11](../architecture-design.md)。本章交付应用参数打包、最小 Stream 和首次 LaunchKernel。硬件指令执行与 wave 生成属第 37 章。
+
+## 执行切分与 Git 提交模板
+
+先用章内最小输入验证本章新增模块和失败路径，再接入 §7 登记的场景子例，完成 A39 和适用的 R39 后提交。分配核对项为参数对齐、VA、描述符基址和生命周期，新增或改动按 [编码与位段校验表](../design/allocation-audit.md)登记。
+
+```text
+feat(gpu-ch39): pack kernel arguments and launch a first dispatch
+
+- 实现主机参数打包、最小 Stream 与 LaunchKernel。
+- 用 C2 与 S18 case-3 对照直连包和向量加结果。
+
+Tasks: T39.1–T39.5
+Validation: <实际执行的命令、用例和结果>
+```

@@ -88,7 +88,7 @@
 | 0x20 | `LD` | 内存 | `v[dst] = mem32(常数区基址 + src0 索引·4)`：基址 = 随包下发的常数区基址（stateId=4），src0 为按 lane 索引 |
 | 0x21 | `ST` | 内存 | `mem32(基址+src0 索引) = v[src1]` |
 | 0x50 | `GET_THREAD_ID` | 内建 | `v[dst] = lane` |
-| 0x51 | `GET_VERTEX_ID` | 内建 | `v[dst] = IA 注入的 vertexId`；非索引为 `firstVertex+i`，索引为 `baseVertex+index[i]`，不由 lane 推导 |
+| 0x51 | `GET_VERTEX_ID` | 内建 | `v[dst] = IA 注入的 vertexId`；初级非索引为 `firstVertex+i`（第 22 章 v2 扩展另加 `baseVertex`），索引为 `baseVertex+index[i]`，不由 lane 推导 |
 | 0x52 | `GET_INSTANCE_ID` | 内建 | `v[dst] = instanceId` |
 | 0x53 | `GET_PIXEL_POS` | 内建 | `v[dst] = {pixelX, pixelY, 0, 1}`（4 槽写） |
 | 0x7F | `EXIT` | 控制流 | 终止当前 lane；全部活动 lane EXIT 后波结束 |
@@ -220,3 +220,17 @@ bin1           ──isa_disasm─► 规范化文本
 
 - **Q-75**：本章 `LD/ST` 只做 smoke，真实访存用例第 6 章有消费方时补。
 - **Q-76**：`SETP` 维持恒真占位，第 15 章按 ADR 改写。
+
+## 执行切分与 Git 提交模板
+
+先用章内最小输入验证本章新增模块和失败路径，再接入 §7 登记的场景子例，完成 A5 和适用的 R5 后提交。分配核对项为ISA 字宽、opcode、SFLAG 和常量 stateId，新增或改动按 [编码与位段校验表](../design/allocation-audit.md)登记。
+
+```text
+feat(gpu-ch05): encode and execute the minimum ISA
+
+- 实现基础指令编码、汇编和解释执行，接通常量读取。
+- 补齐 E0 字节往返和 E2 编码投递，验证非法 opcode。
+
+Tasks: T5.1–T5.8
+Validation: <实际执行的命令、用例和结果>
+```

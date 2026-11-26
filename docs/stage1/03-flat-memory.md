@@ -103,7 +103,7 @@ Result Alloc(const AllocDesc&, AllocResult* out);
 
 **初级提前落地**：本章写 stateId 0/1（第 10 章迁到 FW）；stateId 基址步长 2 dword（`stateId n → 0x40+2n`，`0x50~0x7F` 保留）（Q-36、Q-31）。
 
-> ⚠️ stateId 编号纪律（三档，`../design/bit-budget.md` §3.1）：`0~7` 直接 MMIO 映射（`0x40+2n`）冻结；`0x50~0x7F`（stateId 8~31）在**本章范围按"保留且拒绝"处理**（读写拒绝、未实现，见 D3.5）；该段仅作为未来选配的临时过渡缓冲设计（`bit-budget.md` §3.1），不得作为长期设计，一旦启用必须尽快切换为 GPU 内存间接状态表（`SET_STATE_TABLE_INDEX`）；**禁止继续在 MMIO 硬编码新增 stateId**。本章只用已登记的 stateId 0/1。
+> 本章仅写 stateId 0/1。MMIO `0x50..0x7F` 整段保留，禁止用于临时分配。新增状态需求先设计内存间接表并走 [分配校验](../design/allocation-audit.md) 与登记流程。
 
 ### 3.4 资源上传 / 读回
 
@@ -226,3 +226,17 @@ DumpAllocs() → 按 va 升序输出
 ## 10. 待定项
 
 无。GART 容量、页表层级与 `MapFlags` 的完整语义在第 11 章定案；本章只保证签名与失败语义不变。
+
+## 执行切分与 Git 提交模板
+
+先用章内最小输入验证本章新增模块和失败路径，再接入 §7 登记的场景子例，完成 A3 和适用的 R3 后提交。分配核对项为stateId 0/1、RT 宽高和地址边界，新增或改动按 [编码与位段校验表](../design/allocation-audit.md)登记。
+
+```text
+feat(gpu-ch03): add flat GPU memory and clear copies
+
+- 实现平坦 VA、资源读写、CLEAR 与 COPY。
+- 从命令写入可读回数据，覆盖越界及保留 stateId。
+
+Tasks: T3.1–T3.9
+Validation: <实际执行的命令、用例和结果>
+```

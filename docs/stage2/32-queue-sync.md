@@ -204,3 +204,17 @@ Queue.WaitSemaphore(v): 达到目标则继续；生产者失败则结束依赖�
 ## 2026-11-21 评审同步说明
 
 本章 BARRIER 的 3-dword 载荷见 [命令包登记 §2.3](../design/command-mmio.md)。
+
+## 执行切分与 Git 提交模板
+
+先用章内最小输入验证本章新增模块和失败路径，再接入 §7 登记的场景子例，完成 A32 和适用的 R32 后提交。分配核对项为同步包、阶段/访问掩码与队列编号，新增或改动按 [编码与位段校验表](../design/allocation-audit.md)登记。
+
+```text
+feat(gpu-ch32): synchronize queues and transfer ownership
+
+- 实现 WAIT/SIGNAL、逻辑进度及 release/acquire 转移。
+- 用 S12/S16 验确切依赖、所有权和失败传播。
+
+Tasks: T32.1–T32.9
+Validation: <实际执行的命令、用例和结果>
+```

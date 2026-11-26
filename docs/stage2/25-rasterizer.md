@@ -234,3 +234,17 @@ bary: B0 = E2/Etotal, B1 = E0/Etotal, B2 = E1/Etotal（规范化）
 - quad 分组的对齐基准（0,0 起始 quad：quad (0,0) 覆盖 (0,0)~(1,1)）是否与 31 章 tile 对齐一致，若 tile 从 0.5 取整则需在 tile 化时固定；先以像素中心 0.5 为基准，31 章可复核不改正确性。
 - linear 插值在深度方向的用例不多（仅当 shader 声明 linear），若 S3 未覆盖充分，补充探针即可。
 - `centroid` 在 1x（27 章前）退化为像素中心；MSAA 落地后接用覆盖样本重心，需在 27 章回归本章 1x 基线。
+
+## 执行切分与 Git 提交模板
+
+先用章内最小输入验证本章新增模块和失败路径，再接入 §7 登记的场景子例，完成 A25 和适用的 R25 后提交。分配核对项为覆盖位图、采样编号与 PS 输入 ABI，新增或改动按 [编码与位段校验表](../design/allocation-audit.md)登记。
+
+```text
+feat(gpu-ch25): rasterize deterministic coverage and quads
+
+- 实现边函数、插值、覆盖掩码及 quad 组装。
+- 先验 S3 和 S9 单样本边界，MSAA 由 A27 验收。
+
+Tasks: T25.1–T25.14
+Validation: <实际执行的命令、用例和结果>
+```

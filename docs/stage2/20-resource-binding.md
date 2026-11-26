@@ -18,7 +18,7 @@
 4. root signature 类绑定：绑定表（`stateId 5`）+ 常量区（`stateId 4`）+ push constant（35.1 收口）；`BindRootDescriptors` 在命令流生成 `BIND_DESCRIPTOR_TABLE` 等包。采样器并入 `stateId 5` 描述符堆，复用 `BIND_DESCRIPTOR_TABLE`，不另立独立包（Q-52）。
 5. 资源状态与屏障：执行/内存/图像布局屏障；粗粒度 `READ/WRITE/ATTACHMENT/TRANSFER` 掩码（ADR-031）；`BARRIER` 包。
 6. kernel 参数区：`KernelArgsLayout{paramBufVa, paramBufByteSize, paramVgprBase=56, paramOffsets[]}`（`architecture-design.md` §3.8，默认值对齐 isa-abi.md §3 uniform 区起点 `v[56..67]`）；推送参数到 GART 参数缓冲。
-7. 全阶段 UAV：像素着色器可读写 UAV（写 UAV 时 early-Z 禁用语义在 26/27 章收口）；`S14` 覆盖 bindless + UAV。
+7. 全阶段 UAV：像素着色器可读写 UAV（写 UAV 时 early-Z 禁用语义在 26/27 章收口）；S14 的绑定与独立缓冲探针由本章覆盖，完整像素着色写回由第 26/27 章验收。
 
 ### 1.2 非目标
 
@@ -128,7 +128,7 @@ public:
 
 先登记再使用（`../design/command-mmio.md` §7）。采样器不新增独立包：由第 21 章 `CreateSampler` 写入 `stateId 5` 描述符堆，复用 `BIND_DESCRIPTOR_TABLE`（Q-52）。
 
-> ⚠️ stateId 编号纪律（三档，`../design/bit-budget.md` §3.1）：本章只使用已冻结的 `stateId 3/5`（纹理/绑定/采样器描述符堆）。`0x50~0x7F`（stateId 8~31）为**临时过渡缓冲**，不得作为长期设计；**禁止新增 stateId 到 MMIO 硬编码**，新状态一律走 GPU 内存间接状态表（`SET_STATE_TABLE_INDEX`）。
+> 本章复用 stateId 3/4/5（纹理/采样器、常量和绑定表）。MMIO `0x50..0x7F` 整段保留，禁止用于临时分配。新增状态需求先设计内存间接表并走 [分配校验](../design/allocation-audit.md) 与登记流程。
 
 ### 3.5 Kernel 参数（`../architecture-design.md` §3.8）
 
@@ -142,7 +142,7 @@ struct KernelArgsLayout {
 ```
 
 - 驱动按签名打包 `{ptr, bytes}[]` → 写 GART 参数缓冲 → 生成 layout。
-- 硬件 `DISPATCH` 时把参数基址写入 VGPR uniform 区（`v[56..67]`，起点由 `paramVgprBase` 指定）。
+- 硬件 `DISPATCH` 按主规格写入 8 个连续 VGPR（参数 VA、grid、block）。本章记录器校验合法基址 `56..60`，第 37 章校验硬件写入及失败路径。
 
 **KernelArgsLayout 校验规则（`../architecture-design.md` §3.8，创建侧 HLI / 计算驱动执行，违反即 `InvalidArgument` 且不下发硬件）：**
 
@@ -151,7 +151,7 @@ struct KernelArgsLayout {
 | 参数缓冲须已映射且驻留 | `paramBufVa` 未映射 | `NotMapped` |
 | `paramOffsets` 严格递增、互不重叠 | 参数 A 占 `[0,16)`，参数 B 也占 `[16,32)` 但 A 实际覆盖到 `[8,24)` → 重叠；或两个偏移相等 | `InvalidArgument` |
 | 按类型自然对齐 | 8 字节参数落在 4 字节对齐偏移 | `InvalidArgument` |
-| `paramVgprBase` 落在 uniform 分区（`v[56..67]`）内且不与其他 ABI 分区冲突 | `paramVgprBase=52`（落入 RT1~3 `v[44..55]`）或 `=76`（临时量区） | `InvalidArgument` |
+| `paramVgprBase` 到 `paramVgprBase+7` 完整落在 `v[56..67]`，合法基址 `56..60` | `55`、`61` 或 `UINT32_MAX` | `InvalidArgument` |
 | `paramBufByteSize > 0` 且不超参数区容量上限 | `paramBufByteSize == 0` 或超过 `kMaxParamBufBytes` 参数区容量上限 | `InvalidArgument`/`OutOfMemory` |
 
 > 非法样例（帮助 35.1/37 实现对照，原 35.5 归 stage3 38~42）：`KernelArgsLayout{va=Mapped, size=64, paramVgprBase=52, offsets={0,16,16}}` → ①A/B 偏移重叠（两个参数都从 `[16,...)` 起）→ `InvalidArgument`；②`paramVgprBase=52` 越出 uniform 分区 → `InvalidArgument`，均不下发硬件、命令流不含 `SET_KERNEL_ARGS`。
@@ -195,15 +195,15 @@ DRAW/DISPATCH → 引擎按 stateId 5 基址读描述符
 | T20.5 | ② 主体 | Pipeline 图形对象：stages + fixedState + `Bind` 到 PSO 暂存区 |
 | T20.6 | ② 主体 | Pipeline 计算对象：kernel + paramLayout（同构） |
 | T20.7 | ② 主体 | root signature 绑定槽：slot ↔（tableVa,index）映射、`BIND_DESCRIPTOR_TABLE` |
-| T20.8 | ② 主体 | 常量区/push constant：`SET_CONSTANT` 或 push 常量路径（35.1 收口） |
+| T20.8 | ② 主体 | 将常量写入绑定至 `stateId=4` 的常量区，使用现有上传/拷贝路径并验证记录快照。公开 HLI 接口由 35.1 接入 |
 | T20.9 | ② 主体 | 记录期验证资源和子资源范围，冻结目标及所需状态 |
 | T20.10 | ② 主体 | BARRIER 包：执行/内存/布局掩码 → 12 章缓存刷/失效 |
 | T20.11 | ② 主体 | 定义 `KernelArgsLayout` 的记录期校验，使用预先写好的参数缓冲记录 `SET_KERNEL_ARGS`。按函数签名打包主机字节由 T39.2 实现 |
 | T20.12 | ② 主体 | 视图/描述符非法：越界、未绑定、重解释非法格式 → 确定报错 |
 | T20.13 | ② 主体 | 管线替换完整性：`Bind` 新 PSO 后旧状态清、新状态生效、删除旧资源引用安全 |
-| T20.14 | ② 主体 | 绑定用例数据面与自检：S4 描述符堆+Bindless、S14 常量/UAV 场景；S5 资源视图与 S18 case-0~2 仅作独立绑定/参数布局单测输入（供 ③ 接入，不跑完整场景） |
+| T20.14 | ② 主体 | S4 只验二维纹理基线上的描述符索引、绑定和快照，S14 用独立常量/UAV 描述符验证读写与边界。S5 视图与 S18 参数只使用独立输入 |
 | T20.15 | ③ 接入 | 用第 20 章 Pipeline 和共用 lowering 接入已交付且适用的图形场景，生成既有 `SHADER_PSO`。通过章内提交支架验证，正式 HLI 对象入口由 T35.04 接入 |
-| T20.16 | ④ 验收 | A20：S4/S14 场景通过；S5 资源视图与 S18 参数布局单测通过；本章专有判据与 R20 通过 |
+| T20.16 | ④ 验收 | A20：S4/S14 绑定子例，S5 视图与 S18 参数布局向量，D20.1~D20.15 和 R20 |
 
 **章内里程碑（Q-49）**：
 
@@ -229,22 +229,22 @@ DRAW/DISPATCH → 引擎按 stateId 5 基址读描述符
 | D20.8 | push constant 越界（超常量区）→ `InvalidArgument`；合法值进入 SB/常量区 | L1 契约 |
 | D20.9 | 合法范围可记录并定位目标，READ→WRITE 经普通屏障推进。越界层、切片或 mip 返回 `InvalidArgument` 且无对应屏障包 | L1 契约 |
 | D20.10 | `BARRIER(kind=resource)` 的唯一 3-dword envelope 触发 12 章 Flush/Invalidate；`READ→WRITE` 后新值读回 | L1 契约 |
-| D20.11 | 用构造的缓冲、大小与偏移验证记录期校验。合法描述生成预期 `SET_KERNEL_ARGS`。重叠、越界、未映射、未驻留或 uniform 区不合法时返回对应错误且无包。硬件装载由 D37.4 验收 | L1 契约 |
+| D20.11 | `56`、`60` 生成预期 `SET_KERNEL_ARGS`。`55`、`61`、`UINT32_MAX`、偏移重叠、越界、未映射或未驻留时返回对应错误且不组包。硬件消费见 D37.4 | L1 契约 |
 | D20.12 | 越界视图/未绑定描述符 → 确定报错（`NotMapped`/`InvalidArgument`），非静默 0 | L1 契约 |
 | D20.13 | 绑定新 PSO 后旧资源引用不被新提交使用；删除旧资源时提交未引用（引用计数/安全） | L1 契约 |
-| D20.14 | S4/S14 场景断言通过；S5 资源视图、S18 case-0~2 参数布局独立单测通过（不验收 S5/S18 端到端场景） | L1 + L2 |
+| D20.14 | 已交付的二维采样路径消费 S4 描述符，独立 S14 对照常量/UAV 的绑定、快照与缓冲边界。S5 视图和 S18 布局以独立向量验证 | L1 + L2 |
 | D20.15 | 章内支架经共用转换生成既有 `SHADER_PSO` 并经 KMD 提交，图形探针通过。35.1 复用同一转换 | 横切 |
-| D20.16 | A20 全绿：S4/S14 场景、S5 资源视图与 S18 参数布局单测，及专有判据（常量/结构化缓冲/SSBO 取值、越界/未绑定报错、视图切片与格式重解释、管线替换完整、push constant 越界、非法子资源屏障报错、描述符堆设备内存语义）+ R20 | L1 + L2 |
+| D20.16 | A20 核对本章绑定测试：资源/视图，描述符表，常量/结构化缓冲，非法 VA 和子资源范围，管线快照，kernel 参数记录，以及 R20 | L1 + L2 |
 
 ---
 
 ## 7. 场景与判据（A20）
 
-**场景与单测：S4 `scene_s4_textured_quad`、S14 `scene_s14_bindless_uav` 为本章场景；S5 `scene_s5_model` 的资源视图断言与 S18 `scene_s18_compute_basic` case-0~2 仅作独立绑定/参数布局单测向量，不运行完整 S5/S18 场景。完整 S5 场景由第 22 章验收，S18 端到端由第 37/42 章验收。**
+**A20 只执行 S4/S14 的绑定子例，沿用已交付的二维纹理与缓冲支架。S5/S18 使用独立视图/参数向量。完整采样类型、图形 UAV 像素写出及计算执行分别由 A21、A26/27、A37/42 验收。**
 
 | 项 | 内容 |
 |---|---|
-| 输入 | S4：2 层数组 + Cubemap + 独立采样器（21 章配色）；S14：常量/结构化/UAV；S5 资源视图与 S18 kernel 参数布局仅使用独立构造输入 |
+| 输入 | 二维纹理描述符、常量与结构化缓冲、独立 UAV 视图、非法切片、S18 参数布局向量。数组、Cubemap 和独立采样组合在 A21 扩展 |
 | 产物 | 描述符堆内容、命令包序列、kernel args、RT/UAV 读回 |
 | 主判据 | 绑定/描述符/管线对象接入后全部 E/S 场景输出 = 基线（零容差） |
 | 本章专有判据 | ① 常量/结构化缓冲/SSBO 与 kernel 参数取值正确；② 越界/未绑定返回确定报错；③ 视图切片与格式重解释正确；④ 管线对象替换完整；⑤ push constant 越界报错；⑥ 屏障非法子资源范围报错；⑦ 描述符堆设备内存语义（提交后改 → 下次 draw 生效，命令包不拷快照） |
@@ -267,7 +267,7 @@ DRAW/DISPATCH → 引擎按 stateId 5 基址读描述符
 | 调试钩子 | `--trace=pal` 绑定/状态每步一行；`--dump-descriptor-heap` |
 | trace 契约 | 不进入判据 |
 | 契约变更 | 资源/视图/绑定/屏障掩码为冻结项；变更走 ADR 回归 S4/S14 与本章资源视图/参数布局单测，不触发 S18 端到端门禁 |
-| 校验归属 | L1（结构/状态）+ L2（S4/S14 输出比对 ref_model）+ 横切（管线替换） |
+| 校验归属 | L1：地址、结构、绑定快照与错误。L2：既有二维路径与独立缓冲探针可读回并对照参考值 |
 | 双策略 | 描述符堆与屏障语义与执行策略无关；两策略下场景一致 |
 | 阶段衔接 | 为 21（纹理消费描述符）、22~26（管线/固定状态）、35.1（HLI 收口）提供对象与包基础 |
 
@@ -296,3 +296,17 @@ DRAW/DISPATCH → 引擎按 stateId 5 基址读描述符
 ## 2026-11-21 评审同步说明
 
 BARRIER 使用 [命令包登记 §2.3](../design/command-mmio.md) 的 3-dword 载荷。Pipeline 对象经 T20.15 转换成既有 `SHADER_PSO`。
+
+## 执行切分与 Git 提交模板
+
+先用章内最小输入验证本章新增模块和失败路径，再接入 §7 登记的场景子例，完成 A20 和适用的 R20 后提交。分配核对项为stateId 3/4/5、SubOp、barrier 位域和 8 VGPR，新增或改动按 [编码与位段校验表](../design/allocation-audit.md)登记。
+
+```text
+feat(gpu-ch20): record resource views and kernel bindings
+
+- 实现资源视图、描述符堆、绑定快照与参数区记录。
+- 只跑 S4/S14 绑定子例与独立 S5/S18 向量，验证拒绝时无包。
+
+Tasks: T20.1–T20.16
+Validation: <实际执行的命令、用例和结果>
+```

@@ -14,7 +14,7 @@
 
 1. **`umd/compute` 目录与对象骨架落地**：`Context / Module / Function` 的头文件、生命周期、创建 / 销毁（逆创建，ADR-041 双维度引用计数语义）。
 2. **`MUSA_MODULE_HDR` 格式与装载**：magic / version / 代码段 / 符号表的逐字节解析；装载入 GART `HOST_VISIBLE` 常驻堆；**不引入 ELF/COFF、不做重定位**（`compute-driver.md` §3）。
-3. **符号表解析与 Function 入口**：`codeBaseVa + entryOffset`（4 B 对齐）、越段 / 未映射确定报错（§3.11 D-06 同口径）、分支 pc 相对偏移不需地址修补。
+3. **符号表解析与 Function 入口**：`codeBaseVa + entryOffset`（8 B 对齐）、越段 / 未映射确定报错（§3.11 D-06 同口径）、分支 pc 相对偏移不需地址修补。
 4. **异常输入确定性**：截断 blob、坏 header、越界符号、非法 reserved → `InvalidIsa` / `NotMapped`，无泄漏、无部分创建。
 5. **Demo C1 闭环**：`module_probe` 装载示例 kernel module，打印符号表与解析入口，`MUSA_MODULE_HDR` 与 blob 逐字节比对全等，输出供后续章使用的参数布局信息。
 
@@ -36,7 +36,7 @@ umd/compute::Context　←── IHliDevice + 独立 KMD context/ASID（Context:
    │  umd/compute::ModuleLoad(blob)
    ▼
 module blob 解析：magic/version/reserved → 代码段 → 符号表逐条
-   │  （对齐：偏移 4B / entryOffset < codeBytes / name 在 blob 内）
+   │  （代码偏移与入口均 8 B 对齐，符号表 4 B 对齐，完整指令与名称均在各自范围内）
    ▼
 GART HOST_VISIBLE 常驻装载（第 11 章确定性分配器，VA 可复现）
    ▼
@@ -92,10 +92,10 @@ class Function;              // 持 Module* + FunctionInfo
 
 | 编号 | 规则 |
 |---|---|
-| L-01 | `magic` = `'MUSA'`（否则 `InvalidIsa`）；`version` = 1（≠1 → `NotSupported`） |
+| L-01 | `magic` 字节为 `4D 55 53 41`（小端 u32 `0x4153554D`），否则 `InvalidIsa`。`version` 为 1，其余版本 `NotSupported` |
 | L-02 | `reserved0/1` 必须 0（`InvalidIsa`） |
-| L-03 | `codeOffset`、`symTabOffset` 及其长度不越出 blob；`codeOffset/entryOffset` 4 B 对齐 |
-| L-04 | 逐符号：`entryOffset < codeBytes`；`nameOffset/nameLen` 在 blob 内且 `nameLen ≤ 127` |
+| L-03 | `codeOffset` 与 `codeBytes` 按 8 B 对齐且代码至少 8 B，`symTabOffset` 按 4 B 对齐。代码段和全部固定 28 B 符号记录须落在 blob 内，按长度上限校验后再做乘加 |
+| L-04 | `entryOffset` 8 B 对齐且 `<= codeBytes - 8`。名称字节范围在 blob 内且 `nameLen ≤ 127`，未知的 `SymEntry.flags` 位返回 `InvalidIsa` |
 | L-05 | 装载后 `codeBaseVa` 已映射（`NotMapped`）；装载失败释放已分配资源（无泄漏、无部分创建） |
 
 ### 3.3 错误映射（权威：`architecture-design.md` §3.9）
@@ -141,7 +141,7 @@ Context::ModuleLoad(blob)
 | M38.1 | T38.1 | ① 契约 | `umd/compute` 头文件：`Context/Module/Function` + `ModuleHdr/SymEntry/ModuleInfo/FunctionInfo`（对齐 `compute-driver.md` §2~§4，`static_assert` 布局单测落头文件） |
 | M38.1 | T38.2 | ② 主体 | `Context` 创建/销毁：同一 `IHliDevice` 支持多个 Context，每个分配独立 ASID；销毁有 Module/Function 等存活子对象或硬件引用时返回 `Busy`，不隐式同步；逆创建顺序（§3.10） |
 | M38.1 | T38.3 | ② 主体 | `MUSA_MODULE_HDR` 解析：magic/version/reserved、代码段、符号表逐条解码（L-01~L-04）；损坏/截断 → `InvalidIsa` |
-| M38.1 | T38.4 | ② 主体 | `Function` 入口解析：`codeBaseVa + entryOffset`（4 B 对齐、越段 `InvalidIsa`、未映射 `NotMapped`）；pc 相对偏移不需地址修补 |
+| M38.1 | T38.4 | ② 主体 | `Function` 入口解析：`codeBaseVa + entryOffset`（8 B 对齐、越段 `InvalidIsa`、未映射 `NotMapped`）；pc 相对偏移不需地址修补 |
 | M38.2 | T38.5 | ③ 接入 | module 装载经 HLI 资源（GART `HOST_VISIBLE`，第 11 章确定性分配器）接入；Demo C1 `module_probe` 跑通 |
 | M38.2 | T38.6 | ④ 验收 | A38：`ModuleHdr` 字段与 blob 逐字节一致；符号表解析正确；截断/坏 header/越段/非法 reserved 返回确定错误且无泄漏；重复解析幂等 |
 
@@ -161,7 +161,7 @@ Context::ModuleLoad(blob)
 | D38.1 | 计算驱动头文件独立编译；`ModuleHdr`/`SymEntry` 布局 `static_assert` 全绿 | L1 契约 |
 | D38.2 | 同一 device 创建两个 Context 得到不同 ASID；逆序销毁无泄漏；存在存活子对象或硬件引用时 `ContextDestroy` 返回 `Busy`，清理后可销毁 | L1 契约 |
 | D38.3 | `ModuleHdr` 字段与 blob 逐字节一致；6 种非法样例（bad magic/version/reserved/越界/截断/坏对齐）全部返回确定错误且无部分创建 | L1 契约 |
-| D38.4 | Function 入口解析正确（`codeBaseVa+entryOffset`）；越段 `InvalidIsa`、未映射 `NotMapped` | L1 契约 |
+| D38.4 | 首条与末条完整指令入口成功。只满足 4 B 对齐、落在代码末尾或跨段时返回 `InvalidIsa`，未映射返回 `NotMapped` | L1 契约 |
 | D38.5 | Demo C1 `module_probe` 输出符号表（name/entryOffset/paramBytes/vgprCount/ldsBytes）与解析入口；两次运行逐字节一致 | L2 |
 | D38.6 | A38 全绿（D38.1~D38.5 + 异常样例回归矩阵；`serial`/`parallel` 一致） | L1 + L2 |
 
@@ -173,7 +173,7 @@ Context::ModuleLoad(blob)
 
 | 项 | 内容 |
 |---|---|
-| 输入 | 示例 kernel module blob（手写 ISA 或第 17~19 章编译器产物；≥2 个符号）；异常样例集（截断 / bad magic / version=2 / reserved≠0 / 越界符号 / 4B 未对齐） |
+| 输入 | 示例 kernel module blob（手写 ISA 或第 17~19 章编译器产物；≥2 个符号）；异常样例集（截断 / bad magic / version=2 / reserved≠0 / 越界符号 / 仅满足 4 B 对齐 / 指令跨段） |
 | 产物 | 符号表打印、每个 function 的 `kernelVa`、`MUSA_MODULE_HDR` 与 blob 字节比对、异常样例错误码与错误日志 |
 | 主判据 | `ModuleHdr` 字段逐字节一致；符号表解析正确；异常输入全部命中确定错误且无泄漏（L1 + D38.2~D38.4） |
 | 本章专有判据 | 对象生命周期逆序创建/销毁无泄漏；重复解析同一符号返回同一 Function（幂等）；装载不产生任何包 |
@@ -218,3 +218,17 @@ Context::ModuleLoad(blob)
 - module 多入口（`entryOffset` 数组化）与嵌入式常量区（`.rodata`）留二期：一期代码段 + 符号表即可覆盖 WA-01~12 全部 demo。
 - `LaunchWithParamBuffer`（应用直给参数 VA）在第 39/42 章登记，不在本章实现。
 - "35.1 HLI 冻结后才允许写计算驱动"纪律：本章依赖 35.1 DoD 全绿；如遇 HLI 接口缺口，不反向修改 HLI，走 ADR 流程。
+
+## 执行切分与 Git 提交模板
+
+先用章内最小输入验证本章新增模块和失败路径，再接入 §7 登记的场景子例，完成 A38 和适用的 R38 后提交。分配核对项为MUSA_MODULE_HDR、SymEntry.flags、ASID，新增或改动按 [编码与位段校验表](../design/allocation-audit.md)登记。
+
+```text
+feat(gpu-ch38): load modules and resolve compute functions
+
+- 实现计算 Context、模块字节解析及 Function 入口。
+- 用 C1 对照 magic、符号范围、8 B 入口及释放负例。
+
+Tasks: T38.1–T38.6
+Validation: <实际执行的命令、用例和结果>
+```

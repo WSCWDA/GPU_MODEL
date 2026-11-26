@@ -158,7 +158,7 @@ SAMPLE → 波发出请求 → SendSample(req) → 波 Suspend（进挂起队列
 | T21.9 | ② 主体 | 寻址模式 wrap/clamp/mirror/border 实现 |
 | T21.10 | ② 主体 | 数组/Cubemap 层索引与面选择、越界 clamp |
 | T21.11 | ② 主体 | 独立采样器对象创建并写入 `stateId 5` 描述符堆（`SAMPLE` 引用 samplerId） |
-| T21.12 | ② 主体 | `SAMPLE_CMP` 比较采样 |
+| T21.12 | ② 主体 | 先按 [分配校验](../design/allocation-audit.md) 登记 `SAMPLE_CMP` 实际 opcode 和操作数，再接入比较采样。可先用类型化请求验证比较语义 |
 | T21.13 | ② 主体 | 异步采样接入：Suspend/OnSampleReturn/waveSwitch |
 | T21.14 | ③ 接入 | `scene_s4_textured_quad`（数组/Cubemap/LOD）、`scene_s14_bindless_uav`（bindless 中纹理）+ S4 采样器 |
 | T21.15 | ④ 验收 | A21：S4/S14 全绿 + 本章专有判据 + R21 回归项 |
@@ -246,3 +246,17 @@ SAMPLE → 波发出请求 → SendSample(req) → 波 Suspend（进挂起队列
 - tile 尺寸（`2x1` vs `2x2` vs 按格式变量）的具体表在 M21.1 实现时依据格式族固定；若 S4 出现格式与布局组合未覆盖的情况，新增组合走 §7.3 登记，不改变既有寻址语义。
 - sRGB 线性化的精度（用查找表 vs 公式）影响 `±2/通道`容差内是否稳定；选择公式计算（确定性更优），若 CI 抖动再评估 LUT。
 - 异步采样在主循环模拟里"单步处理完还是分批"，只影响 `waveSwitch` 软件观测数、不影响结果；同时保留一个"async=off"模式用于调试确定性。
+
+## 执行切分与 Git 提交模板
+
+先用章内最小输入验证本章新增模块和失败路径，再接入 §7 登记的场景子例，完成 A21 和适用的 R21 后提交。分配核对项为SAMPLE_CMP、sampler 编码与索引，新增或改动按 [编码与位段校验表](../design/allocation-audit.md)登记。
+
+```text
+feat(gpu-ch21): sample mipmapped array and cube textures
+
+- 完成纹理解码、寻址、LOD/过滤、独立采样器与比较。
+- 用 S4/S14 采样子例和边界坐标差分，先登记比较采样编码。
+
+Tasks: T21.1–T21.15
+Validation: <实际执行的命令、用例和结果>
+```

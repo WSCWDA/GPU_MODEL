@@ -472,7 +472,7 @@ struct KernelArgsLayout {
 2. `paramBufByteSize > 0` 且不超过参数区容量上限（独立契约常量 `kMaxParamBufBytes`，**2026-11-20 定案 `4 KiB`**，登记 `docs/design/bit-budget.md` §7.1 **B-041**；**与 VGPR uniform 分区容量解耦**——`v[56..67]` 只承载 `paramBufVa/grid/block` 等描述符，不承载参数本体，见 `docs/design/isa-abi.md` §3）。
 3. `paramOffsets` 必须**严格递增且互不重叠**；每条参数满足 `offset + size ≤ paramBufByteSize`（size 由驱动按签名推导，KernelArgsLayout 只携带偏移）。
 4. 参数偏移按类型自然对齐：标量 4 B、`float2/vec2/int2` 8 B、`float4/vec4` 16 B；违反对齐返回 `InvalidArgument`。
-5. `paramVgprBase` 默认 56（`v[56]`，uniform 区起点），合法值必须在 uniform 分区 `v[56..67]` 内且不与其他 ABI 分区冲突（`isa-abi.md` §3 权威分区）；越界（如落在 RT1~3 `v[44..55]` 或临时量区 `v[76..]`）一律 `InvalidArgument`。
+5. `paramVgprBase` 默认 56。描述符占 8 个连续 VGPR，须满足 `56 <= base && base <= 67 - 7`（合法基址 `56..60`）。相对槽 `+0/+1` 写参数 VA 的 LO/HI，`+2..+4` 写 `grid.xyz`，`+5..+7` 写 `block.xyz`。记录侧与 CP 消费侧各自校验整个占用区，失败返回 `InvalidArgument`，且不写 VGPR、不发出工作项。
 6. 校验覆盖映射、对齐、边界与区段。参数取值语义由 kernel 定义，失败沿用对应规则的返回码。
 
 ### 3.9 错误契约
@@ -580,10 +580,10 @@ struct DispatchArgsIndirect {              // 7 u32 = 28 B；起始地址 16 B �
 | D-03 | `ldsStaticBytes ≤` CU LDS 容量（永久 **64 KiB/CU**，B-036）且 16 B 对齐；超限直接拒绝，不做"缩 LDS 硬跑" |
 | D-04 | `sgprCount ≤ s0..s31` 可用量、`vgprCount ≤ v0..v127` 扣除 ABI 保留区（`isa-abi.md` §3 `kVgprBase*` 分区）；声明值只影响调度预算，不改变 ISA 语义 |
 | D-05 | `subgroupSize` 必须 32（ADR-018）；可变 subgroup 属范围外（ADR-025），拒绝而非按 32 静默执行 |
-| D-06 | `kernelVa` 必须落在已装载 module 的代码段内且 4 B 对齐；未映射 `NotMapped`，越段 `InvalidIsa` |
+| D-06 | `kernelVa` 必须 8 B 对齐，且完整 8 B 指令位于已装载的 module 代码段内。地址未映射返回 `NotMapped`，映射后对齐或代码范围不符返回 `InvalidIsa` |
 | D-07 | 参数区校验**完全复用 §3.8 规则 1~6**，本节不重复定义，禁止两处各写一套口径 |
 | D-08 | `DISPATCH` 包**不得携带** IA / 光栅 / OM / RT / DS 任一固定功能状态；携带即 `InvalidPacket`（ADR-032：共用单元按包类型派发，不得为计算开特化字段） |
-| D-09 | `flags` 未知位必须为 0；置未知位返回 `InvalidArgument`，不得静默忽略（ADR-039：不做兼容修补） |
+| D-09 | `DISPATCH.flags` 与模块 `SymEntry.flags` 的 bit0/bit1 语义一一对应，各自编码空间中的其余位必须为 0。未知位返回 `InvalidArgument`，模块解析错误映射见 `compute-driver.md` §3 |
 | D-10 | 间接 dispatch：`indirectArgsVa` 必须已映射、16 B 对齐；参数在**展开 workgroup 前读一次**，作为本次 dispatch 唯一真值，执行中不重读；取值非法（grid/block 为 0 或越限）由 GPU 侧确定性中止，不修复 |
 | D-11 | 一个 workgroup 的波组不得跨 CU、不得跨 SE（§3.12 M-03）；调度器不得拆分组 |
 | D-12 | 校验只做静态结构校验（映射 / 对齐 / 边界 / 区段）；参数**取值语义**由 kernel 自证，校验器不断言（与 §3.8 规则 6 同口径） |
@@ -652,6 +652,8 @@ globalThreadId  = workgroupId * threadsPerGroup + gtid
 计算 scratch（per-thread 栈 / 寄存器溢出）放 GART，per-thread base 由驱动经参数区传入；分配走第 11 章确定性分配器，同 `translation.seed` 下布局逐字节可复现。
 
 ---
+
+各层打包或消费共享数据前，使用 [编码与位段校验表](design/allocation-audit.md)核对容器、位段、宽度、版本及完整读写跨度。变更登记由路线图维护，物理布局由所属模块规格维护。
 
 ## 4. 模块设计文档（`docs/design/`）
 

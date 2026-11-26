@@ -267,3 +267,17 @@ grid 边界：work-id >= gridTotal → 越界 → 不执行（提前空转 EXIT�
 ## 2026-11-21 评审同步说明
 
 全 CU ticket/servingTicket 锁包围执行的旧方案已退役。并行验收检查 CU/workgroup slot 可并发推进、barrier 可达和 race-free 结果稳定，见 [并行执行设计](../design/execution-parallel.md)。
+
+## 执行切分与 Git 提交模板
+
+先用章内最小输入验证本章新增模块和失败路径，再接入 §7 登记的场景子例，完成 A31 和适用的 R31 后提交。分配核对项为占用容量、实例 ID 和队列布局，新增或改动按 [编码与位段校验表](../design/allocation-audit.md)登记。
+
+```text
+feat(gpu-ch31): schedule work across SEs and CUs
+
+- 分开建模设备 SE/CU 拓扑和 host 执行策略。
+- 用 S11 与独立二维/三维映射检查并行度变化下的确定性。
+
+Tasks: T31.1–T31.16
+Validation: <实际执行的命令、用例和结果>
+```

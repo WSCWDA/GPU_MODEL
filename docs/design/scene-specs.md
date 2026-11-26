@@ -355,7 +355,7 @@ kernel 参数携带各轴有效域。全局坐标按 `groupId * block + localId`
 | case-0 | 作用域与 barrier 基础 | grid 16 × block 256（组内 8 wave 跨 wave barrier） | int32 | LCG 0x5EED | 4 096 int32 元素（逐字节）+ barrier 放行前无后续写断言（原子计数）+ workgroup/device 作用域可见性矩阵逐格 |
 | case-1 | WA-10 | N = 32 768 | int32 值 + 随机索引 | LCG 0x5EED（索引种子化） | 32 768 int32（逐字节；越界可定位中止）= ref_model wa10 |
 | case-2 | WA-11 | 3 stage × 65 536 | int32 + fp32 | LCG 0x5EED | 末 stage 65 536 元素（数值等价 + 队列顺序语义）= ref_model wa11 |
-| case-3 | WA-12 | N = 10 242（GPU 侧参数 buffer 生成） | uint32 间接参数（grid/block/paramBufVa） | LCG 0x5EED | 与同参数直接 dispatch 输出**逐字节一致**（ref_model wa12） |
+| case-3 | WA-12 | N = 10 242（GPU 侧参数 buffer 生成） | 28 B 间接记录（`grid[3]`、`block[3]`、`reserved0=0`），kernel 参数 VA 经 `SET_KERNEL_ARGS` 独立记录 | LCG 0x5EED | 与同参数直接 dispatch 输出**逐字节一致**（ref_model wa12） |
 | case-4 | WA-08 扩展 | 256×256 | RGBA8 UNORM | LCG 0x5EED | UAV store 写回 256×256 RGBA8，同 `(x,y,format)` 逐字节一致（对照 20 章 image 描述符 + 26 章格式转换表，ADR-049） |
 - 并发语义（P1-7，已澄清口径）："计算队列与图形队列并发" = FW 在包粒度 Round-Robin 交错推进；**硬判据对交错顺序不敏感**，种子化交错顺序下结果不变；同刻并行不在本期。
 - **计算 ↔ 图形互操作（ADR-049/055）**：case-4 图形写 RT，经整资源移交后计算 image load，计算通过 UAV store 写回。按第 20 章 image 描述符、第 26 章格式转换表比对 `(x,y,format)` 字节布局。
@@ -383,9 +383,9 @@ kernel 参数携带各轴有效域。全局坐标按 `groupId * block + localId`
 | 9 | E5 | 三条 draw 共用一帧；两次运行逐字节一致 |
 | 10 | S1 + S13 | 环回绕正确、包不跨环尾（NOP 填充）；非法包报类型与偏移；`cmd_packet_version` 不匹配拒绝；fence 语义顺序 |
 | 11 | S2 + S0 | 同数据两 VA 读回一致；页表项翻转后原 VA 失效；TLB 命中计数递增 |
-| 12 | S2 + S3 + S11 | 缓存/写缓冲数据流与 flush 可见性正确；统计仅作软观测，不以 hit/miss 比例作为通过门槛；`cache_enable` 开关前后一致 |
+| 12 | S2 + 独立读写向量 | 缓存开关最终数据逐字节一致，验证写缓冲、flush/invalidate 可见性。统计只作软观测。S3/S11 完整路径交付后加入回归 |
 | 13 | S2 | CopyEngine 填充等于扫描结果，翻转前后整帧分别取旧、新 front |
-| 14 | S5 + S11 | 超显存结果一致；逐出前经第 12 章 flush 完成；两上下文互不污染；抢占恢复正确 |
+| 14 | S5 驻留与 S11 占用的独立向量 | 预算恢复结果一致，逐出前 flush，两上下文隔离，保存/恢复及占用正确。完整场景见 A22/A31 |
 | 15 | S3 | LaneMask 轨迹符合预期；多次调度顺序确定 |
 | 16 | S0 | 汇编往返二进制相同；全区段编码/解码覆盖无失败（执行语义由 opcode 所属硬件单元负责：ALU/控制流见第 4/5/15 章，Tess/GS 见第 28 章，subgroup 见第 29 章，LDS/原子/barrier 见第 30 章） |
 | 17 | S3 + S0 | IR 快照稳定；前端解析/语义/IO 签名错误与源码位置确定；编译后端执行等价由 18/19 章判定 |
@@ -400,7 +400,7 @@ kernel 参数携带各轴有效域。全局坐标按 `groupId * block + localId`
 | 26 | S7 + S8 + S14 | 深度/模板/混合/MRT/剔除正确；LoadOp/StoreOp 正确；双源混合与逻辑 Op 正确；PS 输出到 UNORM/SNORM/UINT/SINT/sRGB 的格式转换与舍入确定；写 UAV 时 Early-Z 禁用 |
 | 27 | S9 + S7 | coverage/resolve 正确；early-Z 不改结果；fast clear 元数据与 Hi-Z 拒绝计数可输出 |
 | 28 | S6 | patch 载荷无丢失（本章自建 patch 缓冲，C 阶段不依赖 LDS）；三图元模式正确；细分因子与模式符合公式；输出域属性完整 |
-| 29 | S10，独立 wave 输入 | ballot/shuffle/归约/导数结果确定，部分活跃时按操作使用单位元 |
+| 29 | S10 单 wave 探针与独立 wave 向量 | ballot/shuffle/归约/导数结果确定，部分活跃时按指令规则使用单位元。组级 LDS/barrier 见 A30 |
 | 30 | S10，S19 case-0/1 只作单测输入 | LDS 转置、原子、组内 barrier 和作用域按独立 workgroup 用例验证 |
 | 31 | S11 和章内独立映射向量 | 并行一致，TLB 失效无脏读，二维/三维映射及边界确定。正式 S18 输入归场景表 |
 | 32 | S12 队列子集、S16 | 三队列等待与失败传播，整资源 release→SIGNAL→WAIT→acquire，延迟 release 和缺 acquire 负向用例 |
@@ -409,7 +409,7 @@ kernel 参数携带各轴有效域。全局坐标按 `groupId * block + localId`
 | 35 | S17 + S2 + S3 + S4 + S5 | HLI 主路径和最小图形 UMD 同场景通过，外部适配器按能力声明；动态状态取命令缓冲快照，能力位由 HLI 提供 |
 | 36 | S13 | 普通页错误与复位分流、旧提交终态、显式重提、其他引擎持续运行和 watchdog 边界 |
 | 37 | S18 case-0~2/4~12、S19 case-0~4 | 直连 HLI 跑通参数消费、uniform、调度/协作/写回和完成值。S18 case-3 首验见 A39 |
-| 38 | Demo C1 `module_probe` | `MUSA_MODULE_HDR` 字段与 blob 逐字节一致；符号表解析正确（name/entryOffset/paramBytes/vgprCount/ldsBytes）；Function 入口解析 + 4B 对齐；截断/坏 header/越段返回确定错误（`InvalidIsa`/`NotMapped`）且无泄漏 |
+| 38 | Demo C1 `module_probe` | `MUSA_MODULE_HDR` 字段与 blob 逐字节一致；符号表解析正确（name/entryOffset/paramBytes/vgprCount/ldsBytes）；Function 完整指令入口与 8 B 对齐；截断/坏 header/越段返回确定错误（`InvalidIsa`/`NotMapped`）且无泄漏 |
 | 39 | S18 case-3、Demo C2 `vector_add` | 最小 Stream 可独立提交、同步和销毁；六条参数检查，参数缓冲存活至终态；两入口关键包等价、探针零容差、fp32 CPU 参考 ≤1 ULP |
 | 40 | S19 异步子集、Demo C3 `async_pipeline` | 双 UMD 双队列、有序提交、Event Wait 快照，非阻塞区分 pending/成功/失败；图形在同步和所有权获取后读取，失败依赖可观测 |
 | 41 | S18/S19 代表用例、Demo C4/C5 | UMD 输入校验与记录正确，复用执行层探针验证三维/协作、UAV 和间接派发。C4 归约 ≤1 ULP 且顺序断言通过，C5 直接/间接逐值一致 |

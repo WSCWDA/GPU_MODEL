@@ -232,3 +232,17 @@ OM 状态初：若 pipeline 声明写 UAV → earlyZ 标记禁用（27 章据此
 - 模板操作 `opMask` 与三 op 的组合语义（尤其 depthFail≠stencilFail 时）SM 撮合，先按 D24S8 独立字节模拟；若 35.2（Vulkan stencil 语义）需更细，走 ADR。
 - 逻辑 Op 与 blend 仅启用二者之一（真实 GPU 亦互斥）；一期按互斥处理，不实现同时启用错误检测（校验留 35.2）。
 - `dontCare` 的 load 不保证旧内容可用，store 不保证写入任何特定值；引用结果不得参与数值比对，但地址计算仍须合法且不得越界。
+
+## 执行切分与 Git 提交模板
+
+先用章内最小输入验证本章新增模块和失败路径，再接入 §7 登记的场景子例，完成 A26 和适用的 R26 后提交。分配核对项为RT/深度槽、PS 输出 VGPR 与 PSO flags，新增或改动按 [编码与位段校验表](../design/allocation-audit.md)登记。
+
+```text
+feat(gpu-ch26): merge render outputs and storage writes
+
+- 实现深度模板、混合、多 RT 与 UAV 输出。
+- 用 S7/S8 与 S14 已支撑子例比对 RT/UAV 读回。
+
+Tasks: T26.1–T26.14
+Validation: <实际执行的命令、用例和结果>
+```

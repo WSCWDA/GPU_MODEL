@@ -8,6 +8,8 @@
 
 ---
 
+容量和历史裁决见本文。新增编号、字内位段与跨字段占用的查重方法、现行校验记录及实施前待登记项见 [编码与位段校验表](allocation-audit.md)。
+
 ## 1. 结论摘要
 
 | 编号 | 分配项 | 当前口径 |
@@ -39,7 +41,7 @@
 - `count`：12 bit，单包最大 4095 dword。
 - packet-specific：16 bit，当前只被各包当作零散 flags 使用，没有统一的子操作码定义。
 
-### 2.2 包类型：只剩一个号，且已被多处争用
+### 2.2 历史冲突：最后一个顶层号曾被多处争用
 
 `command-mmio.md` §2 已登记 `0x00`~`0x0E` 共 15 个类型，`0x0F` 为唯一预留。后续章节却把新包直接指向 `0x0F` 或更早的号：
 
@@ -50,7 +52,7 @@
 | `stage2/32-queue-sync.md` §3.2 | `PREDICATE=0x0D`、`BARRIER=0x0E`、`0x0F` 预留 | 与权威一致，但 `0x0F` 已被 20 章占用 |
 | `stage2/33-cmd-chain-multiengine.md` §3.1 | `INDIRECT=0x0C`、`PREDICATE=0x0D`；另列 `DRAW_INDIRECT`、`DISPATCH_INDIRECT`、`DMA_COPY` 未给号 | 至少还差 3 个顶层号 |
 
-按最保守口径，尚未落号的包族至少有：`BIND_DESCRIPTOR_TABLE`、`SET_KERNEL_ARGS`、`DRAW_INDIRECT`、`DISPATCH_INDIRECT`、`DMA_COPY` 五个；可用顶层号只有 `0x0F` 一个。因此编号空间的「大段预留」表述与 `command-mmio.md` §2 原先的实际登记状态不符，已按本审计改为「顶层仅剩 `0x0F`」（权威：`roadmap.md` §7.4 与本文件 §9）。
+按最保守口径，尚未落号的包族至少有：`BIND_DESCRIPTOR_TABLE`、`SET_KERNEL_ARGS`、`DRAW_INDIRECT`、`DISPATCH_INDIRECT`、`DMA_COPY` 五个；可用顶层号只有 `0x0F` 一个。因此编号空间的「大段预留」表述与 `command-mmio.md` §2 原先的实际登记状态不符，当时仅 `0x0F` 可分配，现已登记为 `EXTENDED`（权威：`roadmap.md` §7.4 与本文件 §9）。
 
 另外，`common/include/common/packet.h` 中 `PacketType::ERROR = 0xFF`。`0xFF` 在 4 bit 类型域中会被截断为 `0x0F`，不会报错，只会静默占用预留号；这也说明单靠"约定不要用 0xFF"不足以防止类型域越界。
 
@@ -139,7 +141,7 @@
 
 ## 4. GPU VA 与页表
 
-### 4.1 文档与代码的 VA 位宽不一致
+### 4.1 历史冲突：文档与代码的 VA 位宽
 
 `memory-system.md` §2 写的是"GPU VA 64 bit；页 4 KiB；两级页表，每级 512 项"。按这个几何：
 
@@ -198,7 +200,7 @@
 
 ## 6. ISA 编码
 
-### 6.1 7 bit opcode 与 8 bit 区段表矛盾
+### 6.1 历史冲突：7 bit opcode 与 8 bit 区段表
 
 `isa-abi.md` §1 把 opcode 收窄为 `[62:56]` 7 bit（上限 `0x7F`），但 §2 的区段表仍按 8 bit 写：
 
@@ -244,7 +246,7 @@
 
 | 项 | 位宽/容量 | 判断 |
 |---|---|---|
-| RT 尺寸 | 宽低 16 bit + 高高 16 bit | 单边最大 65535，8K 以内够用 |
+| RT 尺寸 | `RT_WIDTH` 与 `RT_HEIGHT` 分占 32 bit，MMIO dword `0xE0/0xE1` | 合法尺寸与资源范围由 CLEAR / RT 约束验证 |
 | fence 值 | 64 bit | 够用 |
 | 页表项 flags | 5 bit 已用 / 32 bit | 余 27 bit，够用 |
 | 队列优先级 | u8 | 够用；注意 `QueueDesc.priority` 是 8 bit，若未来要 256 级以上需改 |

@@ -192,3 +192,17 @@ Result InjectFault1(FaultInject, const FaultSite&);  // 指定单元/包
 ## 2026-11-21 评审同步说明
 
 watchdog 的每 wave 指令预算见 [启动与复位](../design/boot-reset.md)。公共 Result 集合见 [第 1 章 §3.2](../stage1/01-contracts-min.md)。
+
+## 执行切分与 Git 提交模板
+
+先用章内最小输入验证本章新增模块和失败路径，再接入 §7 登记的场景子例，完成 A36 和适用的 R36 后提交。分配核对项为错误枚举、MMIO 权限与完成状态，新增或改动按 [编码与位段校验表](../design/allocation-audit.md)登记。
+
+```text
+feat(gpu-ch36): report deterministic submission faults
+
+- 统一错误、调试上下文、失败 fence 与最小复位。
+- 用 S13 故障矩阵核对错误来源和引擎恢复。
+
+Tasks: T36.1–T36.10
+Validation: <实际执行的命令、用例和结果>
+```

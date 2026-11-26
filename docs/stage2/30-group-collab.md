@@ -237,3 +237,17 @@ AcqRel/SeqCst：双向可见序。
 ## 2026-11-21 评审同步说明
 
 组内执行 barrier 使用本章的 ISA/LDS 原语。宿主侧 BARRIER 包见 [命令包登记 §2.3](../design/command-mmio.md)，跨 wave 步进见 [并行执行设计](../design/execution-parallel.md)。
+
+## 执行切分与 Git 提交模板
+
+先用章内最小输入验证本章新增模块和失败路径，再接入 §7 登记的场景子例，完成 A30 和适用的 R30 后提交。分配核对项为LDS/STS、同步/原子 opcode 与作用域，新增或改动按 [编码与位段校验表](../design/allocation-audit.md)登记。
+
+```text
+feat(gpu-ch30): synchronize waves within a workgroup
+
+- 实现组内 LDS、barrier、原子操作和调度恢复。
+- 用 S10 组级用例及独立 S19 向量对照结果。
+
+Tasks: T30.1–T30.14
+Validation: <实际执行的命令、用例和结果>
+```

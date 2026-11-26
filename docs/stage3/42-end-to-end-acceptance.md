@@ -199,3 +199,17 @@ A-stage3 = A38（对象/装载）∧ A39（打包/派发）∧ A40（stream/even
 ## 2026-11-21 评审同步说明
 
 A42 汇总计算驱动和直连 HLI 的双入口验收。矩阵、输入和探针以 [场景规约](../design/scene-specs.md) 为准，硬件能力继续由 A37 验收，驱动子能力由 A38~A41 验收。
+
+## 执行切分与 Git 提交模板
+
+先用章内最小输入验证本章新增模块和失败路径，再接入 §7 登记的场景子例，完成 A42 和适用的 R42 后提交。分配核对项为引用现行编码快照与边界用例，新增或改动按 [编码与位段校验表](../design/allocation-audit.md)登记。
+
+```text
+test(gpu-ch42): verify both compute entry points end to end
+
+- 收口直连 HLI 与计算 UMD 两套入口的共用路径。
+- 重跑登记的 S18/S19 和 C1–C5，对照包、探针和产物。
+
+Tasks: T42.1–T42.5
+Validation: <实际执行的命令、用例和结果>
+```

@@ -179,3 +179,17 @@ LLVM JIT vs interpreter 仅作语义定位辅证
 - 后端编码、寄存器分配或块序差异只进入诊断报告，不作为失败；映射差异导致规范程序语义不符时按 D19.2 定位并阻断。
 - `enableJit` 在 CI（无 LLVM JIT 基础设施）时默认关、走"emit 对照"，须保证两种配置下判据一致——待 CI 环境可用性验证后定是否默开。
 - 是否需要支持 `-O0` 之外的 LLVM 优化作为交叉验证，属可选项；若做，仅作软观测，不改变语义一致性阻断判据。
+
+## 执行切分与 Git 提交模板
+
+先用章内最小输入验证本章新增模块和失败路径，再接入 §7 登记的场景子例，完成 A19 和适用的 R19 后提交。分配核对项为同一 opcode 与着色器 ABI，新增或改动按 [编码与位段校验表](../design/allocation-audit.md)登记。
+
+```text
+feat(gpu-ch19): add the LLVM shader comparison backend
+
+- 把 LLVM 对照产物降到同一 ISA 与 ABI。
+- 在 S3 对照内置与 LLVM 输出，记录失配位置。
+
+Tasks: T19.1–T19.9
+Validation: <实际执行的命令、用例和结果>
+```

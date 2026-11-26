@@ -21,10 +21,12 @@
 
 ## 2. 地址与页表
 
-- 软件类型 `GpuVAddr`/`PhysAddr` 为 u64；**硬件有效 VA = 36 bit**（B-07 裁定，ADR-043）：两级页表（PDE → PTE）各 4096 项 × 4 KiB 页 = 64 GiB/AS，覆盖 KMD 4 GiB/8 GiB 堆基址（`common` 页表常量 12+12+12）。历史"64 bit VA / 每级 512 项（30 bit / 1 GiB）"表述已废止，见 `bit-budget.md` §4。
+- 软件类型 `GpuVAddr`/`PhysAddr` 为 u64；**硬件有效 VA = 36 bit**（B-007 裁定，ADR-043）：两级页表（PDE → PTE）各 4096 项 × 4 KiB 页 = 64 GiB/AS，覆盖 KMD 4 GiB/8 GiB 堆基址（`common` 页表常量 12+12+12）。历史"64 bit VA / 每级 512 项（30 bit / 1 GiB）"表述已废止，见 `bit-budget.md` §4。
 - 每个上下文一份页表根，`SET_STATE_BASE(stateId=1)` 在初级由驱动写入，第 10 章迁 FW（Q-36）。
 - TLB：每 CU 64 组 × 4 路 = 256 项，索引 `(va>>12)&0x3F`（Q-45）；失效必须全局可见；策略 B 下线程本地 TLB 依赖全局失效序列（见 `../docs/design/execution-parallel.md`）。
 - 页错误：记录 VA 与上下文后**中止当前提交、不复位**；复位仅第 36 章按引擎级接入（Q-30、Q-69；细粒度页错误恢复在项目范围外，见 `roadmap.md` §0.5 能力边界）。
+
+设备 VA 的位段是页目录 `[35:24]`、页表 `[23:12]` 和页内偏移 `[11:0]`。ASID 单独携带。PDE/PTE 先用包含物理页号、有效性和权限的类型化字段。需要引入压缩条目时，按 [分配校验](allocation-audit.md) 登记整字及掩码。
 
 ## 3. 堆与分配
 

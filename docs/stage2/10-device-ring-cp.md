@@ -269,3 +269,17 @@ FENCE 包载荷 {u64 value} → CP 更新 FENCE_MON_LO/HI 与 FENCE_STATUS → �
 ## 2026-11-21 评审同步说明
 
 公共偏移见 [命令与 MMIO 登记 §4](../design/command-mmio.md)，实现审计见 D10.1。
+
+## 执行切分与 Git 提交模板
+
+先用章内最小输入验证本章新增模块和失败路径，再接入 §7 登记的场景子例，完成 A10 和适用的 R10 后提交。分配核对项为版本字段、ring/MMIO 寄存器，新增或改动按 [编码与位段校验表](../design/allocation-audit.md)登记。
+
+```text
+feat(gpu-ch10): route submissions through FW and CP
+
+- 建立高级设备、FW/CP 边界与 v2 环消费。
+- 以 S1 观测空环和完成值，以 S13 子例验证非法包或版本。
+
+Tasks: T10.1–T10.15
+Validation: <实际执行的命令、用例和结果>
+```

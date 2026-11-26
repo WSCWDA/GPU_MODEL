@@ -41,11 +41,11 @@
 
 ## 3. `MUSA_MODULE_HDR` 二进制布局
 
-module blob 布局（little-endian，字段 4 B 对齐；`entryOffset`/`codeBaseVa` 一律 4 B 对齐）：
+module blob v1 使用小端显式序列化。文件头固定 32 B，符号记录固定 28 B，C++ 结构体的 `sizeof` 仅可作为宿主断言。`codeOffset`、`codeBaseVa`、`entryOffset` 按 8 B 对齐，`symTabOffset` 按 4 B 对齐，名称按字节寻址。
 
 ```
 偏移   大小  字段            说明
-0x00   u32   magic          'MUSA'（0x4D555341）
+0x00   u32   magic          'MUSA'（字节 `4D 55 53 41`，小端 u32 `0x4153554D`）
 0x04   u32   version        一期 = 1；不支持时返回 NotSupported
 0x08   u32   codeOffset     代码段相对 file base 的字节偏移
 0x0C   u32   codeBytes      代码段字节数
@@ -72,13 +72,13 @@ module blob 布局（little-endian，字段 4 B 对齐；`entryOffset`/`codeBase
 
 **装载规则**：
 
-- 校验顺序：magic → version → reserved=0 → `codeOffset+codeBytes ≤ blobSize` 且各偏移 4 B 对齐 → 逐符号 `entryOffset < codeBytes`、`nameOffset/nameLen` 在 blob 内。任一失败返回 `InvalidIsa` / `NotMapped`，**不产生任何 HLI 资源**。
+- 校验顺序为固定头长度、magic、version、保留字、各段边界、逐符号。使用 `offset <= size` 与 `length <= size - offset` 检查范围，符号数量先与可容纳的 28 B 记录数比较。代码长度至少 8 B 且为 8 的倍数，`entryOffset <= codeBytes - 8`，并校验名称范围、`nameLen ≤ 127` 及符号 `flags`（仅 bit0/bit1 有定义）。头或内容损坏返回 `InvalidIsa`，版本不支持返回 `NotSupported`。解析失败时不分配 HLI 资源，装载后发现未映射返回 `NotMapped` 并回滚。
 - module 装入 GART `HOST_VISIBLE` 常驻堆（第 11 章确定性分配器，VA 由 `translation.seed` 复现）；CP 通过 `kernelVa = codeBaseVa + entryOffset` 访问，不做重定位（分支为 pc 相对偏移（第 16 章））。
 
 ## 4. 符号表解析与 Function 入口
 
 - `Function` = `Module` + 符号命中（`name` 匹配）+ 参数布局。解析后得到 `DispatchDesc.kernelVa = codeBaseVa + entryOffset`。
-- 非法输入：符号未命中 → `InvalidIsa`；`kernelVa` 未映射 → `NotMapped`；`entryOffset` 未 4 B 对齐或越出代码段 → `InvalidIsa`（与 §3.11 D-06 同口径）。
+- 符号未命中或入口不能取到一条完整的 8 B 对齐指令时返回 `InvalidIsa`，入口 VA 未映射返回 `NotMapped`。采用 `architecture-design.md` §3.11 D-06 的同一规则。
 - 重复解析同一符号返回同一 `Function`（幂等）；`Function` 生命周期跟随 `Module`。
 
 ## 5. kernel 参数打包 ABI

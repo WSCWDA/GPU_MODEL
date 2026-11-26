@@ -195,3 +195,17 @@ PipelineStatsBegin 记录基线，End 时写差值（= 这段新增）
 - 遮挡查询的 early-Z 交互口径（"通过 early-Z 且写出的像素" vs "通过 depth 测试"）以 27 章为准；S7 若对该口径敏感，明确写入 spec 判定（记录决策不留歧义）。
 - 时间戳的单调基准（按 fence timeline 而非帧）在 35.2（Vulkan timestamp）可能需要换算，需在其映射层做比例，硬件只保逻辑序。
 - 查询池多引擎并发写同一池槽竞争：本期语义为"合并累计"，若 S12 出现竞争差异，采用逐引擎分区再合并（登记）。
+
+## 执行切分与 Git 提交模板
+
+先用章内最小输入验证本章新增模块和失败路径，再接入 §7 登记的场景子例，完成 A34 和适用的 R34 后提交。分配核对项为QUERY op、stateId 6 与结果槽，新增或改动按 [编码与位段校验表](../design/allocation-audit.md)登记。
+
+```text
+feat(gpu-ch34): record and resolve GPU queries
+
+- 实现查询池、计数、逻辑时间戳与 GPU 读回。
+- 用 S7/S2 比对状态转换、计数及错误。
+
+Tasks: T34.1–T34.9
+Validation: <实际执行的命令、用例和结果>
+```

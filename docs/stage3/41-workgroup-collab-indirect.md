@@ -226,3 +226,17 @@ workgroup → 首波执行 → LDS 初始化 → BARRIER(Workgroup) → 计算
 ## 2026-11-21 评审同步说明
 
 本章交付三维派发、间接、UAV 和查询的驱动接入。容量与间接 ABI 见 [架构设计 §3.11](../architecture-design.md)，BARRIER 载荷见 [命令包登记 §2.3](../design/command-mmio.md)。
+
+## 执行切分与 Git 提交模板
+
+先用章内最小输入验证本章新增模块和失败路径，再接入 §7 登记的场景子例，完成 A41 和适用的 R41 后提交。分配核对项为沿用 28 B 记录、barrier 位域与参数区，新增或改动按 [编码与位段校验表](../design/allocation-audit.md)登记。
+
+```text
+feat(gpu-ch41): launch collaborative and indirect compute kernels
+
+- 通过计算 UMD 暴露组内协作、间接派发和对应校验。
+- 用 C4/C5 检查驱动入口、结果及间接记录负例。
+
+Tasks: T41.1–T41.8
+Validation: <实际执行的命令、用例和结果>
+```

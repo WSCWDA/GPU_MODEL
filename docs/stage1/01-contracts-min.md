@@ -116,11 +116,11 @@ struct ErrorRecord {
 | 0x0C | `INDIRECT` | 33 |
 | 0x0D | `PREDICATE` | 33 |
 | 0x0E | `BARRIER` | 32 |
-| 0x0F | `EXTENDED` | 顶层号仅剩此号；新命令**不再抢占顶层号**，走 `EXTENDED`(0x0F)+ 子操作码（`../design/bit-budget.md` §2.3）或 `INDIRECT`(0x0C) IB，先登记再使用（ADR-043/045） |
+| 0x0F | `EXTENDED` | 顶层 16 个编号全部登记完毕。扩展命令使用已登记的 `EXTENDED` 子操作码，间接命令链使用 `INDIRECT`（ADR-043/045） |
 
 - `STREAM_HEADER` 载荷：`{u32 version; u32 engine; u32 flags;}`，初级 `STREAM_HEADER.version=1`；高级升为 2 并拒绝 v1（Q-28）。不匹配返回 `InvalidPacket` 并携带 `{packetType, dwordOffset}`。
 - 扩展规则：新增字段追加在载荷尾部；解析按 `count` 截断，未用字段视为 0。
-- **扩容规则（ADR-043/045，`../design/bit-budget.md` §2）**：`PKT_TYPE` 4 bit 已冻结、已登记 15 个（0x00~0x0E），顶层仅剩 `0x0F`；新增命令一律不新增顶层包号，优先①载荷 `SubOp` 子操作码（`0x0F=EXTENDED` + 16 bit packet-specific）②`INDIRECT`(0x0C) IB ③必要时 0x0F 定义转义。任何新编号先对照 bit-budget 审计再在 `../roadmap.md` §7.3 登记（编号 `B-nnn`）。
+- **扩容规则（ADR-043/045）**：顶层 `PKT_TYPE` 固定为 4 bit，登记范围 `0x00..0x0F`。新增操作先对照 [编码与位段校验表](../design/allocation-audit.md)，经 `../roadmap.md` §7.3 登记后使用 `EXTENDED` 的 16-bit SubOp。非法逻辑值须在组包前拒绝，禁止将 `0xFF` 截断成合法的 `0x0F`。
 - 错误不走包类型 0xFF（类型域只有 4 bit），统一走 MMIO 错误码 + `GD_LOG`。
 
 ### 3.4 像素与颜色（`format.h`）
@@ -281,3 +281,17 @@ struct ErrorRecord {
 一期 Result 集合以本章 §3.2 为准，变更按 [路线图 §7.4](../roadmap.md) 的 ADR 和 SUPERSEDED 流程执行。
 
 > 旧 `D1.1` 中“恰 11 个取值”及 `§4` 的“取值数 = 11”属于已退役判据，更新为对 §3.2 16 值集合做唯一性与快照比对。
+
+## 执行切分与 Git 提交模板
+
+先用章内最小输入验证本章新增模块和失败路径，再接入 §7 登记的场景子例，完成 A1 和适用的 R1 后提交。分配核对项为包头、顶层包号、VA 类型，新增或改动按 [编码与位段校验表](../design/allocation-audit.md)登记。
+
+```text
+feat(gpu-ch01): freeze the minimum GPU contracts
+
+- 定义公共类型、初级命令头与错误边界。
+- 用 E0 核对头文件、包宽、枚举和配置，ISA 工具往返留第 5 章。
+
+Tasks: T1.1–T1.5
+Validation: <实际执行的命令、用例和结果>
+```

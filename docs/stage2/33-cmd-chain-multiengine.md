@@ -52,7 +52,7 @@
 | 包 | 载荷 | 语义 |
 |---|---|---|
 | `INDIRECT`(0x0C) | `{ibVa, ibDwords, flags}` | 读入并执行 IB（链式深度 ≤4） |
-| `EXTENDED`(0x0F) `SubOp=0x0010` → `DISPATCH_INDIRECT` | `{paramVa}` | 显存 grid → DISPATCH 等价（B-034） |
+| `EXTENDED`(0x0F) `SubOp=0x0010` → `DISPATCH_INDIRECT` | `{paramVa}` | 显存 grid/block → DISPATCH 等价（B-034） |
 | `EXTENDED`(0x0F) `SubOp=0x0011` → `DRAW_INDIRECT` | `{paramVa, stride}` | 显存参数 → DRAW 等价（B-044，`command-mmio.md` §2.1） |
 | `PREDICATE`(0x0D) | `{predVa:u64, mask:u64, cond:u64, skipDwords:u32, reserved0:u32}` | `(load64(predVa)&mask)==cond` 执行后续；否则按 skipDwords 跳过完整包序列 |
 | `EXTENDED`(0x0F) `SubOp=0x0012` → `DMA_COPY` | `{dstVa:u64, srcVa:u64, bytesPerRow:u32, srcStride:u32, dstStride:u32, sliceCount:u32}`；payload=32 B；只支持行切片，不支持压缩格式或重叠区域 | CopyEngine 切片拷贝（13 章 `COPY_MEM` 的切片扩展，B-035） |
@@ -90,7 +90,7 @@ CP push INDIRECT → 保存当前 ring 位置 → 切换到 IB 读指（ibCursor
 
 ```
 DRAW_INDIRECT：从 paramVa 读 4 u32 → 校验 → 等价构造 DRAW（拓扑用当前 PSO）
-DISPATCH_INDIRECT：读 3 u32 → 校验 → 等价 DISPATCH
+DISPATCH_INDIRECT：读 7 个 u32 → 校验对齐、范围与保留字 → 构造等价 grid/block，沿用 SET_KERNEL_ARGS
 ```
 
 - 校验失败（如 vertexCount 巨大）→ `InvalidArgument` 定位。
@@ -130,7 +130,7 @@ for s in [0,sliceCount):
 | T33.1 | ① 契约 | IB/DRAW_INDIRECT/DISPATCH_INDIRECT/PREDICATE/DMA_COPY 载荷与布局落头文件 |
 | T33.2 | ② 主体 | IB 读入与执行：切换/返回、链深度限制、越界定位 |
 | T33.3 | ② 主体 | DRAW_INDIRECT：显存参数读 + 等价 DRAW |
-| T33.4 | ② 主体 | DISPATCH_INDIRECT：显存 grid + 等价 DISPATCH |
+| T33.4 | ② 主体 | DISPATCH_INDIRECT：读显存 grid/block，保留已记录的参数区，构造等价 DISPATCH |
 | T33.5 | ② 主体 | PREDICATE：谓词读 + 条件跳过 |
 | T33.6 | ② 主体 | DMA_COPY 切片：srcStride/dstStride 拷贝 + overlap 拒绝校验 |
 | T33.7 | ② 主体 | IB 与 ring 混合执行序固定（+下推 state 保持） |
@@ -213,3 +213,17 @@ for s in [0,sliceCount):
 ## 2026-11-21 评审同步说明
 
 DISPATCH_INDIRECT 参数与 BARRIER 载荷分别见 [命令包登记 §2.1、§2.3](../design/command-mmio.md)。旧 12-byte grid-only 间接参数布局已退役。
+
+## 执行切分与 Git 提交模板
+
+先用章内最小输入验证本章新增模块和失败路径，再接入 §7 登记的场景子例，完成 A33 和适用的 R33 后提交。分配核对项为SubOp、PREDICATE、地址对齐和间接记录，新增或改动按 [编码与位段校验表](../design/allocation-audit.md)登记。
+
+```text
+feat(gpu-ch33): execute chained indirect and DMA commands
+
+- 实现 IB、predicate、间接参数、DMA 行拷贝。
+- 先核对命令展开和字节范围，再跑 S12，S19 只作参数向量。
+
+Tasks: T33.1–T33.9
+Validation: <实际执行的命令、用例和结果>
+```

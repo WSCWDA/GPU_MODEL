@@ -17,7 +17,7 @@
 └──────────┴──────────────────────┴───────────────────────────┘
 ```
 
-- `count` 12 bit，最大 4095 dword；包不得跨环尾，空间不足用 `NOP` 填充。
+- `count` 为 12 bit，合法范围 1..4095 dword。包不得跨环尾，空间不足用 `NOP` 填充。顶层号超过 `0x0F` 时记录端拒绝组包，禁止通过掩码取低 4 bit。
 - 每个命令流首包必须是 `STREAM_HEADER`（0x00），载荷含 `version/engine/flags`；版本策略：初级 `version=1`；高级 `version=2` 且拒绝 v1（Q-28）。版本不匹配拒绝，并报出包类型与偏移（`roadmap.md` §2.8「命令包版本号」）。
 - 新增字段一律追加在载荷尾部；解析器按 `count` 截断，未用字段视为 0/默认值。
 
@@ -63,10 +63,10 @@
 
 | dword | 字段 | 说明 |
 |---|---|---|
-| 0~1 | `kernelVa` LO/HI | module 代码段内 ISA 入口（4 B 对齐，D-06） |
-| 2~3 | `paramBufVa` LO/HI | 参数区（§3.8 `HOST_VISIBLE|HOST_COHERENT`） |
+| 0~1 | `kernelVa` LO/HI | module 代码段内完整 8 B 指令入口（8 B 对齐，D-06） |
+| 2~3 | `paramBufVa` LO/HI | 参数区（§3.8 `HOST_VISIBLE\|HOST_COHERENT`） |
 | 4 | `paramBufByteSize` | 参数区字节数（≤ `kMaxParamBufBytes`，§3.8 规则 2） |
-| 5 | `paramVgprBase` | 默认 56，合法域 uniform 区 `v[56..67]`（§3.8 规则 5） |
+| 5 | `paramVgprBase` | 默认 56，合法基址 `56..60`。8 个连续槽完整落在 `v[56..67]`，槽位与两侧校验见 `architecture-design.md` §3.8 规则 5 |
 | 6~8 | `grid.x/y/z` | workgroup 数（D-02） |
 | 9~11 | `block.x/y/z` | 每 workgroup 线程数（D-01） |
 | 12 | `ldsStaticBytes` | 静态 LDS 需求（16 B 对齐，D-03/D-13） |
@@ -77,11 +77,11 @@
 
 ### 2.3 `BARRIER`（0x0E）二进制载荷（dword 索引）
 
-固定为 3 dword，所有资源、执行依赖、队列所有权转换共用此信封：
+载荷固定为 3 dword（含包头的 `count=4`），所有资源、执行依赖、队列所有权转换共用此信封：
 
 | dword | 字段 | 编码 |
 |---|---|---|
-| 0 | `kind` [7:0]、`scope` [15:8]、`memOrder` [23:16]、`accessMask` [31:24] | kind: resource=0 / execution=1 / ownership=2；其余枚举以 sync-primitives.md 为准 |
+| 0 | `kind` [7:0]、`scope` [15:8]、`memOrder` [23:16]、`accessMask` [31:24] | kind: resource=0 / execution=1 / ownership=2；scope、memOrder、accessMask 的值由同步规格登记，实施边界见 [分配校验](allocation-audit.md) |
 | 1 | `srcStageMask` | 来源阶段位图 |
 | 2 | `dstStageMask` | 目标阶段位图 |
 
@@ -90,6 +90,28 @@
 ### 2.4 `PREDICATE`（0x0D）载荷
 
 固定 8 dword payload：`{u64 predVa, u64 mask, u64 cond, u32 skipDwords, u32 reserved0}`。CP 读取 `value=LoadU64(predVa)`；条件为 `(value & mask) == cond`，并要求 `(cond & ~mask)==0`。条件成立时执行后续命令流；条件不成立时跳过紧随其后的 `skipDwords`，该范围必须完整由命令包组成并落在当前 ring/IB 边界内，否则返回 `InvalidPacket`。`reserved0` 必须为 0。`skipDwords=0` 表示不跳过；不支持嵌套 predicate。
+
+### 2.5 `DRAW`（0x03）载荷与版本
+
+偏移从包头之后开始算，`count` 包含包头。所有字段均按 u32 编码，VA 用相邻 LO/HI 两字表示。
+
+| 载荷 dword | 字段 | 使用条件 |
+|---|---|---|
+| 0 | `firstVertex` | 非索引起始顶点。索引路径须为 0，由 `indexBufVa` 指到第一个索引 |
+| 1 | `vertexCount` | 非索引时为顶点数，索引时为索引数 |
+| 2 | `flags` | bit0 = indexed，其余为 0 |
+| 3~4 | `vertexBufVa` | 顶点流基址 LO/HI |
+| 5 | `instanceOffset` | 固定为 0 |
+| 6~8 | `baseVertex`、`baseInstance`、`instanceCount` | v2 扩展，`instanceCount >= 1`。省略时依次为 0、0、1 |
+| 9~10 | `indexBufVa` | v2 索引路径的索引流基址 LO/HI |
+| 11 | `indexFormat` | v2 索引路径，0 = u16，1 = u32 |
+| 12 | `restartEnable` | v2 索引路径，0 = 关闭，1 = 开启 |
+
+v1 非索引使用基础载荷（`count=7`），索引能力返回 `NotSupported`；v2 允许非索引基础载荷或 v2 扩展（`count=7/10`），索引必须携带完整扩展（`count=14`）。部分尾部、未知位或非法包长度返回 `InvalidPacket`。CP 先校验再产生顶点访问。顶点索引加法需检溢，非索引计算 `firstVertex + baseVertex + i`，索引计算 `baseVertex + index`。保留初级固定输入与计数规则，高级拓扑的计数下限由第 22 章判定。
+
+### 2.6 位段的保留约束
+
+`SHADER_PSO.flags` 的 bit0..3 依次为深度测试、深度写、背面剔除、视口裁剪，合法掩码为 `0x0000000F`，MMIO `0x93` 保存同一状态。包级 `flags` 各有独立作用域。尚未为 `STREAM_HEADER.flags` 和 `INDIRECT.flags` 分配位，记录器写 0，解码器拒绝非 0，功能选择走各自已登记字段。
 
 ## 3. stateId 基址索引
 

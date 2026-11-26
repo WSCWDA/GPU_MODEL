@@ -79,7 +79,7 @@ struct KernelArgsLayout {
 2. `paramBufByteSize > 0` 且 ≤ `kMaxParamBufBytes` = 4 KiB（B-041，独立契约常量）；`v[56..67]` 只承载 `paramBufVa/grid/block` 描述符，不参与参数容量计算（与 VGPR uniform 分区容量解耦）；
 3. `paramOffsets` 严格递增、互不重叠，且 `offset + size ≤ paramBufByteSize`；
 4. 参数按类型自然对齐（标量 4 B、float2/vec2 8 B、float4/vec4 16 B）；
-5. `paramVgprBase` 默认 56，必须落在 uniform 分区 `v[56..67]` 且不与其他 ABI 分区冲突（如落入 RT1~3 `v[44..55]` 或临时量区 `v[76..]` 均拒绝）；
+5. `paramVgprBase` 默认 56，合法基址 `56..60`，8 个槽依次装载参数 VA LO/HI、`grid.xyz`、`block.xyz`。CP 校验整个写入范围，再初始化 VGPR 和派发工作组。
 6. 校验只做静态结构校验，不断言参数语义（值域由 kernel 自证）。
 
 ### 3.2 计算管线接口（权威：`architecture-design.md` §3.4）
@@ -175,7 +175,7 @@ CP 解析 DISPATCH(0x04) → Compute 引擎
 | D37.1 | Compute 载荷头独立编译，DISPATCH 字段正确解析；包长、版本、保留位和引擎类别错误返回确定状态；输入数据的记录期校验归 20/35.1，主机参数打包归 39 | L1 契约 |
 | D37.2 | 硬件消费已提交参数描述符时，未映射/越界参数区产生确定错误；合法参数正确装入 uniform。Host `ArgPack[]` 的布局/重叠校验与禁止下发由 D39.1/D39.2 验收 | L1 契约 |
 | D37.3 | `DISPATCH` 能驱动 Compute 引擎产出与 29~31 章单测一致的结果；派发入口必须持有非空 `IShaderArray* sa` 并对每个有效 wave 调用 `IShaderArray::Dispatch`，缺失 `sa` 在执行前返回 `InvalidArgument` | L1 契约 |
-| D37.4 | `DISPATCH` 后 VGPR uniform 区 `v[56..67]` 内容 = `paramBufVa/grid/block`（快照比对） | L1 契约 |
+| D37.4 | 基址 `56`、`60` 时逐槽核对参数 VA LO/HI、grid、block，检查 v[68] 与其他非目标槽保持原值。直接构造 `55`、`61`、`UINT32_MAX` 的包，确认 CP 返回 `InvalidArgument` 且无工作组派发 | L1 契约 |
 | D37.5 | 直连 HLI 运行 S18 case-0，索引和写回与参考逐项一致。后续子 case 由 M37.2/M37.3 接入，完整场景归 D37.14 | L2 |
 | D37.6 | 三维 block/grid 的 blockIdx/threadIdx=ref_model；grid 边界部分 workgroup 有效、越界 work-item 不写任何内存 | L2 |
 | D37.7 | block > warp（如 64 = 2 wave / 256 = 8 wave，对齐 S19 `case-0`）跨 wave barrier 只在全部 wave 到达后放行（原子计数断言）；workgroup/device 作用域语义确定 | L2 |
@@ -248,3 +248,17 @@ CP 解析 DISPATCH(0x04) → Compute 引擎
 ## 2026-11-21 评审同步说明
 
 workgroup 容量和间接派发 ABI 见 [架构设计 §3.11](../architecture-design.md)。本章交付 Compute 硬件通路和直连 HLI 验收。旧参数打包、Stream/Event 和驱动侧 API 任务已退役，实施归第 39–41 章。
+
+## 执行切分与 Git 提交模板
+
+先用章内最小输入验证本章新增模块和失败路径，再接入 §7 登记的场景子例，完成 A37 和适用的 R37 后提交。分配核对项为DISPATCH dword、VGPR 区段和容量，新增或改动按 [编码与位段校验表](../design/allocation-audit.md)登记。
+
+```text
+feat(gpu-ch37): dispatch compute through direct HLI
+
+- 接通 DISPATCH、8 槽参数初始化、workgroup 执行与写回。
+- 先以原始包测 CP 边界，再跑直连 S18/S19 的归属用例。
+
+Tasks: T37.1–T37.14
+Validation: <实际执行的命令、用例和结果>
+```

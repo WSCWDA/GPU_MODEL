@@ -122,7 +122,7 @@ public:
 | TLB 强制失效 | `InvalidateTlb`：`Map/Unmap` 后、每次上下文切换前（第 14 章） |
 | 页错误 | 缺失 PTE → `NotMapped` 记录 VA；未驻留 → `NotResident`；记录 `{unit,packetType,dwordOffset,va}` 后中止当前提交（ADR-031：不复位） |
 
-> ⚠️ stateId 编号纪律（三档，`../design/bit-budget.md` §3.1）：①`0~7` 直接 MMIO 映射（`0x40+2n`）冻结、兼容 E0~E5；②`0x50~0x7F`（stateId 8~31）只是**临时过渡缓冲**，不得作为长期设计；一旦耗尽必须切换为③GPU 内存间接状态表（`SET_STATE_TABLE_INDEX` 索引内存数组，MMIO 只存根指针）。**禁止继续在 MMIO 硬编码新增 stateId**；本章只用 `stateId=1`，不占临时槽。
+> 本章仅设置 stateId 1。MMIO `0x50..0x7F` 整段保留，禁止用于临时分配。新增状态需求先设计内存间接表并走 [分配校验](../design/allocation-audit.md) 与登记流程。
 
 ---
 
@@ -252,3 +252,17 @@ Unmap(va, bytes): 校验已映射 → 释放 PTE → InvalidateTlb（全清，�
 - flush/invalidate 由第 12 章 `CacheSubsystem` 提供，本章只声明内存域语义；若引入写缓冲，第 12 章 flush 必须为真实屏障工具。登记到待定项，不阻塞 S2。
 - GART 容量上限的默认值（本章取测试友好值）与真实硬件对齐留到第 14 章驻留模型定案时统一。
 - `HOST_COHERENT` 的"即刻一致"是模拟近似；若后期要摸真实 GPU 的 flush 语义差异（页错误恢复），以新 ADR 记录。
+
+## 执行切分与 Git 提交模板
+
+先用章内最小输入验证本章新增模块和失败路径，再接入 §7 登记的场景子例，完成 A11 和适用的 R11 后提交。分配核对项为36-bit VA、页表索引、堆区间，新增或改动按 [编码与位段校验表](../design/allocation-audit.md)登记。
+
+```text
+feat(gpu-ch11): translate VA and allocate GPU heaps
+
+- 实现 PDE/PTE、TLB 和确定性堆分配。
+- 用 S0/S2 核对映射、页边界、非法 VA 与无缓存基线。
+
+Tasks: T11.1–T11.15
+Validation: <实际执行的命令、用例和结果>
+```

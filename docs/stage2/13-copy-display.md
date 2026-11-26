@@ -205,3 +205,17 @@ ScanNextLine: y=ScanY()
 - CPU 读回只通过 `Download(frontVa)` 生成独立 CPU 快照；`FrontBufferSnapshot()` 返回该快照，不暴露 GPU 显存指针。窗口 blit 消费 CPU 快照，不直接读取 GPU VA；GPU 侧访问仍统一走 `IMemorySubsystem` 的翻译路径。
 - flip 根据逻辑扫描位置推进，执行 D13.3/D13.4 的整帧判据。
 - 双缓冲的 front/back 在 `wave` 未排空时 flip 是否允许，受限语义留到第 32 章 fence 真异步后统一。
+
+## 执行切分与 Git 提交模板
+
+先用章内最小输入验证本章新增模块和失败路径，再接入 §7 登记的场景子例，完成 A13 和适用的 R13 后提交。分配核对项为拷贝偏移单位、RT 锁存，新增或改动按 [编码与位段校验表](../design/allocation-audit.md)登记。
+
+```text
+feat(gpu-ch13): copy resources and export latched frames
+
+- 接通 Copy Engine 与 Display，保持整帧锁存。
+- 用 S2 比对跨引擎数据/帧与未映射负例。
+
+Tasks: T13.1–T13.9
+Validation: <实际执行的命令、用例和结果>
+```

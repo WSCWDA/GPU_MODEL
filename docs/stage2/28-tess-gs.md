@@ -236,3 +236,17 @@ DS wave：每域顶点求值（读自建 patch 缓冲）→ 位置/属性
 - Tessellator 的细分公式与 `ref_model` 的精确对齐在首次校验时可能遇到 ULP 差异（`ceil` vs `round`）；以 `ref_model` 为唯一期望，若不一致（±1 细分点）先修内核实现。
 - GS 每图元一 wave 的容量与切片策略在 `patchControlPoints` 较大（>16）时可能触碰 23 章 slice 上限——以配置调高切片容量，正确性不受影响（软观测）。
 - `quads/isolines` 的纵深探索在 S6 先用最小集，若后续场景需要更复杂（如 tess LOD 带导数），登记到能力位，不扩实现面。
+
+## 执行切分与 Git 提交模板
+
+先用章内最小输入验证本章新增模块和失败路径，再接入 §7 登记的场景子例，完成 A28 和适用的 R28 后提交。分配核对项为HS 因子位槽、Tess/GS opcode 与暂存容量，新增或改动按 [编码与位段校验表](../design/allocation-audit.md)登记。
+
+```text
+feat(gpu-ch28): tessellate patches and emit GS primitives
+
+- 分开实现 patch 因子、域求值和 GS 输出缓存。
+- 用 S6 对照图元计数、顺序、旁路与超预算行为。
+
+Tasks: T28.1–T28.16
+Validation: <实际执行的命令、用例和结果>
+```

@@ -104,6 +104,8 @@ PSO 暂存区挂 MMIO `0x80~0xDF`：CP 收到 `SHADER_PSO` 即解析校验并将
 | `vertexBufVa` / `vertexBufVaHi` | u64 分两段 | 顶点流基址（已上传，第 3 章） |
 | `instanceOffset` | u32 | 恒 0（实例化在第 22 章） |
 
+固定前缀共 6 个载荷 dword（`count=7`），精确位置以 [命令包 §2.5](../design/command-mmio.md) 为准。`SHADER_PSO.flags` 的高 28 位必须为 0，MMIO `0x93` 与包状态共用这一掩码。
+
 - RT 基址来自 `stateId=0`（第 3 章 `SET_STATE_BASE`）；深度基址由 PSO 暂存区的 `depthBaseVa` 字段承载（正式 `stateId=2` 归第 26 章）。
 - `vertexCount` 可大于单次派发容量：IA 以 32 为一批分批送 VS，容量不再成为 draw 上限（非专化为第 23 章的"切片"，这里只是分批）。
 
@@ -247,3 +249,17 @@ STATS: 图元数 / 子三角形数 / VS 波数 / PS 波数 / 像素写入数
 
 - **Q-77（已定案）** 深度插值在无透视（w=1）下为线性；若后续顶点引入透视除法（第 24 章起），插值需切换为透视校正并回归 E2/E4 基线——第 24 章引入透视除法时按 ADR 记录基线迁移策略。
 - **Q-78（已定案）** E2 基线的覆盖率数值（256 基线 20808、色权重等）在 ref_model 落地（第 7 章）前以手工解析值留存；ref_model 落地后以 `ref_model` 为准，禁止手改期望，差异先修 ref_model 再回归。
+
+## 执行切分与 Git 提交模板
+
+先用章内最小输入验证本章新增模块和失败路径，再接入 §7 登记的场景子例，完成 A6 和适用的 R6 后提交。分配核对项为DRAW v1 前缀、PSO flags 与 MMIO，新增或改动按 [编码与位段校验表](../design/allocation-audit.md)登记。
+
+```text
+feat(gpu-ch06): render triangles with the fixed pipeline
+
+- 串通 IA、VS、三角形光栅、PS 和最小 OM。
+- 对照 E2/E4 的 RT 输出、退化图元和深度状态。
+
+Tasks: T6.1–T6.14
+Validation: <实际执行的命令、用例和结果>
+```
