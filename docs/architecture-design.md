@@ -1,8 +1,7 @@
 # GPU 驱动全栈软模型 — 架构设计
 
 > 定位：定义分层、模块边界、数据流、接口契约与 ABI，回答"系统由哪些层和单元组成、它们如何协作、哪些契约不能破"。
-> 文档职责：项目目标、范围、阶段与交付以 [任务规划](README.md) 为主干；`roadmap.md` 展开章级任务与门禁；本文件负责模块树、数据流、层间契约与 ABI；`docs/design/` 细化模块内部机制；`scene-specs.md` 冻结场景输入与判据；stage 文档描述章节实现。本文件不新增章号与场景号。
-> 项目约束见 [README](README.md)。模块与章节的映射见本文件 §2.4，正式任务和验收顺序见 [路线图](roadmap.md)。
+本文件维护项目的技术目标与边界、模块树、数据流、跨层接口和 ABI。正式阶段、任务依赖和交付由 [路线图](roadmap.md) 管理。模块内部机制与场景判据由各自规格维护。
 > 模块设计：本文件 §4 为独立模块设计文档（`docs/design/`）索引；子系统的内部设计细节不在此内联，见各模块文档。
 
 ---
@@ -29,23 +28,25 @@
 | 简化可定位 | 每条初级简化在代码中有唯一落点 | 简化散落在多个单元，高级无法替换 |
 | 能力显式 | 不支持的能力返回明确错误，不静默降级 | 把 MSAA 当 1x 跑完还报成功 |
 
+宿主 CPU 的缓存与 worker 调度影响模拟器运行速度。模拟 GPU 的 L1/L2、几何阶段局部暂存和 LDS 各有显式生命周期及可见性规则。报告中的耗时与命中统计标明为宿主运行数据或模型计数。
+
 ### 1.3 非目标
 
 不做 API/二进制兼容、不做真实 GPU 驱动、不做周期级时序、不做电源/热/ECC/虚拟化、不做稀疏资源与压缩纹理、不做可变 subgroup、不做细粒度页错误恢复、不做 TDR 级容错。二期能力只保留 capability bit，一期返回"不支持"。
 
 ### 1.4 正式阶段与能力档
 
-| README 工作包 | 章与阶段 | 架构交付 |
+| 实施阶段 | 章 | 架构交付 |
 |---|---|---|
-| WP0–WP1 | 1–9，初级 | 公共契约、薄提交门面、单环、平坦内存、单波 ISA、固定功能与可编程着色配合。E0–E5 以 headless 帧导出收口 |
-| WP2–WP3 | 10–19，A–B | KMD/FW、虚拟地址与驻留、显式 GPU 缓存、执行与编译链。LLVM 对照验证 ABI 和程序语义 |
-| WP4 | 20–28，C | 资源与绑定、纹理、图形前端、光栅、OM、MSAA。Tess/GS 在第 28 章通过 S6 独立展示 |
-| WP5 | 29–31，D | 波内/组内协作与 CPU worker 并行。S10/S11 验收共用原语 |
-| WP6 | 32–36，E | 多队列、间接命令、查询、35.1 HLI、项目自有最小图形 UMD 入口和必要错误路径。S15 验收能力查询和拒绝。35.2–35.4 适配器按能力选做 |
-| WP7 | 37，F | Compute 引擎消费已登记的命令和参数，经直连 HLI 验收 S18/S19 |
-| WP8 | 38–42，G | 计算 UMD 对象、主机参数打包与 launch、stream/event。第 42 章对照直连 HLI 和计算 UMD 的结果 |
+| 初级 | 1–9 | 公共契约、薄提交门面、单环、平坦内存、单波 ISA、固定功能与可编程着色配合。E0–E5 以 headless 帧导出收口 |
+| A–B | 10–19 | KMD/FW、虚拟地址与驻留、显式 GPU 缓存、执行与编译链。LLVM 对照验证 ABI 和程序语义 |
+| C | 20–28 | 资源与绑定、纹理、图形前端、光栅、OM、MSAA。Tess/GS 在第 28 章通过 S6 独立展示 |
+| D | 29–31 | 波内/组内协作与 CPU worker 并行。S10/S11 验收共用原语 |
+| E | 32–36 | 多队列、间接命令、查询、35.1 HLI、项目自有最小图形 UMD 入口和必要错误路径。S15 验收能力查询和拒绝。35.2–35.4 适配器按能力选做 |
+| F | 37 | Compute 引擎消费已登记的命令和参数，经直连 HLI 验收 S18/S19 |
+| G | 38–42 | 计算 UMD 对象、主机参数打包与 launch、stream/event。第 42 章对照直连 HLI 和计算 UMD 的结果 |
 
-正式门禁和阶段回归见 [路线图](roadmap.md)。
+正式门禁和阶段回归见 路线图。
 
 能力四档见 `roadmap.md` §0.5：初级实现 / 高级一期 / 高级二期（只留 bit）/ 范围外。
 
@@ -241,7 +242,7 @@ tools/
 | 入口与参数 | F 阶段场景通过 HLI 直连，使用已准备的参数。G 阶段由计算 UMD 装载 module、解析 function，并在第 39 章组装主机参数区 | 代码入口、资源句柄、参数 VA、grid/block |
 | 提交与执行 | HLI 记录 `SetKernel/Dispatch/IndirectDispatch`。共用 KMD/FW/CP 路径派发 Compute，引擎经 `IShaderArray` 执行 workgroup、wave 与 lane | 包序、workgroup 与 lane ID、有效掩码 |
 | 写回与消费 | buffer 走内存子系统，image store 复用布局编码与格式转换。跨队列同时表达生产者完成、资源可见性与需要的所有权转移 | UAV/RT 原始字节、barrier、fence/timeline |
-| 双向互操作 | S19 `case-4` 验证图形写 RT 后计算读并写回。README D6 的计算写入、图形等待后读取由第 37 章异步用例和 stage3 C3 展示 | 通过命令、同步与结果定位生产者及消费者 |
+| 双向互操作 | S19 `case-4` 验证图形写 RT 后计算读并写回。第 37 章异步用例与 C3 展示计算写入、图形等待后读取 | 通过命令、同步与结果定位生产者及消费者 |
 
 场景输入和硬判据见 [场景规约](design/scene-specs.md)。
 
@@ -517,7 +518,7 @@ struct KernelArgsLayout {
 | HLI | 对象表、描述符堆默认状态 | 释放 KMD |
 | UMD | API 对象、默认管线 | 释放 HLI |
 
-正常 `Shutdown` 停止接收新提交，推进已接受的工作至成功或失败，再停止 CP，并按创建逆序释放。已停止接收后若剩余队列无法推进，按同步契约结束未完成提交并释放引用。启动及复位见 [启动与复位设计](design/boot-reset.md)。
+正常 `Shutdown` 停止接收新提交，推进已接受的工作至成功或失败，再停止 CP，并按创建逆序释放。已停止接收后若剩余队列无法推进，按同步契约结束未完成提交并释放引用。启动及复位见 启动与复位设计。
 
 **对象销毁契约（35.1，问题：销毁异常 / 复位时序）**：
 
@@ -535,7 +536,7 @@ struct KernelArgsLayout {
 | 重新提交 | 复位期间提交返回 `Busy`。完成后旧 queue/stream generation 返回 `DeviceLost`。应用重建受影响的队列、stream 与资源，用有效对象显式重提固定输入 |
 | 责任归属 | 复位是 36 章引擎级行为，不级联到其他引擎 / 设备，UMD 依 §3.9 把 `ResetRequired` 映射为设备丢失类错误上报 |
 
-引擎级复位按第 36 章接入。被中止的提交保持失败状态，命令不会隐式重放。队列完成状态与资源可见性分别处理，等待和失败传播见 [同步原语 §2.1](design/sync-primitives.md#21-提交完成与失败传播)。
+引擎级复位按第 36 章接入。被中止的提交保持失败状态，命令不会隐式重放。队列完成状态与资源可见性分别处理，等待和失败传播见 同步原语 §2.1。
 
 ### 3.11 计算 dispatch 载荷与计算 ABI（第 20、35.1 章冻结，ADR-046；计算驱动落地 stage3 38~42）
 
@@ -610,7 +611,7 @@ globalThreadId  = workgroupId * threadsPerGroup + gtid
 - **M-02 末波部分有效**：`LaneMask` 为有效 lane 集合（组线程数非 32 倍数时末波部分有效）；**无效 lane 不执行访存 / 原子 / barrier**。此点与第 25 章"2×2 quad 内任一 lane 有效则 4 lane 全执行"**不同源**：quad 规则只服务导数与像素着色一致性，**禁止移植到计算通路**（否则 warps 执行数判据失真）。
 - **M-03 组整体驻留**：同一 workgroup 的波在同一 CU 成组驻留。波槽、VGPR、SGPR 和 LDS 分别记账。组级需求可满足但暂缺空闲额度时整组等待。整体驻留保障参与波具有推进条件，barrier 还须满足 M-04/M-05。
 - **M-04 barrier 一致到达**：组内全部活跃线程必须在一致控制流到达同一 `BARRIER` PC；非一致控制流由 ISA 层检测并返回 `InvalidIsa` 中止（给可定位错误，不写成未定义行为）。
-- **M-05 推进顺序**：组内波按 `waveIdInGroup` 升序推进；跨组顺序策略 A 按 `workgroupId` 升序、策略 B 由 CU 原子领取，两者均不得改变硬判据（[路线图 §5.4](roadmap.md)）。
+- **M-05 推进顺序**：组内波按 `waveIdInGroup` 升序推进；跨组顺序策略 A 按 `workgroupId` 升序、策略 B 由 CU 原子领取，两者均不得改变硬判据（路线图 §5.4）。
 - **M-06 occupancy 上限固定**（ADR-038）：CU 驻留波数、每 CU 的 VGPR/SGPR/LDS 总量、输入/输出 FIFO 深度由容量登记固定（2026-11-20 定案：驻留 **16 waves/CU**、LDS **64 KiB/CU**、FIFO **8 项**，登记 `bit-budget.md` §7.1 **B-036/B-037/B-039**）；超限**排队等释放**，不报错、不降级。排队**仅限**"组级需求本身可满足（`wavesPerGroup ≤` 驻留波数、`ldsStaticBytes ≤` CU LDS）、仅当前被其它组暂占"的情形；需求本身超上限在 HLI/驱动记录期被 §3.11 D-13 直接 `InvalidArgument` 拒绝，避免"永远排不上且无进展"的挂起。
 - **M-07 组边界不隐式同步**：workgroup 结束不等于 device 可见；dispatch 间、kernel 间可见性一律走 §3.13 的显式 barrier / fence，禁止把"提交完成"当同步。
 - **M-08 确定性**：计算通路无时间输入；需随机数的 kernel 用固定种子、按 `gtid` 升序消费（§7.1 规则 5）。
@@ -637,14 +638,14 @@ globalThreadId  = workgroupId * threadsPerGroup + gtid
 | 同组 LDS | ISA `BARRIER(Workgroup)` 指令（非 `PKT_TYPE=0x0E` 包） | 读到旧值 / 竞态 |
 | 同组 global（同 CU） | ISA `BARRIER(Workgroup)` + workgroup 可见性规则；命令包级 resource barrier 不在 kernel 内插入 | 读到 L1 旧值 |
 | 跨组 / 跨 CU global | 命令包 `BARRIER(kind=resource,scope=Device)` + 写队列排空/失效 | 部分 CU 读到旧值 |
-| 跨 dispatch / 跨队列 | 整资源 release→SIGNAL→WAIT→acquire，见 [同步原语 §2.2](design/sync-primitives.md) | 顺序或所有权不成立 |
+| 跨 dispatch / 跨队列 | 整资源 release→SIGNAL→WAIT→acquire，见 同步原语 §2.2 | 顺序或所有权不成立 |
 | 图形 ↔ 计算 | 复用整资源移交，release 排空、acquire 失效 | RT/UAV 读旧值 |
 
 **规则**
 
 - **S-01 LDS 永不进 VA/PA**：LDS 只经 `shader/shared` 的索引与 bank 访问；任何以 VA 触达 LDS 的指令判 `InvalidIsa`（与 ADR-016 的"片上存储不走 VA"同源）。
 - **S-02 无隐式全局刷新**：dispatch 边界不自动 flush / invalidate；可见性只由 `BARRIER` + fence 建立，保证每条读写都能定位到机制（§1.1）。
-- **S-03 资源屏障编码**：命令包 `0x0E` 固定为三个 dword，字段见 [命令包 §2.3](design/command-mmio.md)。整资源目标随提交冻结并绑定包位置，见 [同步原语 §2.2](design/sync-primitives.md)。组内同步沿用 ISA `BARRIER`。
+- **S-03 资源屏障编码**：命令包 `0x0E` 固定为三个 dword，字段见 命令包 §2.3。整资源目标随提交冻结并绑定包位置，见 同步原语 §2.2。组内同步沿用 ISA `BARRIER`。
 - **S-04 计算写回**：buffer store 由 memory 子系统直写（不经 OM）；image store 复用第 21 章 tiling 编码与 `common/format` 转换；RT 写回与计算写回**共用同一格式转换与写掩码实现**，不得复制两份（ADR-032 的实现级推论）。
 - **S-05 缓存口径**：L1 写穿、L2 写回，L2 是缓存一致性点。`cache_enable=off` 旁路缓存，开关前后的定义结果和可见性判据一致，统计可以不同。
 - **S-06 故障同路**：未映射 / 未驻留与图形一致（`NotMapped` / `NotResident` + 中止当前提交），禁止静默读 0，禁止为计算单独开"宽松读"路径。
@@ -657,12 +658,12 @@ globalThreadId  = workgroupId * threadsPerGroup + gtid
 
 ## 4. 模块设计文档（`docs/design/`）
 
-> 子系统因工程量增长拆分为独立设计文档；本文件只保留分层、模块树与层间接口。项目范围与阶段由任务规划确定；本文件是模块树和层间契约的权威来源；各 `docs/design/<模块>.md` 负责模块内部机制；各章文档负责实现落地。
+本节列出定义模块内部机制的规格及其实施章节。跨模块接口统一见 §3。
 > 子模块文档自含：模块内部结构与状态、落地章、验收要点与契约变更规则；同时承载原架构 §4 全部内容与 roadmap 中相关权威条目。
 
 | 模块 | 文档（`docs/design/`） | 落地章 | 职责概览 | 相关层间接口 |
 |---|---|---|---|---|
-| 公共组件与渐进契约 | [shared-foundation.md](design/shared-foundation.md) | 1 起 | 跨章值类型、所有权、地址/编码启用和代码简化说明 | common 与各层公开接口 |
+| 公共组件与渐进契约 | `design/shared-foundation.md` | 1 起 | 跨章值类型、所有权、地址/编码启用和代码简化说明 | common 与各层公开接口 |
 | ISA 与 Shader ABI | `isa-abi.md` | 5、16 | 64 bit 定长编码、opcode `[62:56]` + `[63]=SFLAG`、VGPR/SGPR 固定分区（`kVgprBase*`） | `common/isa.h`、`SymbolBindings` |
 | 内存系统 | `memory-system.md` | 3、11、12、14 | 三类地址、页表/TLB、三堆与分配器、缓存/驻留、主机同步与确定性 | `IMemorySubsystem` |
 | 同步原语 | `sync-primitives.md` | 2、20、30、32、33、40 | 队列 fence/timeline、event、命令包屏障与 ISA 组内屏障 | `SIGNAL`/`WAIT`/`BARRIER`/`PREDICATE` 包、ISA barrier |
@@ -681,11 +682,11 @@ globalThreadId  = workgroupId * threadsPerGroup + gtid
 | 文档 | 内容 |
 |---|---|
 | [计算通路](design/compute-line.md) | 直连 HLI 路径、共用单元、计算驱动映射与启动边界 |
-| [计算驱动](design/compute-driver.md) | 对象生命周期、module/launch ABI、stream/event 和 stage3 演示 |
-| [执行与并行](design/execution-parallel.md)、[同步原语](design/sync-primitives.md) | workgroup/wave 驻留与执行、组内同步、队列依赖和内存作用域 |
-| [场景规约](design/scene-specs.md) | 业务输入、探针、容差与双入口判据 |
+| 计算驱动 | 对象生命周期、module/launch ABI、stream/event 和 stage3 演示 |
+| [执行与并行](design/execution-parallel.md)、同步原语 | workgroup/wave 驻留与执行、组内同步、队列依赖和内存作用域 |
+| 场景规约 | 业务输入、探针、容差与双入口判据 |
 
-项目级范围和阶段见任务规划；模块设计文档的登记位：包类型 / `stateId` / MMIO 段 / opcode 区段的权威登记表见 `roadmap.md` §7.3，增量在 `command-mmio.md`、`isa-abi.md` 对应节登记。位宽与地址空间余量（包类型、MMIO、stateId、GPU VA、ISA opcode、环/堆容量）的集中审计见 `docs/design/bit-budget.md`（**唯一审计基准**：任一涉及包 / MMIO / ISA / 页表分配的章节开工前强制对照，见 `bit-budget.md` §1 与 `roadmap.md` §7.3/§7.4）。
+分配登记覆盖包类型、`stateId`、MMIO 段及 opcode 区段，登记表见 `roadmap.md` §7.3，增量在 `command-mmio.md`、`isa-abi.md` 对应节登记。位宽与地址空间余量（包类型、MMIO、stateId、GPU VA、ISA opcode、环/堆容量）的集中审计见 `docs/design/bit-budget.md`（**唯一审计基准**：任一涉及包 / MMIO / ISA / 页表分配的章节开工前强制对照，见 `bit-budget.md` §1 与 `roadmap.md` §7.3/§7.4）。
 
 ---
 
@@ -725,7 +726,6 @@ gpu-driver-model/
 ├── third_party/
 │   └── stb_image_write.h
 ├── docs/
-│   ├── README.md
 │   ├── roadmap.md
 │   ├── architecture-design.md
 │   ├── design/isa-abi.md … compute-driver.md（模块设计见 §4）
@@ -827,7 +827,7 @@ gpu-driver-model/
 | 无探针表/`spec_runner`（全图逐字节 + 结构断言） | `tools/image_diff` | 高级（第 21 章起） |
 | 无 PAL（场景直连薄门面） | `hw_sim/submit` | 35 |
 
-简化写在实际实现点。说明当前行为和省略状态，注明启用后续能力时需补齐的状态转换、持有者与验证入口。保留适用的场景入口和判据。示例见 [公共组件设计](design/shared-foundation.md)。
+简化写在实际实现点。说明当前行为和省略状态，注明启用后续能力时需补齐的状态转换、持有者与验证入口。保留适用的场景入口和判据。示例见 公共组件设计。
 
 ### 7.6 编码资源设计权衡（直接编码 vs 间接编码）
 
@@ -960,4 +960,4 @@ gpu-driver-model/
 | 校验方法 | ref_model、探针、容差、差分矩阵 | 7、9 |
 | 编译器 | SSA、φ、线性扫描、分歧分析、LLVM 对照 | 17~19 |
 
-笔记只记录"为什么这样设计"与对照结论，不复制代码；项目范围和阶段以任务规划为准，模块树与层间契约以本文件为准，模块内机制和场景判据分别以对应 design 文档为准。
+笔记记录设计理由与对照结果。架构约束见本文件，阶段及正式任务见路线图，模块内部机制和场景判据由各自规格维护。

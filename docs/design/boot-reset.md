@@ -1,7 +1,5 @@
 # 启动、复位与关闭 — 独立模块设计
 
-> 项目目标、范围、阶段与交付以[任务规划](../README.md)为主干；roadmap展开章级任务，architecture-design定义模块树与层间契约。本文负责本模块的内部技术设计。
-
 > 定位：定义设备上电/初始化顺序、拒绝创建路径、复位路径（定位 → reset → 重跑一致）、按引擎 watchdog、以及故障分层与逻辑特权分层的硬件侧语义。
 > 落地章：第 10 章设备/KMD-FW 建立（启动序列）、第 36 章错误路径（复位 / watchdog / 故障注入）；`ResetRequired` 语义贯穿 11/14/36。
 > 权威来源：从 `architecture-design.md` §4.11 拆出，吸收分层 / 故障分层 / 逻辑特权模型（原 §5.1/§5.2/§5.4，权威在 `architecture-design.md` §2）、能力边界（原 §8.4 → `roadmap.md` §0.5）与 ADR-031 / ADR-039 / ADR-040、`roadmap.md` §2.8（Watchdog 按引擎监控）。
@@ -63,7 +61,7 @@
 
 ## 6. 与错误契约的联动
 
-全栈跨层接口统一返回 `Result`（`architecture-design.md` 层间接口契约 §3.9）；错误日志必须包含 `{unit, packetType, dwordOffset, va, code}`（`../docs/design/logging.md`）；初级不产生 `ResetRequired`，第 36 章按引擎级复位接入（ADR-031、Q-30、Q-69）。
+全栈跨层接口统一返回 `Result`（`architecture-design.md` 层间接口契约 §3.9）；错误日志必须包含 `{unit, packetType, dwordOffset, va, code}`（`logging.md`）；初级不产生 `ResetRequired`，第 36 章按引擎级复位接入（ADR-031、Q-30、Q-69）。
 
 ## 7. 契约变更
 

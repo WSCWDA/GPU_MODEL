@@ -1,11 +1,9 @@
 # 内存系统 — 独立模块设计
 
-> 项目目标、范围、阶段与交付以[任务规划](../README.md)为主干；roadmap展开章级任务，architecture-design定义模块树与层间契约。本文负责本模块的内部技术设计。
-
 > 定位：定义 GPU 内存模型的所有权归属：三类内存地址与唯一访问通道、两级页表 / TLB、三堆（VRAM/GART/System）与分配器、缓存与写缓冲、驻留与上下文，以及主机-GPU 缓存同步、分配确定性与内存 Sanitizer。
 > 落地章：第 3 章平坦内存（初级）、第 11 章地址翻译 + 堆、第 12 章缓存 + 写缓冲、第 14 章驻留 + 上下文；Copy 引擎与 Display 统一走本模型。
 > 权威来源：从 `architecture-design.md` §4.2 拆出，并吸收内存域 / 地址模型与堆（原 §4.8，已并入本文件）、`roadmap.md` §5.1（`mem_sanitizer` 配置）与 §2.8（统一内存域、I-Cache）、ADR-015 / ADR-031 / ADR-042。
-> 职责关系：项目范围与阶段见任务规划；本文件负责内存模块内部机制，架构文档负责 IMemorySubsystem 等跨层接口，roadmap 负责章级实施顺序与验收。
+本文件定义内存内部机制。`IMemorySubsystem` 等跨层接口见 `../architecture-design.md` §3，章级验收由路线图安排。
 
 ---
 
@@ -23,7 +21,7 @@
 
 - 软件类型 `GpuVAddr`/`PhysAddr` 为 u64；**硬件有效 VA = 36 bit**（B-007 裁定，ADR-043）：两级页表（PDE → PTE）各 4096 项 × 4 KiB 页 = 64 GiB/AS，覆盖 KMD 4 GiB/8 GiB 堆基址（`common` 页表常量 12+12+12）。历史"64 bit VA / 每级 512 项（30 bit / 1 GiB）"表述已废止，见 `bit-budget.md` §4。
 - 每个上下文一份页表根，`SET_STATE_BASE(stateId=1)` 在初级由驱动写入，第 10 章迁 FW（Q-36）。
-- TLB：每 CU 64 组 × 4 路 = 256 项，索引 `(va>>12)&0x3F`（Q-45）；失效必须全局可见；策略 B 下线程本地 TLB 依赖全局失效序列（见 `../docs/design/execution-parallel.md`）。
+- TLB：每 CU 64 组 × 4 路 = 256 项，索引 `(va>>12)&0x3F`（Q-45）；失效必须全局可见；策略 B 下线程本地 TLB 依赖全局失效序列（见 `execution-parallel.md`）。
 - 页错误：记录 VA 与上下文后**中止当前提交、不复位**；复位仅第 36 章按引擎级接入（Q-30、Q-69；细粒度页错误恢复在项目范围外，见 `roadmap.md` §0.5 能力边界）。
 
 设备 VA 的位段是页目录 `[35:24]`、页表 `[23:12]` 和页内偏移 `[11:0]`。ASID 单独携带。PDE/PTE 先用包含物理页号、有效性和权限的类型化字段。需要引入压缩条目时，按 [分配校验](allocation-audit.md) 登记整字及掩码。
@@ -68,7 +66,7 @@
 - I-Cache（指令缓存）：取指走 I-Cache，只做命中统计，不影响正确性；软观测项，初级可无、高级补上（`roadmap.md` §2.8）。
 - 缓存一致性由屏障与 fence 维护，不依赖时间或线程顺序。
 - `cache_enable=off` 只关闭命中统计与缓存路径，不改变结果；任何开关前后结果不同视为正确性缺陷。
-- 缓存统计（命中/失效/写回）进入校验模型的软观测（`../docs/design/validation-model.md`）。
+- 缓存统计（命中/失效/写回）进入校验模型的软观测（`validation-model.md`）。
 
 缓存/写缓冲的教学目标是解释数据如何经过 L1/L2、何时留存或排空、flush/invalidate 如何影响可见性，以及消费者何时复用数据。hit/miss、失效数和写回数只是诊断统计，不是核心学习目标或正式场景通过条件。GS/Tessellation 的 patch/control-point、顶点流和生成数据缓冲属于阶段局部暂存/输出队列，不能与通用缓存层混为一谈。
 
@@ -93,4 +91,4 @@
 - 内存访问统一走 `IMemorySubsystem`（`architecture-design.md` §3.6：`Read/Write/Translate/Map/Unmap/InvalidateTlb/IsResident`）；所有单元（含 Copy、Display）统一 `VA → TLB → L2 → 存储`，不得绕过翻译直连堆。
 - 未映射返回 `NotMapped` 并带 VA；未驻留触发页错误路径，不得静默读 0。
 - RT 字节序统一 BGRA（ADR-015，`R8G8B8A8_UNORM`、内存 `[B,G,R,A]`，Clear/光栅/OM/Present/校验全栈一致）。
-- 登记与变更：地址模型 / 堆 / 页错误语义等契约变更走 `roadmap.md` §7.4；`stateId` 与 MMIO 段登记见 `../docs/design/command-mmio.md`。
+- 登记与变更：地址模型 / 堆 / 页错误语义等契约变更走 `roadmap.md` §7.4；`stateId` 与 MMIO 段登记见 `command-mmio.md`。

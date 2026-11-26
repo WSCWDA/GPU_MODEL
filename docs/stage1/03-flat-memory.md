@@ -1,7 +1,5 @@
 # 第 3 章 平坦内存
 
-> 项目范围、阶段位置和交付以[任务规划](../README.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
-
 > 本章建立全项目唯一的内存访问通道：单一虚拟地址空间、恒等映射、bump 分配器、资源上传与读回，以及 `SET_STATE_BASE`/`CLEAR`/`COPY_MEM` 三个与内存直接相关的命令包。所有硬件单元此后只能经 `IMemorySubsystem` 访问存储，不得直接解引用主机指针。
 > 与本章相关的设计说明：`../architecture-design.md` §3.6（内存接口）；`../design/memory-system.md` §1~§3、§6、§7（三类地址、堆、主机同步、分配确定性）；`../design/command-mmio.md` §2~§4（`SET_STATE_BASE`/`CLEAR`/`COPY_MEM`、`stateId`、MMIO 段）。
 > 落地模块：`hw_sim/memory/flat`、`hw_sim/core/{cp,mmio}` 追加分支、`hw_sim/submit/facade`、`apps/scene_e1_clear_present`、`apps/scene_e4_mesh`（本章只跑资源上传/读回子集）。
@@ -229,7 +227,7 @@ DumpAllocs() → 按 va 升序输出
 
 ## 执行切分与 Git 提交模板
 
-先用章内最小输入验证本章新增模块和失败路径，再接入 §7 登记的场景子例，完成 A3 和适用的 R3 后提交。分配核对项为stateId 0/1、RT 宽高和地址边界，新增或改动按 [编码与位段校验表](../design/allocation-audit.md)登记。
+先用章内最小输入验证本章新增模块和失败路径，再接入 §7 登记的场景子例，完成 A3 和适用的 R3 后提交。分配核对项包括stateId 0/1、RT 宽高和地址边界。变更按已有分配流程登记。
 
 ```text
 feat(gpu-ch03): add flat GPU memory and clear copies

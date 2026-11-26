@@ -1,10 +1,8 @@
 # 编译器管线 — 独立模块设计
 
-> 项目目标、范围、阶段与交付以[任务规划](../README.md)为主干；roadmap展开章级任务，architecture-design定义模块树与层间契约。本文负责本模块的内部技术设计。
-
 > 定位：定义着色器源码（GLSL-like 子集）到 ISA blob 的完整编译管线：前端（词法/语法/语义 + SSA IR + 分歧分析）、后端（优化 + 寄存器分配 + 指令选择与发射）、以及 SSA ↔ LLVM IR 对照后端。
 > 落地章：第 17 章编译器前端（M17.1~M17.3）、第 18 章后端（M18.1~M18.3）、第 19 章 LLVM 对照后端。
-> 权威来源：从 `architecture-design.md` §4.4 拆出，并吸收 Mesa NIR 形状对照（原 §4.7.3，见本文件 §1）、`roadmap.md` §2.8、ADR-012（LLVM 对照后置）、ADR-034（标量/向量与发散分析）与 `../docs/design/isa-abi.md`（编码与 ABI 唯一权威）。
+> 权威来源：从 `architecture-design.md` §4.4 拆出，并吸收 Mesa NIR 形状对照（原 §4.7.3，见本文件 §1）、`roadmap.md` §2.8、ADR-012（LLVM 对照后置）、ADR-034（标量/向量与发散分析）与 `isa-abi.md`（编码与 ABI 唯一权威）。
 
 ---
 
@@ -30,7 +28,7 @@
 | IR | AST | SSA + CFG | 每个值单一赋值；φ 节点显式 |
 | 优化 | SSA | SSA | 不做任何循环变换（含 LICM/循环不变量外提）；优化不得改变可观测结果 |
 | 分歧 | SSA | 分歧标注 | 只标注，不重写控制流 |
-| 寄存器分配 | SSA | 物理寄存器 | 不覆盖 ABI 固定分区（`../docs/design/isa-abi.md` §3） |
+| 寄存器分配 | SSA | 物理寄存器 | 不覆盖 ABI 固定分区（`isa-abi.md` §3） |
 | 发射 | 分配后 IR | ISA | 编码与第 16 章逐位一致 |
 | LLVM 对照 | SSA | LLVM IR | 只做对照；允许合法编码与寄存器分配差异，以 ABI/ISA 合法性和规范程序语义验收 |
 
@@ -61,7 +59,7 @@
 
 - 三路径需满足同一 ABI 与规范程序语义判据；手写 ISA、编译产物、LLVM 路径可使用不同合法编码。
 - 初级不引入编译器，全部手写 ISA（初级简化登记，`architecture-design.md` §7.5），高级第 5→16/17~19 替换。
-- 计算 kernel 由同一编译器产出（`Stage::Compute` 前端不假设图形语义，`../docs/design/compute-line.md`）。
+- 计算 kernel 由同一编译器产出（`Stage::Compute` 前端不假设图形语义，`compute-line.md`）。
 
 ### 5.1 计算 kernel 编译路径与溢出落点（P1-8，规格补齐）
 
@@ -73,4 +71,4 @@
 
 - `CompileShader` 双返回契约见第 17 章 §3.1：`Result` 只表示调用有效性，解析/语义/IO 编译结果唯一写入 `FrontendOutput.result/error`。
 - IR 形态、IO 签名语义、ABI 分区均属冻结契约，变更走 `roadmap.md` §7.4。
-- opcode / ABI 分区来自 `../docs/design/isa-abi.md`，此处不重复定义。
+- opcode / ABI 分区来自 `isa-abi.md`，此处不重复定义。

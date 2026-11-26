@@ -1,7 +1,5 @@
 # 第 10 章 设备 + 环 + CP
 
-> 项目范围、阶段位置和交付以[任务规划](../README.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
-
 > 本章是高级阶段的入口：把初级薄提交门面替换为 KMD/FW 驱动的真实提交路径，落地最小 KMD DDI、Firmware boot/ring/doorbell、以及按功能级握手定义的 `IEngine`。一条提交从"写环 → doorbell → CP 取指 → 派发 → fence"被完整建模，环回绕、包头版本、非法包定位成为本章核心专有判据。
 > 与本章相关的设计说明：`../architecture-design.md` §3.3（`IEngine` 握手签名）、§3.5（KMD/FW 契约）、§3.10（回调链生命周期）；`../design/command-mmio.md` §1~§4（包头/包表/stateId/MMIO 分段）；`../design/boot-reset.md` §1、§5（启动序列、逻辑特权分层）；`../design/execution-parallel.md` §4（功能级流水线/背压）。
 > 落地模块：`hw_sim/core/{device,mmio,ring,cp,fence,interrupt}`、`firmware/{boot,scheduler}`、`kmd/{ddi,init,submission,interrupt}`、`umd/os`、`apps/scene_s1_empty_submit`。
@@ -268,11 +266,11 @@ FENCE 包载荷 {u64 value} → CP 更新 FENCE_MON_LO/HI 与 FENCE_STATUS → �
 
 ## 2026-11-21 评审同步说明
 
-公共偏移见 [命令与 MMIO 登记 §4](../design/command-mmio.md)，实现审计见 D10.1。
+公共偏移见 命令与 MMIO 登记 §4，实现审计见 D10.1。
 
 ## 执行切分与 Git 提交模板
 
-先用章内最小输入验证本章新增模块和失败路径，再接入 §7 登记的场景子例，完成 A10 和适用的 R10 后提交。分配核对项为版本字段、ring/MMIO 寄存器，新增或改动按 [编码与位段校验表](../design/allocation-audit.md)登记。
+先用章内最小输入验证本章新增模块和失败路径，再接入 §7 登记的场景子例，完成 A10 和适用的 R10 后提交。分配核对项包括版本字段、ring/MMIO 寄存器。变更按已有分配流程登记。
 
 ```text
 feat(gpu-ch10): route submissions through FW and CP

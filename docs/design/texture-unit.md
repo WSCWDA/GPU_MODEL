@@ -1,7 +1,5 @@
 # 纹理单元 — 独立模块设计
 
-> 项目目标、范围、阶段与交付以[任务规划](../README.md)为主干；roadmap展开章级任务，architecture-design定义模块树与层间契约。本文负责本模块的内部技术设计。
-
 > 定位：定义纹理采样子系统的格式解码、存储布局、mip/LOD、过滤、寻址、比较采样与采样器对象。初级只做最小集（RGBA8 / nearest / clamp），高级补齐完整单元并接入异步延迟隐藏。
 > 落地章：第 7 章纹理最小集（初级，M）、第 21 章纹理单元（高级，M21.1~M21.3）。
 > 权威来源：从 `architecture-design.md` §4.10 拆出，吸收章节总览与初级简化登记（原 §4.2 / §3.3，权威在 `roadmap.md` §2.1 / `architecture-design.md` §7.5）、Mesa NIR/llvmpipe 对照与 ADR-036（纹理延迟隐藏）、`roadmap.md` §2.8（数组/Cubemap/独立采样器/各向异性）。
@@ -45,12 +43,12 @@
 
 ## 4. 延迟隐藏接入（ADR-036）
 
-纹理采样异步化是第 21 章重要部分：波发出纹理请求即挂起、让出 CU 给就绪波，结果返回后唤醒（与 `../docs/design/execution-parallel.md` §5 同一机制；波调度器维护"就绪波队列"）；软观测：波切换次数。只影响性能与调度观测，不影响采样结果。
+纹理采样异步化是第 21 章重要部分：波发出纹理请求即挂起、让出 CU 给就绪波，结果返回后唤醒（与 `execution-parallel.md` §5 同一机制；波调度器维护"就绪波队列"）；软观测：波切换次数。只影响性能与调度观测，不影响采样结果。
 
 ## 5. 与内存 / 校验的关系
 
-- 采样请求统一走 `IMemorySubsystem` 读入（`../docs/design/memory-system.md` §8），不绕过翻译；L1/L2 缓存对纹理同样生效。
-- 探针表必须覆盖纹理角点与 LOD 边界（`../docs/design/validation-model.md` §3）。
+- 采样请求统一走 `IMemorySubsystem` 读入（`memory-system.md` §8），不绕过翻译；L1/L2 缓存对纹理同样生效。
+- 探针表必须覆盖纹理角点与 LOD 边界（`validation-model.md` §3）。
 
 ## 6. 契约变更
 

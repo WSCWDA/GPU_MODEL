@@ -1,7 +1,5 @@
 # 第 21 章 纹理单元
 
-> 项目范围、阶段位置和交付以[任务规划](../README.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
-
 > 本章把初级"nearest 单层 RGBA8"的纹理采样替换为完整硬件纹理单元：格式解码（含 sRGB）、线性/tile 两种布局、mip/LOD/过滤、数组/Cubemap 寻址、独立采样器对象、以及异步纹理采样（延迟隐藏，ADR-036）。设计说明见 `../design/texture-unit.md` §1~§4。
 > 与本章相关的设计说明：`../design/texture-unit.md`（M21.1~M21.3 / 错误语义 / 延迟隐藏）；ADR-036（波挂起唤醒）；`../design/memory-system.md` §8（采样走 IMemory + 缓存）；`../design/command-mmio.md` §3（`stateId 3/5` 纹理/采样器描述符堆基址；采样器并入 `stateId 5`）。
 > 落地模块：`hw_sim/texture`（采样、布局和格式）、`hli/detail` 的采样器数据和章内支架、`hw_sim/shader`（采样挂起及唤醒）、S4/S14。35.1 的 HLI 复用采样器数据。
@@ -249,7 +247,7 @@ SAMPLE → 波发出请求 → SendSample(req) → 波 Suspend（进挂起队列
 
 ## 执行切分与 Git 提交模板
 
-先用章内最小输入验证本章新增模块和失败路径，再接入 §7 登记的场景子例，完成 A21 和适用的 R21 后提交。分配核对项为SAMPLE_CMP、sampler 编码与索引，新增或改动按 [编码与位段校验表](../design/allocation-audit.md)登记。
+先用章内最小输入验证本章新增模块和失败路径，再接入 §7 登记的场景子例，完成 A21 和适用的 R21 后提交。分配核对项包括SAMPLE_CMP、sampler 编码与索引。变更按已有分配流程登记。
 
 ```text
 feat(gpu-ch21): sample mipmapped array and cube textures

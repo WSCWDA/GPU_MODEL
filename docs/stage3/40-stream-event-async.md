@@ -1,7 +1,5 @@
 # 第 40 章 Stream/Event 与异步计算
 
-> 项目范围、阶段位置和交付以[任务规划](../README.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
-
 > 本章是 **stage3 计算驱动开发线（38~42）** 的第三章。在第 38/39 章基础上实现计算驱动的**异步执行语义**：`stream` = 1:1 映射一个 HLI 队列（优先级创建时声明、不可变；一个 stream 不绑定多个队列，不同队列家族可各有 stream）；`event` 拥有独立 timeline semaphore（Record 插 `SIGNAL`、Wait 插 `WAIT`、Query 非阻塞读；event value 单调且可跨队列等待，不复用队列 fence 值域）；**async compute**：计算队列与图形队列并发提交、计算→图形 fence 依赖（队列家族所有权转移复用第 32 章）、timeline 值序。全程复用第 32 章队列/同步原语，不新增 HLI 接口、不新增包号。
 > 设计权威：Stream/Event 语义见 `../design/compute-driver.md` §6；队列与 timeline、所有权转移见第 32 章与 `../architecture-design.md` §3.13（图形↔计算行）；同步原语与内存作用域见 `../design/sync-primitives.md` §3；WA-11 见 `../architecture-design.md` §7.9，计算通路见 `../design/compute-line.md` §1/§2。
 > 编号纪律：本章不新增编号；复用 `SIGNAL`/`WAIT`（第 32 章）、`BARRIER=0x0E`、`PREDICATE=0x0D`（ADR-043/047）；不新增 HLI 接口（ADR-032）；开工前对照 `../design/bit-budget.md` 审计（ADR-045）。
@@ -206,7 +204,7 @@ Query：只读目标状态，主机主动同步使用 StreamSynchronize 或 fenc
 
 ## 执行切分与 Git 提交模板
 
-先用章内最小输入验证本章新增模块和失败路径，再接入 §7 登记的场景子例，完成 A40 和适用的 R40 后提交。分配核对项为引用现有同步包、完成值与事件代际，新增或改动按 [编码与位段校验表](../design/allocation-audit.md)登记。
+先用章内最小输入验证本章新增模块和失败路径，再接入 §7 登记的场景子例，完成 A40 和适用的 R40 后提交。分配核对项包括引用现有同步包、完成值与事件代际。变更按已有分配流程登记。
 
 ```text
 feat(gpu-ch40): schedule asynchronous streams and events

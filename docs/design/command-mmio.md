@@ -1,7 +1,5 @@
 # 命令包、stateId 与 MMIO — 独立模块设计
 
-> 项目目标、范围、阶段与交付以[任务规划](../README.md)为主干；roadmap展开章级任务，architecture-design定义模块树与层间契约。本文负责本模块的内部技术设计。
-
 > 定位：定义驱动与硬件之间的唯一命令载体：命令包（`STREAM_HEADER` 版本化包头 + 包类型登记表）、`stateId` 基址索引、以及 MMIO 寄存器分段。CP 按包类型派发，硬件单元只认命令包与自身状态。
 > 落地章：第 1 章冻结包头与版本、第 2 章 CP 最小派发、第 10 章 MMIO/KMD-FW 契约；包类型与 MMIO 段在后续章追加。
 > 权威来源：从 `architecture-design.md` §4.5 拆出，并吸收编号空间审计（原 §5.6，权威在 `bit-budget.md` §9 与 `roadmap.md` §7.4）、命令包版本（原 §10.2，现在 `roadmap.md` §2.8）、ADR-004 / ADR-008（命令缓冲位于宿主内存、取指方式）与 `roadmap.md` §2.7（CP 按包类型分派）。
@@ -85,7 +83,7 @@
 | 1 | `srcStageMask` | 来源阶段位图 |
 | 2 | `dstStageMask` | 目标阶段位图 |
 
-未知枚举、保留位或非法组合返回 `InvalidPacket`。Workgroup 执行屏障在 ISA/LDS 同步点实现，不通过该 CP 包模拟；此包仅表达资源、设备、队列可见依赖。20/30/32/41 章沿用该布局，资源与所有权目标见 [同步原语 §2.2](sync-primitives.md) 的提交描述。
+未知枚举、保留位或非法组合返回 `InvalidPacket`。Workgroup 执行屏障在 ISA/LDS 同步点实现，不通过该 CP 包模拟；此包仅表达资源、设备、队列可见依赖。20/30/32/41 章沿用该布局，资源与所有权目标见 同步原语 §2.2 的提交描述。
 
 ### 2.4 `PREDICATE`（0x0D）载荷
 
@@ -171,7 +169,7 @@ v1 非索引使用基础载荷（`count=7`），索引能力返回 `NotSupported
 | 0xE0 / 0xE1 | `RT_WIDTH` / `RT_HEIGHT` | RO | 合法 CLEAR 分别锁存的 32 bit 宽、高 |
 | 0xF0 | `RESET_CTRL` | WO（特权） | 第 10 章接入诊断，第 36 章接入引擎级复位 |
 
-提交侧权限与设备内部更新分开。初级提交返回后直接读取 fence，高级等待按 [同步原语 §2.1](sync-primitives.md) 查询指定提交的终态。
+提交侧权限与设备内部更新分开。初级提交返回后直接读取 fence，高级等待按 同步原语 §2.1 查询指定提交的终态。
 
 PSO 暂存区字段 → 偏移（dword 索引，第 6 章冻结，含 `depthBaseVa`，Q-34）：
 
@@ -198,7 +196,7 @@ PSO 暂存区字段 → 偏移（dword 索引，第 6 章冻结，含 `depthBase
 
 ## 6. 与日志 / 错误的联动
 
-- 错误定位需要 `{unit, packetType, dwordOffset, va, code}`（`../docs/design/logging.md`、`architecture-design.md` §3.6 错误契约）。
+- 错误定位需要 `{unit, packetType, dwordOffset, va, code}`（`logging.md`、`architecture-design.md` §3.6 错误契约）。
 - 非法包 / 非法 ISA / 越界 = 硬件故障：记录 `{unit, packetType, dwordOffset, va, code}` 后**中止当前提交**；**初级不产生 `ResetRequired`**，复位仅第 36 章按引擎级接入（Q-30、Q-69）。
 
 ## 7. 契约变更

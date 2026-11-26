@@ -1,7 +1,5 @@
 # 第 35 章 HLI 与图形 API 适配器（计算驱动归 stage3）
 
-> 项目范围、阶段位置和交付以[任务规划](../README.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
-
 > 本章收口用户态对象面：35.1 冻结 HLI 原生对象接口（`architecture-design.md` §3.4），35.2~35.4 提供 Vulkan/D3D12/OpenGL 的 API-inspired 图形适配器子集，不宣称 API 兼容；这三项是可选扩展，不阻塞核心门禁。**原 35.5 MUSA-like 计算驱动已于 2026-11-19 迁出**：对象契约与验收归第 37 章（管线收口），实现主体归 **stage3 38~42（`docs/stage3/`，ADR-047）**。**35.1 冻结门禁**：HLI 核心对象面与本阶段登记的代表场景通过后，才可开展各 API-inspired 适配器。每个适配器只对其 capability=true 的支持场景做与 HLI 的语义/探针对照；未支持能力必须明确返回 `NotSupported`，不要求完整 E/S 覆盖或零容差二进制/命令流相同。
 > 与本章相关的设计说明：`../architecture-design.md` §3.4（HLI 对象面）、§3.8（`KernelArgsLayout`）、§3.10（回调链）；`../design/compute-line.md` §2~§3（MUSA 对象模型）；ADR-009/022/024/041（自动引用计数）；`../design/sync-primitives.md`。
 > 落地模块：`hli/`、`umd/graphics/api/{vulkan,d3d12,gl}`、`umd/graphics/pal`、`umd/compute`、`apps/scene_s17_*` 等。
@@ -267,7 +265,7 @@ LaunchKernel(fn, grid, block, args):
 
 ## 执行切分与 Git 提交模板
 
-先用章内最小输入验证本章新增模块和失败路径，再接入 §7 登记的场景子例，完成 A35.1 或对应适配器 A35.x 及适用的回归后提交。分配核对项为HLI 编码快照、能力位与记录期拒绝，新增或改动按 [编码与位段校验表](../design/allocation-audit.md)登记。
+先用章内最小输入验证本章新增模块和失败路径，再接入 §7 登记的场景子例，完成 A35.1 或对应适配器 A35.x 及适用的回归后提交。分配核对项包括HLI 编码快照、能力位与记录期拒绝。变更按已有分配流程登记。
 
 ```text
 feat(gpu-ch35): expose the shared HLI submission path

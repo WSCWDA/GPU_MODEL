@@ -1,7 +1,5 @@
 # 第 28 章 Tess + GS
 
-> 项目范围、阶段位置和交付以[任务规划](../README.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
-
 > 本章补齐几何阶段的曲面细分（HS → Tessellator → DS）与几何着色器（GS）。patch 载荷经专用 stage-local buffer 跨 HS→DS 传递，v1 不并入 workgroup LDS（Q-59）；HS 按 `factor[0..7]` ABI 输出 TessFactor，GS 可 emit/restart 生成多图元并改变图元模式。第 28 章是 C 阶段收口章（S6 接入验收）。
 > 与本章相关的设计说明：Q-59（patch payload 使用专用 stage-local buffer，v1 不并入第 30 章 LDS）；ADR-034（发散分析）、ADR-033（距离区）、ADR-050（细分因子与域公式）；`../design/isa-abi.md` §3（HS 因子区布局）；opcode 区段 0x60~0x6F（曲面/几何）。
 > 落地模块：`hw_sim/geometry/{hs,tessellator,ds,gs}`、`apps/scene_s6_tess`（含 GS 子 case）。
@@ -239,7 +237,7 @@ DS wave：每域顶点求值（读自建 patch 缓冲）→ 位置/属性
 
 ## 执行切分与 Git 提交模板
 
-先用章内最小输入验证本章新增模块和失败路径，再接入 §7 登记的场景子例，完成 A28 和适用的 R28 后提交。分配核对项为HS 因子位槽、Tess/GS opcode 与暂存容量，新增或改动按 [编码与位段校验表](../design/allocation-audit.md)登记。
+先用章内最小输入验证本章新增模块和失败路径，再接入 §7 登记的场景子例，完成 A28 和适用的 R28 后提交。分配核对项包括HS 因子位槽、Tess/GS opcode 与暂存容量。变更按已有分配流程登记。
 
 ```text
 feat(gpu-ch28): tessellate patches and emit GS primitives

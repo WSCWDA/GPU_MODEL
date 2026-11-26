@@ -1,7 +1,5 @@
 # 第 18 章 后端
 
-> 项目范围、阶段位置和交付以[任务规划](../README.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
-
 > 本章把前端 SSA IR 变为最终 ISA blob：优化（常量折叠/DCE/CSE/复制传播，不做循环变换）→ 线性扫描寄存器分配（SGPR/VGPR 分区、溢出）→ 指令选择 + 64 bit 发射。手写后端在本章定稿，作为第 19 章 LLVM 对照的唯一基线与"逐字节一致"的唯一参照。设计说明见 `../design/compiler.md` §1~§3。
 > 与本章相关的设计说明：`../design/compiler.md`（后端三里程）；ADR-012（19 必须在 18 后）；ADR-034（发散值→VGPR）；`../design/isa-abi.md` §3（ABI 分区不覆盖）。
 > 落地模块：`umd/shader/opt`、`umd/shader/regalloc`、`umd/shader/emit`、`apps/scene_s3_triangle`（优化开关差分）。
@@ -233,7 +231,7 @@ CSE（公共子表达式）→ 复制传播 → 常量折叠 → DCE
 
 ## 执行切分与 Git 提交模板
 
-先用章内最小输入验证本章新增模块和失败路径，再接入 §7 登记的场景子例，完成 A18 和适用的 R18 后提交。分配核对项为寄存器保留区、opcode、分支偏移，新增或改动按 [编码与位段校验表](../design/allocation-audit.md)登记。
+先用章内最小输入验证本章新增模块和失败路径，再接入 §7 登记的场景子例，完成 A18 和适用的 R18 后提交。分配核对项包括寄存器保留区、opcode、分支偏移。变更按已有分配流程登记。
 
 ```text
 feat(gpu-ch18): compile IR to executable shader ISA

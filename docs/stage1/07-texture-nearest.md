@@ -1,7 +1,5 @@
 # 第 7 章 纹理最小集
 
-> 项目范围、阶段位置和交付以[任务规划](../README.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
-
 > 本章引入第一类采样资源：RGBA8 纹理的地址计算（UV → 纹素）、nearest 采样与越界 clamp 语义，以及 `SAMPLE` 指令的最小实现；同时把校验体系从"进程内手工断言"升级为"CPU 参考模型 + 全图逐字节 / 结构断言"（初级不引入探针表，Q-39），为高级阶段的双轨校验奠定基础。
 > 与本章相关的设计说明：`../design/texture-unit.md` §1~§2（环节约定与初级最小集）；`../design/validation-model.md` §1~§4（校验分层、容差；初级不引入探针表）；`../design/memory-system.md` §7（分配确定性）；第 5 章（`LD/ST`/`SAMPLE` 区段）。
 > 落地模块：`hw_sim/texture/nearest`（初级版）、`common/format.h` 追加纹理格式、`hw_sim/isa` 追加 `SAMPLE` 语义、`tools/ref_model`、`tools/image_diff`、`apps/scene_e3_textured_quad`。
@@ -199,7 +197,7 @@ CI：全图逐字节 + 结构断言，全部阻断（初级不引入探针表，
 
 ## 执行切分与 Git 提交模板
 
-先用章内最小输入验证本章新增模块和失败路径，再接入 §7 登记的场景子例，完成 A7 和适用的 R7 后提交。分配核对项为SAMPLE 操作数与纹理绑定，新增或改动按 [编码与位段校验表](../design/allocation-audit.md)登记。
+先用章内最小输入验证本章新增模块和失败路径，再接入 §7 登记的场景子例，完成 A7 和适用的 R7 后提交。分配核对项包括SAMPLE 操作数与纹理绑定。变更按已有分配流程登记。
 
 ```text
 feat(gpu-ch07): sample a nearest-filtered 2D texture

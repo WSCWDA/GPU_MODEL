@@ -1,7 +1,5 @@
 # 第 25 章 光栅器
 
-> 项目范围、阶段位置和交付以[任务规划](../README.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
-
 > 本章把初级"像素中心 + 左上规则"光栅升级为完整栅格化：fill rule（top-left）、2×2 quad（强制执行）、三种插值修饰符、点/线光栅规则、scissor，并在 M25.3 集成"无效 lane 仍执行的 quad 判据"。成熟的光栅规则在此定型并对接 CPU 参考模型（1× 覆盖精确，颜色与深度按场景规约比较）。
 > 与本章相关的设计说明：`../architecture-design.md` §3.3（IEngine 握手）；ADR-035（流水线/背压）；第 24 章（裁剪输出图元）、第 21 章（quad 导数供纹理 LOD）。
 > 落地模块：`hw_sim/raster/rasterizer`、`hw_sim/raster/interp`、`apps/scene_s3_triangle`、`apps/scene_s9_msaa`。
@@ -237,7 +235,7 @@ bary: B0 = E2/Etotal, B1 = E0/Etotal, B2 = E1/Etotal（规范化）
 
 ## 执行切分与 Git 提交模板
 
-先用章内最小输入验证本章新增模块和失败路径，再接入 §7 登记的场景子例，完成 A25 和适用的 R25 后提交。分配核对项为覆盖位图、采样编号与 PS 输入 ABI，新增或改动按 [编码与位段校验表](../design/allocation-audit.md)登记。
+先用章内最小输入验证本章新增模块和失败路径，再接入 §7 登记的场景子例，完成 A25 和适用的 R25 后提交。分配核对项包括覆盖位图、采样编号与 PS 输入 ABI。变更按已有分配流程登记。
 
 ```text
 feat(gpu-ch25): rasterize deterministic coverage and quads

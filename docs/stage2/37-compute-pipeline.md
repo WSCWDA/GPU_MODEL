@@ -1,7 +1,5 @@
 # 第 37 章 计算管线（CS 计算管线；直连 HLI 入口验收，不含 MUSA 计算驱动对象模型）
 
-> 项目范围、阶段位置和交付以[任务规划](../README.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
-
 > 本章定义 Compute 硬件从已冻结的 HLI 命令包到 Compute engine、workgroup/wave 执行与内存写回的主通路，并以直连 HLI 场景验收硬件入口。第 29–34 章负责共用的 SIMT、LDS/atomic/barrier、队列、IB、query 等模块机制；第 37 章复用这些模块，不再复制一套实现。Host 参数打包和 LaunchKernel 归第 39 章，stream/event 归第 40 章，驱动侧协作/indirect/UAV/query 包装归第 41 章，双入口端到端对照归第 42 章（ADR-047/048）。
 > 设计权威：通路与对象模型见 `../design/compute-line.md`；kernel 参数契约见 `../architecture-design.md` §3.8（KernelArgsLayout 六条校验规则）；计算 pipeline 对象面见 `architecture-design.md` §3.4；同步原语与内存作用域见 `../design/sync-primitives.md` §3；执行与并行模型见 `../design/execution-parallel.md`；Wave/Workgroup 拆分与 ABI 分区见 `../design/isa-abi.md` §2/§3。
 > 编号纪律：本章**不新增包类型 / opcode / stateId / MMIO 槽**，全部复用既有登记（`DISPATCH`=0x04、`SET_KERNEL_ARGS`=0x0F/0x0002、`DISPATCH_INDIRECT`、`BARRIER`=0x0E、`PREDICATE`=0x0D）；开工前仍须对照 `../design/bit-budget.md` 审计复用号的所有权（`../roadmap.md` §7.3/§7.4、ADR-043/045）。
@@ -251,7 +249,7 @@ workgroup 容量和间接派发 ABI 见 [架构设计 §3.11](../architecture-de
 
 ## 执行切分与 Git 提交模板
 
-先用章内最小输入验证本章新增模块和失败路径，再接入 §7 登记的场景子例，完成 A37 和适用的 R37 后提交。分配核对项为DISPATCH dword、VGPR 区段和容量，新增或改动按 [编码与位段校验表](../design/allocation-audit.md)登记。
+先用章内最小输入验证本章新增模块和失败路径，再接入 §7 登记的场景子例，完成 A37 和适用的 R37 后提交。分配核对项包括DISPATCH dword、VGPR 区段和容量。变更按已有分配流程登记。
 
 ```text
 feat(gpu-ch37): dispatch compute through direct HLI

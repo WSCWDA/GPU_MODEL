@@ -1,7 +1,5 @@
 # 第 36 章 错误路径
 
-> 项目范围、阶段位置和交付以[任务规划](../README.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
-
 > 本章收口全项目错误处理：10~35 各章保留的"单元 + 包类型 + dword 偏移"定位钩子统一接入 watchdog、复位路径与故障注入。三类故障分层（硬件/驱动/应用，ADR-039）、按引擎 watchdog、`reset 后可重跑一致`（S13）是本章核心专有判据。设计说明见 `../design/boot-reset.md` §2~§4。
 > 与本章相关的设计说明：`../architecture-design.md` §3.9（错误契约）；ADR-011/031/039/040；`../design/logging.md`（日志与断言）；`../design/boot-reset.md`；`tools/{log_analyze, mem_audit, state_inspector, spec_runner}`。
 > 落地模块：`kmd/reset`、`firmware/watchdog`、`hw_sim` 故障注入钩子、`tools/{log_analyze, mem_audit}`、`apps/scene_s13_fault`。
@@ -191,11 +189,11 @@ Result InjectFault1(FaultInject, const FaultSite&);  // 指定单元/包
 
 ## 2026-11-21 评审同步说明
 
-watchdog 的每 wave 指令预算见 [启动与复位](../design/boot-reset.md)。公共 Result 集合见 [第 1 章 §3.2](../stage1/01-contracts-min.md)。
+watchdog 的每 wave 指令预算见 启动与复位。公共 Result 集合见 第 1 章 §3.2。
 
 ## 执行切分与 Git 提交模板
 
-先用章内最小输入验证本章新增模块和失败路径，再接入 §7 登记的场景子例，完成 A36 和适用的 R36 后提交。分配核对项为错误枚举、MMIO 权限与完成状态，新增或改动按 [编码与位段校验表](../design/allocation-audit.md)登记。
+先用章内最小输入验证本章新增模块和失败路径，再接入 §7 登记的场景子例，完成 A36 和适用的 R36 后提交。分配核对项包括错误枚举、MMIO 权限与完成状态。变更按已有分配流程登记。
 
 ```text
 feat(gpu-ch36): report deterministic submission faults

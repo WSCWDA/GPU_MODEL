@@ -1,7 +1,5 @@
 # 第 4 章 SIMT 单波
 
-> 项目范围、阶段位置和交付以[任务规划](../README.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
-
 > 本章建立全项目的执行模型：warp（波）宽度 32、VGPR/SGPR 固定分区、活动掩码/谓词、无分歧线性执行、内建 ID，以及着色核的唯一接口 `IShaderArray::Dispatch`。着色器程序在本章以"内存内指令结构"表示（第 5 章把它规范化为二进制编码），执行语义与寄存器终态是本章验收对象。
 > 与本章相关的设计说明：`../architecture-design.md` §3.1（`IShaderArray::Dispatch` 契约）、§3.3（`IEngine.Push` 携带着色核）；`../design/execution-parallel.md` §1~§3（时间无关与确定性）；`../design/isa-abi.md` §3（VGPR/SGPR 分区、LaneMask、控制流栈）；`../design/isa-abi.md` §1（内存内指令结构 → 第 5 章编码过渡）。
 > 落地模块：`hw_sim/shader/wave`（波状态与已构造 Instr 的执行）和 `apps/scene_e2_triangle`（寄存器终态）。第 5 章从 `hw_sim/isa` 接入二进制解码。
@@ -246,7 +244,7 @@ Dispatch(stage, args, active, bindings)
 
 ## 执行切分与 Git 提交模板
 
-先用章内最小输入验证本章新增模块和失败路径，再接入 §7 登记的场景子例，完成 A4 和适用的 R4 后提交。分配核对项为lane mask、VGPR ABI 与保留区，新增或改动按 [编码与位段校验表](../design/allocation-audit.md)登记。
+先用章内最小输入验证本章新增模块和失败路径，再接入 §7 登记的场景子例，完成 A4 和适用的 R4 后提交。分配核对项包括lane mask、VGPR ABI 与保留区。变更按已有分配流程登记。
 
 ```text
 feat(gpu-ch04): execute one SIMT wave

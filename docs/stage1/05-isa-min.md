@@ -1,7 +1,5 @@
 # 第 5 章 最小 ISA
 
-> 项目范围、阶段位置和交付以[任务规划](../README.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
-
 > 本章把第 4 章的"内存内指令结构"规范化为 64 bit 定长二进制编码，并交付汇编器/反汇编器与指令语义表。约 20 条指令、线性编码（无压缩）；标量/向量分区位预留，本章只实现向量指令。E0 的"汇编往返"判据在此补全，E2 的着色样例改用编码投递。
 > 与本章相关的设计说明：`../design/isa-abi.md` §1~§2、§3（64 bit 编码、opcode 区段、ABI 分区）；`../architecture-design.md` §3.1（`IShaderArray`）；第 4 章（执行器消费语义）。
 > 落地模块：`common/include/common/isa.h`（编码契约）、`hw_sim/isa`（最小解码和指令入口）、汇编与反汇编工具、E0 往返自检和 E2 三角形。wave 状态由 `hw_sim/shader/wave` 持有。
@@ -223,7 +221,7 @@ bin1           ──isa_disasm─► 规范化文本
 
 ## 执行切分与 Git 提交模板
 
-先用章内最小输入验证本章新增模块和失败路径，再接入 §7 登记的场景子例，完成 A5 和适用的 R5 后提交。分配核对项为ISA 字宽、opcode、SFLAG 和常量 stateId，新增或改动按 [编码与位段校验表](../design/allocation-audit.md)登记。
+先用章内最小输入验证本章新增模块和失败路径，再接入 §7 登记的场景子例，完成 A5 和适用的 R5 后提交。分配核对项包括ISA 字宽、opcode、SFLAG 和常量 stateId。变更按已有分配流程登记。
 
 ```text
 feat(gpu-ch05): encode and execute the minimum ISA

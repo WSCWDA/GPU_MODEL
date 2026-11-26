@@ -1,7 +1,5 @@
 # 第 12 章 缓存 + 写缓冲
 
-> 项目范围、阶段位置和交付以[任务规划](../README.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
-
 > 本章在翻译层之上落地 L1/L2 缓存与写缓冲：L1 每 CU 16 KiB 写穿入 L2、L2 全局 256 KiB 写回，仅 L2 脏行替换才进写缓冲（按 64 B 合并），I-Cache 命中统计。`cache_enable` 开关只影响统计与路径，不影响结果；缓存一致性由屏障与 fence 维护，不依赖时间或线程顺序（`../design/memory-system.md` §4）。
 > 教学重点是缓存/写缓冲在 GPU 数据通路中的位置、读写与排空、flush/invalidate 后的数据可见性，以及生产者到消费者的数据流和复用。hit/miss 与 I-Cache 计数只作软诊断，不作为主要验收目标。GS/Tessellation 的 patch/control-point 缓冲属于阶段局部暂存，不等同于 L1/L2。
 > 与本章相关的设计说明：`../architecture-design.md` §3.6（内存接口，缓存置于 `Translate` 之后、存储之前）；`../design/memory-system.md` §4（L1/L2/写缓冲/I-Cache、一致性、`cache_enable`）；`../design/validation-model.md` §3（缓存统计为软观测）。
@@ -222,7 +220,7 @@ FlushBank(begin,end) → 写缓冲中被选区间全部落存储 → wbFlushes++
 
 ## 执行切分与 Git 提交模板
 
-先用章内最小输入验证本章新增模块和失败路径，再接入 §7 登记的场景子例，完成 A12 和适用的 R12 后提交。分配核对项为缓存行内偏移和 VA 空间归属，新增或改动按 [编码与位段校验表](../design/allocation-audit.md)登记。
+先用章内最小输入验证本章新增模块和失败路径，再接入 §7 登记的场景子例，完成 A12 和适用的 R12 后提交。分配核对项包括缓存行内偏移和 VA 空间归属。变更按已有分配流程登记。
 
 ```text
 feat(gpu-ch12): model cache and write-buffer visibility

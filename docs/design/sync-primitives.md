@@ -1,8 +1,6 @@
 # 同步原语 — 独立模块设计
 
-> 项目目标、范围、阶段与交付以[任务规划](../README.md)为主干；roadmap展开章级任务，architecture-design定义模块树与层间契约。本文负责本模块的内部技术设计。
-
-> 定位：定义跨单元 / 跨队列 / 跨引擎的正确性核心：fence、timeline semaphore、event、barrier 与内存序/作用域映射。同步语义与内存模型（`../docs/design/memory-system.md`）共同保证"时间无关 + 确定序"。
+> 定位：定义跨单元 / 跨队列 / 跨引擎的正确性核心：fence、timeline semaphore、event、barrier 与内存序/作用域映射。同步语义与内存模型（`memory-system.md`）共同保证"时间无关 + 确定序"。
 > 落地章：第 2 章 Fence 最小载体、第 32 章队列 + 同步、第 33 章命令链 + 多引擎、第 20 章资源屏障；内存序/作用域落在第 30、31 章工作负载侧。
 > 权威来源：从 `architecture-design.md` §4.3 拆出，并吸收 `memory-system.md` §6（主机-GPU 缓存同步）、`roadmap.md` §0.5（能力边界，屏障粗粒度掩码）与 §2.8（屏障与所有权转移、内存序映射）、ADR-024 / ADR-031。
 
@@ -66,13 +64,13 @@ S16 验证正常移交、延迟 release、漏 acquire 和目标错配，独立�
 - **device 作用域**：全局资源屏障（`BARRIER` 包）+ Fence/Semaphore，跨组 / 跨引擎可见性；
 - shared 栅栏与全局资源屏障是**两套机制**，不得混用；屏障不依赖线程到达顺序。
 
-计算线的内存序与 barrier 是正确性核心（`../docs/design/compute-line.md` §4.3）；共用单元不得按 workload 分叉屏障语义。
+计算线的内存序与 barrier 是正确性核心（`compute-line.md` §4.3）；共用单元不得按 workload 分叉屏障语义。
 
 ## 4. 与确定性 / 时间无关的关系
 
 - 硬件路径只依赖两类逻辑时间源：`frame_index` 与 timeline-semaphore / fence 逻辑时间戳；`std::steady_clock` / 系统时钟只用于性能耗时统计（`docs/design/execution-parallel.md` §2）。
 - 跨队列依赖顺序由 fence/semaphore 定义，任何并行度下硬判据一致（双策略）。
-- 竞争缺陷由策略 B（`../docs/design/execution-parallel.md`）暴露，但正确性判据永远落在同步语义上，不靠线程调度。
+- 竞争缺陷由策略 B（`execution-parallel.md`）暴露，但正确性判据永远落在同步语义上，不靠线程调度。
 
 ## 5. 契约变更
 

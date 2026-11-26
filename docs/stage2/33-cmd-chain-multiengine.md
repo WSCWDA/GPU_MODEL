@@ -1,7 +1,5 @@
 # 第 33 章 命令链 + 多引擎
 
-> 项目范围、阶段位置和交付以[任务规划](../README.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
-
 > 本章在 10（单环 CP）、13（Copy 引擎）、32（多队列）之上补齐命令间接层：IB（Indirect Buffer）链、间接绘制/派发（`INDIRECT`）、GPU 侧谓词（`PREDICATE`）、以及多引擎（Copy/DMA）并发。间接与直接结果等价是核心判据；DMA 切片拷贝正确。
 > 与本章相关的设计说明：`../architecture-design.md` §3.3（IEngine 握手）；`../design/command-mmio.md` §2（`INDIRECT` 0x0C / `PREDICATE` 0x0D / `stateId 7` IB 基址）；ADR-024（屏障延续）；第 20 章（描述符配合）、第 32 章（队列）。
 > 落地模块：`hw_sim/core/cp` 的 IB、间接和谓词解释，`hw_sim/periph/copy` 的 DMA 切片，`hli/detail` 的共用命令转换，以及通过 KMD 提交的 S12 章内支架。计算间接端到端由第 37 章验收。
@@ -216,7 +214,7 @@ DISPATCH_INDIRECT 参数与 BARRIER 载荷分别见 [命令包登记 §2.1、§2
 
 ## 执行切分与 Git 提交模板
 
-先用章内最小输入验证本章新增模块和失败路径，再接入 §7 登记的场景子例，完成 A33 和适用的 R33 后提交。分配核对项为SubOp、PREDICATE、地址对齐和间接记录，新增或改动按 [编码与位段校验表](../design/allocation-audit.md)登记。
+先用章内最小输入验证本章新增模块和失败路径，再接入 §7 登记的场景子例，完成 A33 和适用的 R33 后提交。分配核对项包括SubOp、PREDICATE、地址对齐和间接记录。变更按已有分配流程登记。
 
 ```text
 feat(gpu-ch33): execute chained indirect and DMA commands

@@ -1,7 +1,5 @@
 # 第 26 章 输出合并（OM）
 
-> 项目范围、阶段位置和交付以[任务规划](../README.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
-
 > 本章把初级"单一深度比较 + 截断写 BGRA"扩展为完整输出合并：深度/模板测试、背面剔除、颜色混合（含双源混合与逻辑 Op）、MRT、PS 输出到 RT 的格式转换（UNORM/SNORM/UINT/SINT/sRGB）、写 UAV 时 early-Z 禁用语义，以及 LoadOp/StoreOp 载入/存储操作。
 > 与本章相关的设计说明：`../architecture-design.md` §3.4（HLI 对象改）、ADR-015（BGRA 内存序）；`../design/isa-abi.md` §3（PS out `v[36..39]`/RT1~3 `v[44..55]`/深度 `v[40..43]`）；`../design/memory-system.md` §8（写走 IMemory，BGRA）。
 > 落地模块：`hw_sim/om`、`apps/scene_s7_occlusion`、`apps/scene_s8_blend_mrt`、`apps/scene_s14_bindless_uav`（全阶段 UAV 写入路径）。
@@ -235,7 +233,7 @@ OM 状态初：若 pipeline 声明写 UAV → earlyZ 标记禁用（27 章据此
 
 ## 执行切分与 Git 提交模板
 
-先用章内最小输入验证本章新增模块和失败路径，再接入 §7 登记的场景子例，完成 A26 和适用的 R26 后提交。分配核对项为RT/深度槽、PS 输出 VGPR 与 PSO flags，新增或改动按 [编码与位段校验表](../design/allocation-audit.md)登记。
+先用章内最小输入验证本章新增模块和失败路径，再接入 §7 登记的场景子例，完成 A26 和适用的 R26 后提交。分配核对项包括RT/深度槽、PS 输出 VGPR 与 PSO flags。变更按已有分配流程登记。
 
 ```text
 feat(gpu-ch26): merge render outputs and storage writes

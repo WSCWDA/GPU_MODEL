@@ -1,7 +1,5 @@
 # 第 17 章 编译器前端
 
-> 项目范围、阶段位置和交付以[任务规划](../README.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
-
 > 本章把"手写 ISA"替换为真实编译器：GLSL-like 子集源文 → 词法/语法/语义 → AST → SSA IR + CFG → 发散分析（一致值 SGPR / 发散值 VGPR）。前端不产出最终 ISA（后端第 18 章），但产出可快照、可重放、可对照 IR。IO 签名校验是本单元特有的树篱判据。设计说明见 `../design/compiler.md` §1~§3。
 > 与本章相关的设计说明：`../design/compiler.md`（前端/S3 场景/IR 快照）；ADR-034（发散分析）；`../design/isa-abi.md` §3（ABI 分区，编译器不共享 hw_sim 内部结构）。
 > 落地模块：`umd/shader/frontend`、`umd/shader/ir`、`apps/scene_s0_selftest`（编译自检）、`apps/scene_s3_triangle`（编译着色器）。
@@ -222,7 +220,7 @@ tokens → parser（Pratt precedence）→ AST（表达式带类型标注）
 
 ## 执行切分与 Git 提交模板
 
-先用章内最小输入验证本章新增模块和失败路径，再接入 §7 登记的场景子例，完成 A17 和适用的 R17 后提交。分配核对项为着色器 IO 与寄存器 ABI，新增或改动按 [编码与位段校验表](../design/allocation-audit.md)登记。
+先用章内最小输入验证本章新增模块和失败路径，再接入 §7 登记的场景子例，完成 A17 和适用的 R17 后提交。分配核对项包括着色器 IO 与寄存器 ABI。变更按已有分配流程登记。
 
 ```text
 feat(gpu-ch17): lower shader source to typed IR

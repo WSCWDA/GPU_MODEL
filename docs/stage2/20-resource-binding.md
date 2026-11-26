@@ -1,7 +1,5 @@
 # 第 20 章 资源与绑定
 
-> 项目范围、阶段位置和交付以[任务规划](../README.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
-
 > 本章建立图形与计算的统一对象模型：资源（描述存储）与视图（描述用途/切片）分离（ADR-023）、描述符堆（Bindless 一期）、管线对象（图形 stages + 计算 kernel 同构）、root signature 类绑定、资源状态与屏障（粗粒度访问掩码，ADR-024/031）、以及 kernel 参数区封装。它是 21（纹理）、22~26（几何/光栅/OM）与 37/stage3 38~42（计算，原 35.5）的公共底座。
 > 与本章相关的设计说明：`../architecture-design.md` §3.4（HLI 对象面将承此对象模型）、§3.8（`KernelArgsLayout`）；`../design/command-mmio.md` §3（`stateId 3/5` 纹理/绑定/采样器描述符堆基址）；`../design/sync-primitives.md` §2（屏障粗粒度）；ADR-023/024/025（资源视图分离/屏障/能力四档）、ADR-042（地址确定性）。
 > 落地模块：`hli/detail` 的共用资源、绑定和管线转换、`hw_sim` 资源数据面、S4/S14 与 S5/S18 的局部用例。章内支架经 KMD 提交，35.1 接入公共 HLI 对象。
@@ -299,7 +297,7 @@ BARRIER 使用 [命令包登记 §2.3](../design/command-mmio.md) 的 3-dword �
 
 ## 执行切分与 Git 提交模板
 
-先用章内最小输入验证本章新增模块和失败路径，再接入 §7 登记的场景子例，完成 A20 和适用的 R20 后提交。分配核对项为stateId 3/4/5、SubOp、barrier 位域和 8 VGPR，新增或改动按 [编码与位段校验表](../design/allocation-audit.md)登记。
+先用章内最小输入验证本章新增模块和失败路径，再接入 §7 登记的场景子例，完成 A20 和适用的 R20 后提交。分配核对项包括stateId 3/4/5、SubOp、barrier 位域和 8 VGPR。变更按已有分配流程登记。
 
 ```text
 feat(gpu-ch20): record resource views and kernel bindings

@@ -1,7 +1,5 @@
 # 第 11 章 地址翻译 + 堆
 
-> 项目范围、阶段位置和交付以[任务规划](../README.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
-
 > 本章建立页表/TLB、三堆、内存池与确定性分配，定义主机映射权限和提交/完成边界。A11 使用直接存储路径，实际缓存维护由第 12 章接入。
 > 与本章相关的设计说明：`../architecture-design.md` §3.6（`IMemorySubsystem` 接口）；`../design/memory-system.md` §1~§3、§6~§7（三类地址、页表/TLB、堆/分配器、主机同步、分配确定性）；`../design/command-mmio.md` §3（`stateId 1` 页表根）。
 > 落地模块：`hw_sim/memory/{translation,heaps}`、`kmd/memory`、`umd/os`、`firmware/scheduler`（doorbell 写页表根）、`apps/scene_s0_selftest`、`apps/scene_s2_clear`。
@@ -255,7 +253,7 @@ Unmap(va, bytes): 校验已映射 → 释放 PTE → InvalidateTlb（全清，�
 
 ## 执行切分与 Git 提交模板
 
-先用章内最小输入验证本章新增模块和失败路径，再接入 §7 登记的场景子例，完成 A11 和适用的 R11 后提交。分配核对项为36-bit VA、页表索引、堆区间，新增或改动按 [编码与位段校验表](../design/allocation-audit.md)登记。
+先用章内最小输入验证本章新增模块和失败路径，再接入 §7 登记的场景子例，完成 A11 和适用的 R11 后提交。分配核对项包括36-bit VA、页表索引、堆区间。变更按已有分配流程登记。
 
 ```text
 feat(gpu-ch11): translate VA and allocate GPU heaps

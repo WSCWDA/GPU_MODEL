@@ -1,7 +1,5 @@
 # 第 15 章 控制流 + 波调度
 
-> 项目范围、阶段位置和交付以[任务规划](../README.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
-
 > 本章为完整的 SIMT 执行补齐两条纵向能力：分歧控制流（控制流栈 `{pc, mask}` 与重收敛）与多波调度（CU 多 SIMD、就绪波队列、延迟隐藏挂起/唤醒）。初级单波概念在此扩展到"一波较多并发 + 分支轨迹确定"。基线的波执行模型见 `../design/isa-abi.md` §3。
 > 与本章相关的设计说明：`../architecture-design.md` §3.3（`IEngine` 握手与 `IShaderArray`）；`../design/execution-parallel.md` §4~§5（功能级流水线、延迟隐藏 ADR-036）；ADR-006/007（执行与波调度双策略）、ADR-018（warp32、掩码 u32、`{pc,mask}` 栈）。
 > 落地模块：`hw_sim/shader/{divergence, scheduler}`、`hw_sim/shader/wave`（扩展多波容量）、`apps/scene_s3_triangle`。
@@ -219,7 +217,7 @@ Tick:
 
 ## 执行切分与 Git 提交模板
 
-先用章内最小输入验证本章新增模块和失败路径，再接入 §7 登记的场景子例，完成 A15 和适用的 R15 后提交。分配核对项为控制流 opcode、PC 偏移单位、lane mask，新增或改动按 [编码与位段校验表](../design/allocation-audit.md)登记。
+先用章内最小输入验证本章新增模块和失败路径，再接入 §7 登记的场景子例，完成 A15 和适用的 R15 后提交。分配核对项包括控制流 opcode、PC 偏移单位、lane mask。变更按已有分配流程登记。
 
 ```text
 feat(gpu-ch15): schedule waves with divergent control flow

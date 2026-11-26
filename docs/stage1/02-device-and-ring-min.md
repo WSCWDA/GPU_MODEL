@@ -1,7 +1,5 @@
 # 第 2 章 设备 + 单环
 
-> 项目范围、阶段位置和交付以[任务规划](../README.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
-
 > 本章建立"提交 → 取指 → 派发 → 完成"的最小闭环：设备对象与 MMIO 寄存器块、单个命令环的读写指针、doorbell、CP 状态机、fence 写值与完成通知。本章结束时，一条只含 `STREAM_HEADER`/`NOP`/`FENCE` 的命令流可以从薄门面提交并确定性地完成。
 > 与本章相关的设计说明：`../architecture-design.md` §3.2（薄提交门面）、§3.3（`IEngine` 握手签名）、§3.10（回调链）；`../design/command-mmio.md` §1~§2、§4（包头、包类型、MMIO 分段）；`../design/sync-primitives.md` §2（fence 规则）；`../design/logging.md` §3（硬件行为校验）。
 > 落地模块：`hw_sim/core/{device,mmio,ring,cp,fence}`、`hw_sim/submit/facade`、`apps/scene_e1_clear_present`（本章只跑其提交子集）。
@@ -244,11 +242,11 @@ u64    LastSubmittedFence();          // 诊断用，不参与判据
 
 ## 2026-11-21 评审同步说明
 
-本章 MMIO 判据检查初级子集。MMIO 分段与高级偏移分别见 [命令与 MMIO 登记](../design/command-mmio.md)和 [第 10 章 §3.4](../stage2/10-device-ring-cp.md)，子集对齐待修项见 [设计评审剩余问题](../design/review-sync-20261121.md)。
+本章 MMIO 判据按 §3.3 核对初级子集。高级扩展由第 10 章 §3.4 承接，B-042 跟踪前后两阶段的偏移、权限和位宽。
 
 ## 执行切分与 Git 提交模板
 
-先用章内最小输入验证本章新增模块和失败路径，再接入 §7 登记的场景子例，完成 A2 和适用的 R2 后提交。分配核对项为MMIO 偏移、指针与 count 单位，新增或改动按 [编码与位段校验表](../design/allocation-audit.md)登记。
+先用章内最小输入验证本章新增模块和失败路径，再接入 §7 登记的场景子例，完成 A2 和适用的 R2 后提交。分配核对项包括MMIO 偏移、指针与 count 单位。变更按已有分配流程登记。
 
 ```text
 feat(gpu-ch02): submit and retire work through a single ring

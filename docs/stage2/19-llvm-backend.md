@@ -1,7 +1,5 @@
 # 第 19 章 LLVM 对照后端
 
-> 项目范围、阶段位置和交付以[任务规划](../README.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
-
 > 本章将同一 SSA 语义分别映射到手写后端与 LLVM 路径，对照编码合法性、ABI 与规范程序的执行结果。两套后端允许合法指令选择和寄存器分配不同，不要求 blob 逐字节相同；本章不阻塞第 20 章对象层开发。
 > 与本章相关的设计说明：`../design/compiler.md` §1~§3（Mesa NIR 形状对照 / 对照管线 / 任务归属）；ADR-012（LLVM 对照后置在 18 之后）。
 > 落地模块：`umd/shader/llvm`、`tools/llvm_compare`、`apps/scene_s3_triangle`（对照回归）。
@@ -182,7 +180,7 @@ LLVM JIT vs interpreter 仅作语义定位辅证
 
 ## 执行切分与 Git 提交模板
 
-先用章内最小输入验证本章新增模块和失败路径，再接入 §7 登记的场景子例，完成 A19 和适用的 R19 后提交。分配核对项为同一 opcode 与着色器 ABI，新增或改动按 [编码与位段校验表](../design/allocation-audit.md)登记。
+先用章内最小输入验证本章新增模块和失败路径，再接入 §7 登记的场景子例，完成 A19 和适用的 R19 后提交。分配核对项包括同一 opcode 与着色器 ABI。变更按已有分配流程登记。
 
 ```text
 feat(gpu-ch19): add the LLVM shader comparison backend

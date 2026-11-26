@@ -1,6 +1,6 @@
-# CPU 模拟 GPU 教学项目：总体设计与任务规划
+# CPU 模拟 GPU 教学项目：导读与教学工作稿
 
-> 文档性质：项目级主干规划与验收规格，定义项目目标、产品范围、阶段顺序、工作包、场景主线和最终交付。`docs/roadmap.md` 将本规划展开为章级任务、依赖与门禁；`architecture-design.md` 定义模块树和层间契约；`docs/design/` 定义跨章模块内部机制；`scene-specs.md` 冻结场景输入与判据；stage 文档细化章节实现与 DoD。各文档按职责维护，不以单一的全局优先级覆盖专业契约。
+> 本文用于整理导读、教学练习和阅读线索。正式实施由架构设计、路线图及模块和场景规格管理。
 >
 > 项目定位：在 CPU 上实现可追踪、可测试的 GPU 全栈软模型，以图形 draw 链路作为初级可视化主线，以计算 dispatch 作为高级共用执行单元与驱动扩展线，学习 GPU 执行模型、命令提交、内存层次、同步及图形/计算软件栈。它不是周期精确仿真器，不追求厂商 API/二进制兼容，也不承诺模拟特定 GPU 的全部细节。
 >
@@ -8,7 +8,7 @@
 
 ## 0. 项目导读与文档导航
 
-本 README 是项目总体设计与实施规格的主干，合并原任务规划与项目导读内容。它集中说明目标、范围、产品阶段、工作包、演示路线、验收门槛和最终交付。其他文档按专业职责细化，不再并列维护另一套项目总纲。
+本文汇总学习目标、练习顺序、展示思路和公开参考资料。
 
 项目用 CPU 实现可观察、可重复验证的 GPU 功能模型。学习者从 draw/dispatch 提交开始，追踪驱动层、命令处理、硬件单元、内存/同步与最终结果。初级阶段先完成图形首帧；高级阶段逐步补齐 GPU 内存、固定功能和可编程图形、并行、队列及驱动协作；最后完成计算管线和计算驱动。该项目模拟功能语义，不模拟周期级时序或真实 GPU 性能。
 
@@ -16,14 +16,14 @@
 
 | 文档 | 权责 |
 |---|---|
-| 本 README | 项目目标、范围、阶段与工作包、展示里程碑、验收框架和最终交付 |
-| [roadmap](roadmap.md) | 正式章号、章级任务、依赖、ADR、配置登记及逐章门禁 |
-| [架构设计](architecture-design.md) | 模块树、层次边界、数据流、跨层接口和 ABI |
-| [模块设计](design/) | 公共组件、内存、执行、同步、命令、编译器和计算驱动。跨章取号、地址与早期简化见 [公共组件设计](design/shared-foundation.md) |
+| 本文 | 教学导读、练习手册和展示提纲 |
+| [实施路线图](roadmap.md) | 实施范围、正式阶段、章级任务、依赖、ADR、配置登记、门禁与交付 |
+| [架构设计](architecture-design.md) | 技术目标与边界、模块树、层次边界、数据流、跨层接口和 ABI |
+| `design/*.md` | 模块内部机制与共用规则。跨章契约和早期简化见 `design/shared-foundation.md` |
 | [场景规约](design/scene-specs.md) | E0–E5 / S0–S19 的冻结输入、探针、判据与子 case |
-| 章节实施文档 | [stage1](stage1/) / [stage2](stage2/) / [stage3](stage3/)：分配给每章的实现范围、任务拆分和 DoD |
+| `stage1/`、`stage2/`、`stage3/` | 对应章节的实现步骤、交付物和 DoD |
 
-范围或阶段变化先修订本 README，再同步 roadmap 和受影响文档。模块契约、内部机制和场景判据分别由架构、模块设计和场景规约维护，章节文档不得复制并自行改变这些契约。
+范围或阶段调整在路线图登记。接口、内部机制与场景判据在对应规格中更新。
 
 [编码与位段校验表](design/allocation-audit.md)汇总命令包、MMIO、VA、ISA、寄存器和模块格式的占用与保留项。各章使用它核对自己申请或复用的字段。
 
@@ -72,7 +72,7 @@
 
 ### 2.1 分层架构与职责
 
-后续代码目录、模块职责和依赖方向以 [architecture-design.md](architecture-design.md) 的模块树为准；本文负责安排实现任务的先后、验收场景和 DoD。架构文档规定初级图形阶段经薄提交门面完成 E0–E5；高级图形 API 通过 HLI/UMD 接入，计算管线在第 37 章收口、计算驱动在第 38–42 章实现。EDU-00–EDU-05 的 vector_add 仅为早期 ISA/wave/内存功能验证，不改变图形优先的产品演进顺序。
+代码目录、模块职责和依赖方向由架构设计定义。初级图形阶段经薄提交门面完成 E0–E5。高级图形 API 通过 HLI/UMD 接入，第 37 章验收计算管线，第 38–42 章交付计算驱动。EDU-00–EDU-05 的 vector_add 可用于早期 ISA、wave 和内存自检。
 
 | 层 | 规范模块 | 职责与边界 |
 |---|---|---|
@@ -138,7 +138,7 @@ tests/ contract/ unit/ scenes/ golden/
 | EDU-06–EDU-08 | `hw_sim/shader`、`hw_sim/memory`、`tests/scenes` | SIMT 分歧、workgroup、共享内存与同步 |
 | EDU-09 | `hw_sim/submit`、`hw_sim/core/{ring,cp,interrupt,fence}`、`firmware` | 命令提交与完成通知 |
 | EDU-10 | `hw_sim/memory/{translation,heaps,residency}`、`kmd/memory` | VA 映射和驻留策略，模型与驱动职责分开 |
-| EDU-11 | `docs/design/compute-driver.md`、`tests/contract`、`tests/unit` | 仅审核对象关系、生命周期与错误边界；正式计算驱动实现归 WP7/WP8 |
+| EDU-11 | `docs/design/compute-driver.md`、`tests/contract`、`tests/unit` | 仅审核对象关系、生命周期与错误边界；计算管线与计算驱动分别由第 37 章与第 38–42 章实现 |
 | EDU-12 | `hw_sim/memory/cache` | 显式模拟 L1/L2，不读取宿主 CPU cache 作为 GPU cache 状态 |
 | EDU-13–EDU-14 | `hw_sim/shader/scheduler`、`umd/os/threads`、`tests` | 逻辑调度与 CPU worker 执行策略分离 |
 | EDU-15–EDU-16 | `hw_sim/core`、`hli/queue`、`kmd/scheduler`、`firmware/scheduler`、`tests` | 队列依赖、错误传播与恢复语义练习；计算 UMD 的 stream/event API 仍归 WP8 |
@@ -156,11 +156,11 @@ flowchart LR
     F --> G["hw_sim 执行与内存"]
 ```
 
-这条完整路径由正式 WP7/WP8 实现；EDU-11 仅梳理对象边界，不承担驱动闭环。EDU-00–EDU-05 的模型级 harness 用于验证 wave、ISA 和内存功能语义；EDU-09/EDU-10 提供命令提交与地址空间的局部练习。真实驱动不得直接调用执行单元，命令必须经 ring/doorbell/CP 进入模型；`hw_sim` 不识别应用 API、UMD 或 KMD 对象。
+这条完整路径由第 37–42 章实现；EDU-11 仅梳理对象边界，不承担驱动闭环。EDU-00–EDU-05 的模型级 harness 用于验证 wave、ISA 和内存功能语义；EDU-09/EDU-10 提供命令提交与地址空间的局部练习。真实驱动不得直接调用执行单元，命令必须经 ring/doorbell/CP 进入模型；`hw_sim` 不识别应用 API、UMD 或 KMD 对象。
 
 ## 3. 阶段总览
 
-项目区分两种用途：EDU-00–EDU-18 是辅助理解概念的模块级练习索引；正式产品演进以本规划的 WP0–WP8 和图形优先阶段为准，`roadmap.md` 将其展开为正式章级任务、依赖与门禁。EDU-05 的 vector_add 只作为 ISA/wave/内存的微型功能基线，不代替初级图形端到端场景 E5。练习可用于模块自检，但不得据此提前实现后续阶段的完整接口或改变 roadmap 顺序。
+EDU-00–EDU-18 用于辅助学习和模块自检。WP0–WP8 是按路线图整理的教学分组，正式任务、阶段、依赖及门禁以 `roadmap.md` 为准。
 
 | 正式产品阶段 | 章与工作包 | 学习/交付结果 | 阶段出口 |
 |---|---|---|---|
@@ -171,7 +171,7 @@ flowchart LR
 | 计算管线 | 第 37 章，WP7 | 直连 HLI 的计算 dispatch 与共用语义收口 | F 门禁通过，S18/S19 通过 |
 | 计算驱动 | 第 38–42 章，WP8 | context/module/function/stream/event、launch 与双入口 | G 门禁通过，A38–A42 全绿 |
 
-EDU-00–EDU-18 仅作为概念学习索引，不构成实现顺序或验收门禁；阶段顺序和任务依赖由 WP 与 roadmap 唯一确定。模块/章节体量用 S/M/L 表示；L 级正式章节必须按 roadmap 登记的子里程碑拆开验收。
+EDU-00–EDU-18 仅作为概念学习索引，不构成实现顺序或验收门禁；阶段顺序和任务依赖见 `roadmap.md`。模块/章节体量用 S/M/L 表示；L 级正式章节必须按 roadmap 登记的子里程碑拆开验收。
 
 ### 3.1 两条纵向主线与共用模块
 
@@ -203,13 +203,13 @@ EDU-00–EDU-18 仅作为概念学习索引，不构成实现顺序或验收门�
 
 WP4 中的 Tessellation/GS 会增加专门的 patch/control point 与生成数据流演示，帮助解释几何阶段间的数据暂存和复用。具体 cache、patch buffer、顶点流缓冲分别归属各自模块；不能把“所有阶段数据复用”都说成 L1/L2 命中。
 
-任务拆分和实施顺序见 [路线图 §2.1–§2.4](roadmap.md)。按能独立验证的原理和结果安排子里程碑，保留章号与场景门禁用于追溯。先确认地址、编号和责任边界，再按各阶段实际需要启用实现。
+任务拆分和实施顺序见 路线图 §2.1–§2.4。按能独立验证的原理和结果安排子里程碑，保留章号与场景门禁用于追溯。先确认地址、编号和责任边界，再按各阶段实际需要启用实现。
 
 
 
 ## 4. 模块级教学练习规格（辅助自检，不是正式交付任务）
 
-以下 EDU 练习用于把概念拆成可手算、可观察的学习单元，按“目标—范围—依赖—实施项—交付物—DoD”描述。它们不新增正式任务、门禁或场景；正式实现范围、顺序和 DoD 以 WP、roadmap、architecture-design、模块设计及 scene-specs 为准。练习内容若与正式契约不一致，以专业权威文档为准并修订本节。
+以下 EDU 练习将概念拆成可手算、可观察的单元，方便在正式章节之外独立调试。正式实现范围、顺序和 DoD 由路线图、章节和技术规格定义。
 
 ### 练习组 1：契约与单 wave 功能基线
 
@@ -481,7 +481,7 @@ flowchart TD
 
 1. EDU-00–EDU-05 是模块级功能练习，可配合第 1–9 章逐步实现；vector_add 只验证 ISA/wave/内存，不作为初级产品阶段出口。
 2. EDU-06–EDU-08 用于验证控制流、workgroup 和协作语义；执行到正式章节时按 roadmap 的依赖落位。
-3. EDU-09–EDU-11、EDU-12–EDU-14、EDU-15–EDU-18 分别提供提交/地址、GPU 内存/CPU worker、异步/诊断的模块级自检；正式实现仍按 §3.2 WP0–WP8 和 §9 门禁推进。
+3. EDU-09–EDU-11、EDU-12–EDU-14、EDU-15–EDU-18 分别提供提交/地址、GPU 内存/CPU worker、异步/诊断的模块级自检；正式实现按 `roadmap.md` §2.1 与 §2.3 推进。
 4. CPU worker 并行必须在 SIMT/workgroup 同步语义明确后启用；缓存/暂存优先验证数据生命周期和可见性，不以命中率优化作为门槛。
 5. 图形 UMD 在 HLI 契约稳定后实施；计算驱动在第 37 章计算管线收口后实施。
 
@@ -556,7 +556,7 @@ flowchart TD
 
 ## 9. 项目完成门禁
 
-本节定义项目阶段门禁的结构与出口；`roadmap.md` §2.3、§6.3 和 §8 展开为章级验收判据，`scene-specs.md` 冻结场景输入和判据。
+本节汇总各阶段的学习成果。阶段门禁、逐章验收和场景判据分别查阅 `roadmap.md` §2.3、§6.3、§8 及 `design/scene-specs.md`。
 
 | 正式门禁 | 范围 | 核心通过条件 |
 |---|---|---|
@@ -604,43 +604,43 @@ flowchart TD
 
 ---
 
-开工先确认本章已有的输入、唯一产物与首验，按章文档列出的独立向量或已交付场景子集验证。完整集成归首个具备全部依赖的章节。跨层共享的打包字、寄存器槽或地址范围按 [编码与位段校验表](design/allocation-audit.md)核对，新增值在实现前登记。各章末尾的 Git 提交模板须替换为实际完成的任务号及验证结果。
+开工先确认本章已有的输入、唯一产物与首验，按章文档列出的独立向量或已交付场景子集验证。完整集成归首个具备全部依赖的章节。跨层共享的打包字、寄存器槽或地址范围按 编码与位段校验表核对，新增值在实现前登记。各章末尾的 Git 提交模板须替换为实际完成的任务号及验证结果。
 
 ## 11. 推荐的开发拆解顺序
 
-本项目已有任务规划、roadmap、架构、模块、场景和 stage 资料。本文作为项目范围与交付主干；下一步按各文档职责推进并补齐实现级细节：
+以下顺序用于安排学习和自检。实施前按路线图确认直接依赖与适用的门禁。
 
 1. **核对开工基线**：以 roadmap 确认章号、依赖、ADR、能力档与正式门禁；以 architecture-design 确认目录树、层间接口和依赖方向；检查模块设计与 scene-specs 是否互相一致。
 2. **完成初级图形闭环**：按第 1–9 章顺序实现，从契约、薄提交门面、平坦内存、单波/ISA，到固定功能图形流水线、纹理与输出；每章运行对应 E 场景，最终 E5 完成一帧。
 3. **按 A–E 门禁扩展高级底座和图形**：逐章实现设备/内存/调度/编译器/资源/纹理/固定功能扩展/并行/队列/API 后端；L 级章节使用 roadmap 登记的子里程碑。
 4. **收口计算能力**：在第 20、29–34、35.1 等前置契约稳定后完成第 37 章直连 HLI 计算管线，再实现 stage3 第 38–42 章计算驱动；不倒置依赖或重复定义 HLI ABI。
-5. **每个任务都同步验收资料**：实现前确认输入、输出和错误契约；实现后补齐场景判据、回归矩阵、可读 trace/导出和文档链接；接口变更走 roadmap 的 ADR 流程。
+5. **每个任务都同步验收资料**：实现前确认输入、输出和错误契约；实现后补齐场景判据、回归矩阵、可读 trace 与输出；接口变更走 roadmap 的 ADR 流程。
 6. **以 §18 的最终提交物和展示单元收尾**：确保干净构建、headless 演示、E/S/A 回归、可复现输入和教程材料完整。
 
-章级详细依赖以 `roadmap.md` §3、§6 展开；EDU 练习图仅表达概念先后，不能用于开工判定。若 roadmap 与本文正式阶段主线冲突，应先修订本文的范围/阶段，再同步章级映射。
+章级依赖见 `roadmap.md` §3、§6。EDU 练习图表示概念上的学习顺序。
 
 ## 12. 教学练习与正式规划的关系
 
 EDU-00–EDU-18 是可选的概念练习和模块级自检索引；`roadmap.md` 的 1–42 章、E0–E5/S0–S19、A38–A42 才是正式任务与验收编号。两套编号不能互相替代，任何实现任务必须落到对应正式章节/子里程碑，不能以 EDU 练习为由改变阶段顺序。图形固定管线、编译器、API 后端和计算驱动均纳入完整项目范围，并按 roadmap 的能力档分期实现。
 
-文档职责如下：项目目标、范围、正式阶段和交付由本文确定；章号、章级任务、依赖和逐章门禁由 `roadmap.md` 展开；模块树与层间契约由 `architecture-design.md` 定义；模块内部机制由 `docs/design/` 定义；场景输入和判据由 `scene-specs.md` 冻结；stage 文档描述本章实现。EDU-00–EDU-18 只是教学练习索引，不替代正式章号或构成交付门禁。若跨文档出现项目范围或阶段冲突，先修订本文，再同步 roadmap 和受影响文档；若是接口、模块机制或场景判据冲突，则由相应专业文档的变更流程处理，并同步本文引用。
+项目技术边界与接口由架构设计维护，实施范围、阶段、依赖和交付由路线图维护。模块机制及场景判据由相应规格维护。本文的教学分组与练习按这些文档校对。
 
 
 ---
 
 ## 13. 参考实现与资料来源
 
-本项目借鉴已有 GPU 软件栈和公开架构资料来确定模块边界、对象生命周期、命令流、内存管理和同步语义。参考实现用于学习和交叉验证，不要求复制其代码，也不把任何一家厂商的实现当成唯一标准。项目自身的接口、简化假设和 DoD 仍由本文及后续模块设计文档定义。
+本项目借鉴公开 GPU 软件栈和架构资料理解模块边界、生命周期、命令流、内存与同步。具体接口、简化和 DoD 以相应架构、模块和章文档为准。
 
 ### 13.1 参考层次与用途
 
 | 参考类别 | 主要来源 | 重点观察内容 | 对本项目的用途与边界 |
 |---|---|---|---|
-| 图形用户态驱动 | [Mesa 源码树](https://gitlab.freedesktop.org/mesa/mesa)、[Mesa 源码目录说明](https://docs.mesa3d.org/sourcetree.html)、[RADV 文档](https://docs.mesa3d.org/drivers/radv.html) | Gallium 驱动分层、Vulkan API 到硬件接口的映射、资源/管线对象、命令构建、shader 编译、驱动测试 | 图形扩展和未来 UMD/HLI 设计的主要源码参考。Mesa 主要提供用户态驱动和编译器代码；不能据此推断未公开的 GPU 硬件内部实现，也不能把 Mesa 驱动直接等同于 KMD。 |
-| MUSA 计算软件栈 | [MUSA 开发者文档](https://developer.mthreads.com/musa)、[MooreThreads/torch_musa](https://github.com/MooreThreads/torch_musa)、[MooreThreads/tutorial_on_musa](https://github.com/MooreThreads/tutorial_on_musa) | Device/Context/Stream/Event 使用方式、内存与 kernel 调用接口、框架后端接入、扩展构建和测试组织 | 计算 Runtime/驱动适配层及教学示例的重要参考。公开仓库可以观察到的接口和框架集成，不能代表完整 MUSA 内核驱动、固件或编译器内部均已开源；未公开部分标记为未知，不按猜测补齐。 |
-| AMD 架构与计算栈 | [ROCm/HIP 文档](https://rocm.docs.amd.com/projects/HIP/en/latest/)、[HIP 硬件实现说明](https://rocm.docs.amd.com/projects/HIP/en/latest/understand/hardware_implementation.html)、[ROCm/amdgpu](https://github.com/ROCm/amdgpu)、[LLVM AMDGPU 使用文档](https://llvm.org/docs/AMDGPUUsage.html) | CU/wave/workgroup 的公开模型、内存与同步、命令/地址空间接口、驱动分层和 ISA 工具链 | 用于交叉检查 EDU-02–EDU-03、EDU-06–EDU-15 中的执行、内存、队列及驱动抽象。AMD 文档中的具体代际行为和数值不直接推广为通用 GPU 规则。 |
-| NVIDIA 架构与计算栈 | [CUDA Programming Guide](https://docs.nvidia.com/cuda/cuda-programming-guide/)、[PTX ISA](https://docs.nvidia.com/cuda/parallel-thread-execution/)、[NVIDIA/open-gpu-kernel-modules](https://github.com/NVIDIA/open-gpu-kernel-modules) | CUDA 设备/执行模型、PTX 虚拟 ISA、内存/同步语义、公开的 Linux 内核模块边界 | 用于与 AMD/MUSA 资料交叉检查通用概念和厂商差异。NVIDIA 开源内核模块并不等于完整用户态驱动和 GPU 硬件实现；PTX 也不是实际硬件机器码。 |
-| 行业规范与通用系统接口 | [Khronos Vulkan 规范](https://registry.khronos.org/vulkan/specs/)、[Linux DRM 文档](https://docs.kernel.org/gpu/)、[SPIR-V 规范](https://registry.khronos.org/SPIR-V/) | 显式资源、命令缓冲、队列、同步、对象生命周期、内核图形子系统接口 | 用于检查 API 契约、同步和分层设计是否自洽；规范规定可观察行为，不规定特定 GPU 内部如何实现。后续可纳入 OpenCL、其他开源驱动和学术/工业系统设计。 |
+| 图形用户态驱动 | Mesa 源码树、Mesa 源码目录说明、RADV 文档 | Gallium 驱动分层、Vulkan API 到硬件接口的映射、资源/管线对象、命令构建、shader 编译、驱动测试 | 图形扩展和未来 UMD/HLI 设计的主要源码参考。Mesa 主要提供用户态驱动和编译器代码；不能据此推断未公开的 GPU 硬件内部实现，也不能把 Mesa 驱动直接等同于 KMD。 |
+| MUSA 计算软件栈 | MUSA 开发者文档、MooreThreads/torch_musa、MooreThreads/tutorial_on_musa | Device/Context/Stream/Event 使用方式、内存与 kernel 调用接口、框架后端接入、扩展构建和测试组织 | 计算 Runtime/驱动适配层及教学示例的重要参考。公开仓库可以观察到的接口和框架集成，不能代表完整 MUSA 内核驱动、固件或编译器内部均已开源；未公开部分标记为未知，不按猜测补齐。 |
+| AMD 架构与计算栈 | ROCm/HIP 文档、HIP 硬件实现说明、ROCm/amdgpu、LLVM AMDGPU 使用文档 | CU/wave/workgroup 的公开模型、内存与同步、命令/地址空间接口、驱动分层和 ISA 工具链 | 用于交叉检查 EDU-02–EDU-03、EDU-06–EDU-15 中的执行、内存、队列及驱动抽象。AMD 文档中的具体代际行为和数值不直接推广为通用 GPU 规则。 |
+| NVIDIA 架构与计算栈 | CUDA Programming Guide、PTX ISA、NVIDIA/open-gpu-kernel-modules | CUDA 设备/执行模型、PTX 虚拟 ISA、内存/同步语义、公开的 Linux 内核模块边界 | 用于与 AMD/MUSA 资料交叉检查通用概念和厂商差异。NVIDIA 开源内核模块并不等于完整用户态驱动和 GPU 硬件实现；PTX 也不是实际硬件机器码。 |
+| 行业规范与通用系统接口 | Khronos Vulkan 规范、Linux DRM 文档、SPIR-V 规范 | 显式资源、命令缓冲、队列、同步、对象生命周期、内核图形子系统接口 | 用于检查 API 契约、同步和分层设计是否自洽；规范规定可观察行为，不规定特定 GPU 内部如何实现。后续可纳入 OpenCL、其他开源驱动和学术/工业系统设计。 |
 
 ### 13.2 参考来源到任务的映射
 
@@ -650,26 +650,26 @@ EDU-00–EDU-18 是可选的概念练习和模块级自检索引；`roadmap.md` 
 | EDU-01、EDU-10、EDU-12、EDU-14：地址、缓存与驻留 | AMDGPU/ROCm、NVIDIA 公共文档与开放内核模块、Mesa winsys | VA/资源句柄、页映射与权限、可见性/flush 语义、缓存模型边界；哪些信息属于公开接口，哪些属于硬件细节 |
 | EDU-02–EDU-08：Wave、ISA 与协作 | HIP 硬件说明、CUDA Programming Guide/PTX、LLVM AMDGPU、MUSA 教程 | lane/wave/workgroup 语义、控制流、参数和寄存器、barrier/atomic 作用域；跨厂商相同概念与不同定义 |
 | EDU-09、EDU-15、EDU-16：提交、队列与恢复 | Mesa 驱动提交路径、MUSA stream/event 接口、Vulkan 队列/同步、Linux DRM | 命令从用户态到内核态的职责边界；队列依赖表达；逻辑完成与错误恢复的传播路径 |
-| 图形选修线 | Mesa Gallium、RADV、RadeonSI、Vulkan 规范 | API 前端、状态追踪、管线创建、shader 编译、资源绑定与命令提交如何分层 |
+| 图形驱动与选做适配器 | Mesa Gallium、RADV、RadeonSI、Vulkan 规范 | API 前端、状态追踪、管线创建、shader 编译、资源绑定与命令提交如何分层 |
 | EDU-17：场景与回归 | Mesa 测试体系、torch_musa tests/examples、Vulkan CTS（可选） | 如何构造最小复现、能力判定和回归；如何让教学测试不依赖厂商硬件 |
-| EDU-18：日志与诊断工具 | Mesa 测试/调试产物、[Linux DRM 驱动开发指南](https://docs.kernel.org/gpu/) | 如何从稳定导出文件、日志和失败快照定位问题；工具接口与硬件实现解耦 |
+| EDU-18：日志与诊断工具 | Mesa 测试/调试产物、Linux DRM 驱动开发指南 | 如何从稳定导出文件、日志和失败快照定位问题；工具接口与硬件实现解耦 |
 
 ### 13.3 子模块设计文档与任务映射
 
-| 独立设计文档 | 本规划要落实的细节 | 对应工作包 |
+| 独立设计文档 | 学习时可查阅的内容 | 对应工作包 |
 |---|---|---|
-| [command-mmio.md](design/command-mmio.md) | packet/version/count、包类型登记、stateId/MMIO 分段、ring wrap/满判定、CP 唯一派发、位宽审计 | WP0、WP2、WP6 |
-| [memory-system.md](design/memory-system.md) | HostVa/GpuVAddr/PhysAddr 分离；硬件单元只能经 `IMemorySubsystem`；页表/TLB、三堆、cache/write buffer、flush、驻留、确定性分配与 sanitizer | WP1、WP2、WP5 |
-| [isa-abi.md](design/isa-abi.md)、[compiler.md](design/compiler.md) | 64-bit ISA、opcode/寄存器 ABI、往返汇编、编译器 SSA/CFG 到 ISA、LLVM 对照边界 | WP1、WP3 |
-| [compute-line.md](design/compute-line.md)、[compute-driver.md](design/compute-driver.md) | 计算最小通路、对象映射、module/function/参数 ABI、stream/event 生命周期、错误映射、双入口等价 | WP5、WP7、WP8 |
-| [execution-parallel.md](design/execution-parallel.md)、[sync-primitives.md](design/sync-primitives.md) | Strategy A/B、时间无关、固定归约顺序、workgroup barrier、队列同步与内存作用域 | WP5–WP8 |
-| [texture-unit.md](design/texture-unit.md) | 纹理格式、tiling、mip/LOD、过滤、寻址、采样器和异步延迟隐藏 | WP1、WP4 |
-| [boot-reset.md](design/boot-reset.md) | 初始化依赖、失败回滚、分层故障、watchdog、引擎级 reset 和重跑验证 | WP0、WP6 |
-| [logging.md](design/logging.md) | GD_LOG 等级、错误定位字段、MMIO 只读统计、断言分层；日志和统计不成为正确性来源 | WP0、WP2、WP6 |
-| [validation-model.md](design/validation-model.md)、[scene-specs.md](design/scene-specs.md) | E 场景全图字节判据、高级固定探针/CPU ref_model、容差、KFT、回归矩阵和 CI 诊断包 | WP1–WP8 |
-| [bit-budget.md](design/bit-budget.md) | packet/opcode/MMIO/VA/ring/heap 位宽容量审计；冻结前解决冲突，不在实现中临时扩位 | WP0、WP2、WP3 |
+| `design/command-mmio.md` | packet/version/count、包类型登记、stateId/MMIO 分段、ring wrap/满判定、CP 唯一派发、位宽审计 | WP0、WP2、WP6 |
+| `design/memory-system.md` | HostVa/GpuVAddr/PhysAddr 分离；硬件单元只能经 `IMemorySubsystem`；页表/TLB、三堆、cache/write buffer、flush、驻留、确定性分配与 sanitizer | WP1、WP2、WP5 |
+| `design/isa-abi.md`、`design/compiler.md` | 64-bit ISA、opcode/寄存器 ABI、往返汇编、编译器 SSA/CFG 到 ISA、LLVM 对照边界 | WP1、WP3 |
+| `design/compute-line.md`、`design/compute-driver.md` | 计算最小通路、对象映射、module/function/参数 ABI、stream/event 生命周期、错误映射、双入口等价 | WP5、WP7、WP8 |
+| `design/execution-parallel.md`、`design/sync-primitives.md` | Strategy A/B、时间无关、固定归约顺序、workgroup barrier、队列同步与内存作用域 | WP5–WP8 |
+| `design/texture-unit.md` | 纹理格式、tiling、mip/LOD、过滤、寻址、采样器和异步延迟隐藏 | WP1、WP4 |
+| `design/boot-reset.md` | 初始化依赖、失败回滚、分层故障、watchdog、引擎级 reset 和重跑验证 | WP0、WP6 |
+| `design/logging.md` | GD_LOG 等级、错误定位字段、MMIO 只读统计、断言分层；日志和统计不成为正确性来源 | WP0、WP2、WP6 |
+| `design/validation-model.md`、`design/scene-specs.md` | E 场景全图字节判据、高级固定探针/CPU ref_model、容差、KFT、回归矩阵和 CI 诊断包 | WP1–WP8 |
+| `design/bit-budget.md` | packet/opcode/MMIO/VA/ring/heap 位宽容量审计；冻结前解决冲突，不在实现中临时扩位 | WP0、WP2、WP3 |
 
-这些设计文档是模块实现的输入，不需要在任务规划中复写整套接口数值。每个工作包开工前记录采用的设计文档版本、相关 ADR、冻结接口及必须先决的未决项。
+按需查阅上表中的技术规格。开工依据、冻结接口与验收要求在对应章节和路线图中确认。
 
 ### 13.4 参考和裁决规则
 
@@ -681,7 +681,7 @@ EDU-00–EDU-18 是可选的概念练习和模块级自检索引；`roadmap.md` 
 6. **跟踪版本和许可**：源码引用固定到 tag/commit 或访问日期；本项目只记录和借鉴设计，不复制受许可证约束的代码。若确需复用代码，先单独核查许可证兼容性并记录来源。
 7. **允许扩展资料池**：后续补充的开源项目、规范、论文或业界设计纳入 reference-map.md，按上述分类和裁决规则评估，不因来源不在本节初始名单而排除。
 
-参考链接会随上游仓库和文档更新。每个具体模块设计文档提交时，应记录其实际查阅的版本/commit 和日期；本节的链接是入口清单，不视作冻结版本或对所有链接内容的永久背书。
+以下资料名称用于查找原始规范或源码。模块设计记录实际查看的文件、符号、版本和日期。
 
 
 ---
@@ -830,7 +830,7 @@ EDU-00–EDU-18 是可选的概念练习和模块级自检索引；`roadmap.md` 
 
 **前序回归集规则**：每章在场景与判据表的「回归项」中维护本章回归集 `R_n`。`R_n` 只包含本章变更直接影响、仍有效且未标记为 `SUPERSEDED` 的已交付场景/判据；契约变更由 ADR 列出受影响场景及替代判据。历史 `A1~A(n-1)` 仅是当时的验收记录，不自动组成当前章节的阻断回归集。未列入 `R_n` 的前序场景不得因历史 A 门禁自动阻断开工或验收。
 
-项目阶段门禁框架以本文 §9 为准，逐章/子任务证据由 `roadmap.md` §2.3、§6.3 展开，场景判据由 `scene-specs.md` 提供。单条 roadmap 正式任务或单章子里程碑通过，只说明该模块自检完成；只有同时满足正式场景、契约冻结和本章登记的 `R_n` 回归要求，才能声明 E/A–G 阶段完成。
+阶段验收以 `roadmap.md` §2.3、§6.3 和 `design/scene-specs.md` 为准。阶段完成需要对应场景、契约冻结及已登记的 `R_n` 回归通过。
 
 ### 17.3 教学顺序与研发约束
 
@@ -848,7 +848,7 @@ EDU-00–EDU-18 是可选的概念练习和模块级自检索引；`roadmap.md` 
 
 ### 18.1 最终提交物
 
-最终交付应是一个可从干净检出构建、可 headless 运行、可复现输入、可验证结果、可用于逐步教学的 CPU GPU 软模型仓库，至少包含：
+以下汇总适合配合教学演示检查的输出，正式交付物见 `roadmap.md` §9。
 
 | 交付类别 | 用户可见产物 | 完成判据 |
 |---|---|---|
@@ -862,7 +862,7 @@ EDU-00–EDU-18 是可选的概念练习和模块级自检索引；`roadmap.md` 
 
 ### 18.2 最终运行体验
 
-项目应支持一组简单、可复制的命令入口，具体命令以实现阶段冻结的 CLI 为准。演示优先按图形初级链路组织，再扩展共用底座与计算驱动：
+以下列出教学演示的常用操作。命令以实施阶段冻结的 CLI 为准。
 
 - 列出场景与能力：查看阶段、输入规模、所需模块、已实现/不支持的 capability。
 - 运行单场景：选择 E/S/C 场景和固定配置，输出结果文件与判定摘要。

@@ -1,7 +1,5 @@
 # 第 23 章 VGT / SPI
 
-> 项目范围、阶段位置和交付以[任务规划](../README.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
-
 > 本章定义 IA 与 VGT/SPI 的边界：IA 负责读取 index/restart 并装配顶点属性；VGT 接收已装配顶点和拓扑，形成图元流；前端派发器按完整图元切片；SPI 将切片转为 VS wave。命令数恒为 1，切片容量与 `worker_threads` 解耦（ADR-017/019）。
 > 与本章相关的设计说明：`../architecture-design.md` §3.3（`IEngine` 末参 `IShaderArray*`）；ADR-017/019（几何前端切片；SE 分区）；`../design/execution-parallel.md` §4（功能级流水线/背压）。
 > 落地模块：`hw_sim/frontend/vgt_spi`、`apps/scene_s5_model`（大顶点流）。
@@ -205,7 +203,7 @@ SPI 每波出队 → 分发到 CU/SIMD 波执行
 
 ## 执行切分与 Git 提交模板
 
-先用章内最小输入验证本章新增模块和失败路径，再接入 §7 登记的场景子例，完成 A23 和适用的 R23 后提交。分配核对项为图元 ID、切片容量和 ABI，新增或改动按 [编码与位段校验表](../design/allocation-audit.md)登记。
+先用章内最小输入验证本章新增模块和失败路径，再接入 §7 登记的场景子例，完成 A23 和适用的 R23 后提交。分配核对项包括图元 ID、切片容量和 ABI。变更按已有分配流程登记。
 
 ```text
 feat(gpu-ch23): slice the geometry stream for shader input

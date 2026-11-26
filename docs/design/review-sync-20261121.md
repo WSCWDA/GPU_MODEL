@@ -1,6 +1,6 @@
 # 设计评审待验证事项
 
-本清单记录实施待验证事项。原评审编号可查阅 Git 历史中的[问题评审原稿](https://github.com/WSCWDA/GPU_MODEL/blob/6a33e1234080e2860e9ece008dc360a1cb66f43a/docs/%E8%AE%BE%E8%AE%A1%E6%96%87%E6%A1%A3%E9%97%AE%E9%A2%98%E8%AF%84%E5%AE%A1-20261120.md)和[改进建议原稿](https://github.com/WSCWDA/GPU_MODEL/blob/6a33e1234080e2860e9ece008dc360a1cb66f43a/docs/GPU%20%E8%BD%AF%E6%A8%A1%E5%9E%8B%E8%AE%BE%E8%AE%A1%E8%AF%84%E5%AE%A1%E6%94%B9%E8%BF%9B%E5%BB%BA%E8%AE%AE%E6%96%87%E6%A1%A3.txt)。 本轮文档裁决见 [ADR-054～058](../roadmap.md#03-adr-决策清单)。旧待修项已写入责任章节及场景判据。
+本清单记录实施待验证事项。原评审材料可在 Git 历史提交 `6a33e1234080e2860e9ece008dc360a1cb66f43a` 中按文件名查找，即 `设计文档问题评审-20261120.md` 与 `GPU 软模型设计评审改进建议文档.txt`。文档层面的裁决见路线图 ADR-054～058，实施证据由对应章节收集。
 
 ## 实施待验证
 

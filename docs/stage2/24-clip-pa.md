@@ -1,7 +1,5 @@
 # 第 24 章 裁剪 + PA（图元装配）
 
-> 项目范围、阶段位置和交付以[任务规划](../README.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
-
 > 本章把初级"近平面 + 视口 6 平面 Sutherland-Hodgman"扩展为完整裁剪管线：guard band 裁剪、Clip/Cull Distance（`kVgprBaseDistance`=`v[68..75]`，8 项，clip 在前、cull 在后，ADR-033/Q-57/Q-64）、多视口索引、退化丢弃，并与 CPU 参考裁剪器对照。PA 在此负责把 VS/GS 后的顶点流装配成带拓扑的图元列表交光栅，并判定背面剔除（Q-61）。
 > 与本章相关的设计说明：`../design/isa-abi.md` §3（距离区 `kVgprBaseDistance`=`v[68..75]`）；ADR-033（顶点间固定距离区）；第 15（分歧）、第 22（拓扑）、第 23（切片）章为上游；第 25 章光栅为下游。
 > 落地模块：`hw_sim/frontend/clip_pa`、`apps/scene_s3_triangle`、`apps/scene_s5_model`。
@@ -204,7 +202,7 @@ scissor 属于光栅（25 章）；这里只做视口与深度范围。
 
 ## 执行切分与 Git 提交模板
 
-先用章内最小输入验证本章新增模块和失败路径，再接入 §7 登记的场景子例，完成 A24 和适用的 R24 后提交。分配核对项为Clip/Cull VGPR、PSO 位与拓扑，新增或改动按 [编码与位段校验表](../design/allocation-audit.md)登记。
+先用章内最小输入验证本章新增模块和失败路径，再接入 §7 登记的场景子例，完成 A24 和适用的 R24 后提交。分配核对项包括Clip/Cull VGPR、PSO 位与拓扑。变更按已有分配流程登记。
 
 ```text
 feat(gpu-ch24): clip primitives and assemble raster input

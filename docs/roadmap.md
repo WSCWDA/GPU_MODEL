@@ -1,8 +1,7 @@
 # GPU 驱动全栈软模型 — 总开发计划（Roadmap）
 
-> 定位：章级任务分解与执行路线图。它将 [项目总体设计与任务规划](README.md) 中的正式阶段和工作包展开为章号、任务、依赖与门禁，不另行决定项目总体范围或产品顺序。
-> 文档职责：项目范围、阶段和最终交付以任务规划为主干；本文件维护章号、章级任务、依赖、ADR、配置键及逐章验收；`architecture-design.md` 维护模块树与层间契约；`docs/design/` 维护模块内部机制；`scene-specs.md` 是场景输入与判据的唯一权威；各章文档细化实现。
-> 范围与正式阶段见 [README](README.md)。[架构设计](architecture-design.md)维护模块树和层间接口，[场景规约](design/scene-specs.md)维护输入和判据。42 章的任务编号、里程碑和依赖见本文件 §2.1。
+项目以 CPU 功能模型交付可复现的图形和计算驱动链路。本文件维护实施范围、章级任务、依赖、阶段门禁、ADR、配置与最终交付。
+[架构设计](architecture-design.md)定义技术边界、模块树与跨层接口，[场景规约](design/scene-specs.md)定义输入与判据。章级任务见 §2.1，阶段门禁见 §2.3，交付见 §9。
 
 ---
 
@@ -12,17 +11,18 @@
 
 | 文档 | 回答什么 | 不回答什么 | 何时维护 |
 |---|---|---|---|
-| 任务规划 | 项目目标、范围、正式阶段、工作包、里程碑展示与最终交付 | 章内任务细节、模块接口 | 需求或范围调整时 |
-| 本文件 | 章号、章级任务、依赖、逐章门禁、ADR、配置键 | 项目范围与模块内部实现细节 | 每章开工前 |
+| 本文件 | 实施范围、阶段、章级任务、依赖、验收、ADR、配置与交付 | 模块接口及内部实现细节 | 范围、任务或门禁变更时 |
 | `architecture-design.md` | 分层、模块树、数据流、接口契约与 ABI、横向机制 | 任务进度、模块内部细节 | 契约变更时 |
 | `docs/design/*.md` | 各子系统的模块内部设计（ISA/ABI、内存、同步、编译器、命令包/MMIO、日志、校验、执行并行、计算线、纹理、启动复位） | 跨模块契约与排期 | 模块设计变更时 |
 | `docs/design/bit-budget.md` | 位宽与地址空间**集中审计**（唯一审计基准：包类型 / `stateId` / MMIO / GPU VA / opcode / 环堆容量） | 具体分配登记（在 `command-mmio.md`/`isa-abi.md`） | 任一涉及包/MMIO/ISA/页表章节开工前（ADR-043/045） |
 | `stage1/NN-*.md`、`stage2/NN-*.md`、`stage3/NN-*.md` | 单章的目标、框图、输入输出契约、任务清单、DoD | 跨章排期 | 写到该章时 |
 | `docs/design/scene-specs.md` | E/S 场景的完整测试规约（单份文件，每场景一节：输入/判据/子 case/回归矩阵；并承载章节验收判据表） | 任务拆分与进度 | 场景输入或判据变更时（本文件 §7.4 工作流） |
 
-> 说明：原 `graphics/README.md`（大纲 + 章节总览 + 能力边界 + 配置键 + 场景概览）在 v1 重构中已并入本文件（§0.5 能力边界、§2.1 章节总览、§5.1 配置键、§8 验收判据）与 `docs/design/scene-specs.md`（场景规约）；原 `open-questions.md` 的 Q-01~Q-83 已全部定案，结论已并入正文（ADR / 章文档 / 场景规约），不再维护独立 Q 登记文件。
+历史 Q-01~Q-83 的决策已归入 ADR、章文档与场景规约。
 
 > 契约与设计细节的**单一来源**约定：层间接口 → `architecture-design.md` §3；模块内部设计 → `docs/design/`；任务/顺序/门禁/ADR → 本文件。一处内联、多处复制的做法在重构后废弃，详见 §4。
+
+正文首次引用直接使用的现行规格、必需前置章或验收文件时使用相对链接。重复引用和后续实现落点以文件名、节号或章号表达。
 
 ### 0.2 阶段与两条纵向线
 
@@ -33,7 +33,7 @@
 | 计算管线 | 37 | Compute 引擎、DISPATCH 与 workgroup 执行语义收口 | S18/S19 直连 HLI 路径通过 |
 | 计算驱动开发线（stage3） | 38~42 | MUSA 风格计算驱动落地与 demo：context/module/function/stream/event、LaunchKernel、参数打包、stream/event 异步、组内协作/间接派发/UAV 写回、双入口等价验收 | A38~A42 全绿；S18/S19 经计算驱动入口与直连 HLI 入口逐值等价；E/S 场景回归不退化 |
 
-- 项目整体阶段与工作包见任务规划；本节将其映射为章级阶段。图形线 / 计算线与共用单元的技术语义见 `docs/design/compute-line.md` §1~§2。
+- 图形、计算与共用单元的技术数据通路见 `docs/design/compute-line.md` §1~§2。
 - 计算线的设计（通路、workgroup/wave 映射、内存作用域、MUSA 驱动对象模型）见 `docs/design/compute-line.md`；计算线通路**开发任务以独立第 37 章收口**（ADR-013 修订，2026-11-19）；MUSA 风格计算驱动的对象模型与 ABI 见 `docs/design/compute-driver.md`，**开发任务以 stage3 新章 38~42（`docs/stage3/`，ADR-047）作为计算驱动开发线承载**，双入口等价为主验收。
 
 ### 0.3 ADR 决策清单
@@ -203,7 +203,7 @@
 
 ### 1.4 依赖规则
 
-调用、包提交及回调边界见 [架构设计 §2.5](architecture-design.md)。
+调用、包提交及回调边界见 架构设计 §2.5。
 
 
 ---
@@ -518,7 +518,7 @@
 | 谓词统一表示 | 33、34 | 谓词值统一 u64 + mask/cond 比较，bool 为特例（Q-70） |
 | 归约单位元 | 29 | REDUCE identity 按 op 定义（MIN=+∞ / MAX=−∞），允许部分 lane 活跃（Q-62） |
 | MMIO 偏移单位 | 2、3、6 | 一律 dword 索引；stateId n → `0x40+2n`，`0x50~0x7F` 保留（Q-31） |
-| 命令包号 | 32、33 | `PREDICATE=0x0D`、`BARRIER=0x0E`、`EXTENDED=0x0F`，载荷和子操作码见 [命令包登记](design/command-mmio.md) |
+| 命令包号 | 32、33 | `PREDICATE=0x0D`、`BARRIER=0x0E`、`EXTENDED=0x0F`，载荷和子操作码见 命令包登记 |
 
 > **初级提前落地备注（决策 #46，Q-36/Q-34/Q-35/Q-26/Q-27）**：ch3 写 `stateId 0/1`（第 10 章迁 FW，`docs/design/memory-system.md` §2、`stage1/03`）；ch5 以 `stateId=4` 承载常量区（`docs/design/command-mmio.md` §4、`stage1/05`）；PSO 暂存区补「字段→偏移」表含 `depthBaseVa`；`CLEAR` 分别锁存 `RT_WIDTH/RT_HEIGHT`（`stage1/02`/`stage1/03`，ch2 只存尺寸供校验）；`COPY_MEM` 仅 `dst==src` 允许重叠、其余 `InvalidArgument`（`stage1/03` D3.7）；跨章场景按当前交付能力选择子集（§8.2）。
 
@@ -799,7 +799,7 @@ Mesa（图形）与 MUSA（计算）分层借鉴的对应表见 `docs/design/com
 | fp32 `add / mul / fma / div / sqrt` | ≤ 1 ULP | 前提：参考模型用**同一 op 序与同一 FMA 合并规则**；`tolerances.toml` 可配置 |
 | fp32 超越函数（`sin / exp / log / pow`） | ≤ 2 ULP | 实现不同源，须在 `tolerances.toml` 登记 |
 | UNORM / sRGB 格式转换 | 逐字节 | 固定舍入规则（与 26 章同实现） |
-| 归约 / 原子累加 | ≤ 1 ULP + 顺序断言 | 遵循 [场景规约 §1.2](design/scene-specs.md) 的固定 `gtid` 顺序与组内树形组合 |
+| 归约 / 原子累加 | ≤ 1 ULP + 顺序断言 | 遵循 场景规约 §1.2 的固定 `gtid` 顺序与组内树形组合 |
 | 排序 tie-break | 稳定序断言 | 相等键按输入 `gtid` 定序 |
 
 > **容差权威（2026-11-20 定案，D4）**：容差权威已在 `docs/design/scene-specs.md` §1.2「计算数值口径」定案（fp32 基本运算 ≤1 ULP 且 `tolerances.toml` 可配置、归约顺序断言强制），并登记 `tools/ref_model/tolerances.toml`；本表只作引用。
@@ -818,7 +818,7 @@ Mesa（图形）与 MUSA（计算）分层借鉴的对应表见 `docs/design/com
 
 | 风险 | 触发点 | 缓解 | 判据 |
 |---|---|---|---|
-| 组驻留预算算错 → barrier 死锁 | 31 章 occupancy 账本 | 组整体排队规则（[架构设计 §3.12](architecture-design.md) M-03）+ 专项用例 1 | 不死锁、watchdog 不触发 |
+| 组驻留预算算错 → barrier 死锁 | 31 章 occupancy 账本 | 组整体排队规则（架构设计 §3.12 M-03）+ 专项用例 1 | 不死锁、watchdog 不触发 |
 | LDS bank 冲突被误判为正确性问题 | 30 章 LDS 布局 | 冲突只进软观测，fp32 结果 ≤1 ULP 通过、>1 ULP 阻断；同序 FMA 下 0 ULP 仅为诊断信息（scene-specs §1.2） | 冲突计数仅记录 |
 | 内存序遗漏（device 作用域未 flush） | 30、31、33 章 | 一致性矩阵逐格用例 + barrier 前后中间值快照 | 矩阵每格可复现 |
 | 末波 `LaneMask` 处理错误 | 4、31 章 | 专项用例 2（block=100） | 波数与 lane 有效性断言 |
@@ -888,17 +888,17 @@ Mesa（图形）与 MUSA（计算）分层借鉴的对应表见 `docs/design/com
 | B-034 | `DISPATCH_INDIRECT` | 间接派发 workgroup | PKT_TYPE `EXTENDED` → SubOp | `0x0F/0x0010` | 33、37、41 | ADR-043 | 永久 |
 | B-035 | `DMA_COPY` | DMA 引擎块拷贝 | PKT_TYPE `EXTENDED` → SubOp | `0x0F/0x0012` | 33 | ADR-043 | **2026-11-20 定案** |
 | B-036~B-041 | ADR-038 硬件上限六件套（CU LDS / CU 驻留波数 / `kMaxWorkgroups` / FIFO 深度 / 描述符堆项数 / `kMaxParamBufBytes`） | 上限与参数区容量登记 | `bit-budget.md` §7.1 登记位 | CU LDS 64 KiB/CU · 驻留 16 waves/CU · `kMaxWorkgroups` 2^20 · FIFO 8 项 · 描述符堆 64K 项 · `kMaxParamBufBytes` 4 KiB | 31、37 | ADR-038/043 | **2026-11-20 定案** |
-| B-042 | MMIO 实现审计 | 核对公共 dword 偏移、权限、位宽与各章启用子集 | MMIO (`hw_sim/include/hw_sim/mmio.h`) | [公共 MMIO 登记 §4](design/command-mmio.md) | 2、3、10、11 | ADR-043/054 | 各章核对自身子集，T10.1 汇总实现审计与前序回归，纳入阶段 A 门禁 |
+| B-042 | MMIO 实现审计 | 核对公共 dword 偏移、权限、位宽与各章启用子集 | MMIO (`hw_sim/include/hw_sim/mmio.h`) | 公共 MMIO 登记 §4 | 2、3、10、11 | ADR-043/054 | 各章核对自身子集，T10.1 汇总实现审计与前序回归，纳入阶段 A 门禁 |
 | B-043 | LDS/STS ISA opcode 分配 | `LDS=0x23`、`STS=0x24`；超出本表分配的 opcode 仍保留/拒绝 | opcode | 0x23/0x24 | 30 | ADR-043 | 永久 |
 | B-044 | `DRAW_INDIRECT` 子操作码 | `EXTENDED/0x0011` | PKT_TYPE `EXTENDED` → SubOp | `0x0F/0x0011` | 33 | ADR-043 | 永久 |
-| B-045 | DRAW v2 扩展 | 保留 6 dword 前缀，追加实例尾与索引尾 | DRAW 载荷 | [命令 §2.5](design/command-mmio.md) | 6、22 | ADR-059 | A6/A22 核对版本长度、有效位和算术边界 |
+| B-045 | DRAW v2 扩展 | 保留 6 dword 前缀，追加实例尾与索引尾 | DRAW 载荷 | 命令 §2.5 | 6、22 | ADR-059 | A6/A22 核对版本长度、有效位和算术边界 |
 | B-046 | Dispatch uniform 描述符 | 核对 8 槽完整写入 | VGPR uniform | 基址 56..60 | 20、37、39 | ADR-059 | D20.11/D37.4/A39 核对记录器和 CP |
 | B-047 | 模块 v1 布局 | 小端 magic、头和符号记录宽度、完整指令范围 | MUSA_MODULE_HDR / SymEntry | [计算驱动 §3](design/compute-driver.md) | 38 | ADR-059 | C1 按固定字节与拒绝性向量验收 |
 | `C1`~`C5` | 计算驱动 demo 入口 | stage3 收尾 demo（module_probe / vector_add / async_pipeline / reduce / indirect_dispatch） | 应用目录 `apps/demo_c*`；权威位置 `docs/stage3/` 章文档 + `compute-driver.md` §10（输入规格见 `scene-specs.md` S18/S19 输入规格表） | — | 38~42 | ADR-047 | 永久 |
 
 登记后该编号即成为该分配项的审计锚点，改动必须先改本表。
 
-章文档如需分配位、opcode、地址或寄存器范围，先填 [分配校验模板](design/allocation-audit.md)，同时核对完整跨度、读写者、保留值及首验章。
+章文档如需分配位、opcode、地址或寄存器范围，先填 分配校验模板，同时核对完整跨度、读写者、保留值及首验章。
 
 ### 7.4 契约变更工作流
 
@@ -976,7 +976,7 @@ Mesa（图形）与 MUSA（计算）分层借鉴的对应表见 `docs/design/com
 4. 第 32–36 章按 E 验收队列、命令链、查询、35.1 HLI 与错误路径。图形 API 适配器独立按能力交付。
 5. 第 37 章以直连 HLI 的 S18/S19 收口 F。第 38–42 章完成计算 UMD 及 G 的双入口对照和最终回归。
 
-| README 展示单元 | 可直接呈现的证据 | 正式任务与场景 |
+| 教学展示单元 | 可直接呈现的证据 | 正式任务与场景 |
 |---|---|---|
 | D1 命令与状态 | packet、ring 指针、CP 派发和完成 fence | 1–2、10，E0/S1 |
 | D2 第一帧 | IA、VS、裁剪/装配、光栅、PS、OM 和 RT 导出 | 3–9，E1–E5 |
@@ -986,7 +986,16 @@ Mesa（图形）与 MUSA（计算）分层借鉴的对应表见 `docs/design/com
 | D6 共用驱动层 | HLI、图形和计算 UMD、KMD 映射、FW/CP 提交与队列依赖。计算写入后图形等候并读取 | 10–14、20、32–37、39–40，S17 和 C3 加 S12/S16/S19 适用回归 |
 | D7 计算驱动 | module/function、LaunchKernel、stream/event、协作、间接写回与直连对照 | 37–42，C1–C5、S18/S19 |
 
-演示证据与最终交付按 [README §18](README.md)组织。D1–D7 是展示单元。可复现运行包包含场景输入与配置、原始输出、参考结果和必要 trace。日志按模块和等级过滤，窗口是 E 阶段可选调试工具，CI 读取 headless 产物。
+D1–D7 用于组织展示。可复现运行包包含场景输入、配置、原始输出、参考结果和必要 trace。日志按模块和等级过滤，窗口为 E 阶段可选调试工具，CI 读取 headless 产物。
+
+### 最终交付物
+
+| 交付项 | 产物与验收 |
+|---|---|
+| 构建与运行 | C++ 核心库、CLI 场景运行器、Windows/Linux 构建说明与脚本。从干净检出构建，支持 headless 枚举场景/能力、运行单例及回归 |
+| 图形与计算 | E0–E5 可复现帧产物，S0–S17 探针报告，S18/S19 和 C1–C5 的派发、同步与双入口差分结果。图形适配器按已声明能力单独验证 |
+| 校验与可观测 | raw/PNG 帧、公开状态快照、HTML/JSON 判定摘要与失败包。参考模型独立生成期望，辅助工具读取导出产物，trace 用于人工分析 |
+| 教学材料 | 架构与模块图、初级简化及替换点、分阶段教程、场景复现步骤和 ADR。文档中的接口、命令及通过条件与实现对应 |
 
 ## 2026-11-21 设计评审同步入口
 

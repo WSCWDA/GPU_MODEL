@@ -1,11 +1,9 @@
 # ISA 与 Shader ABI — 独立模块设计
 
-> 项目目标、范围、阶段与交付以[任务规划](../README.md)为主干；roadmap展开章级任务，architecture-design定义模块树与层间契约。本文负责本模块的内部技术设计。
-
 > 定位：定义 GPU 虚拟 ISA 的 64 bit 定长编码、opcode 区段与着色器寄存器 ABI 分区，是全栈共享（解释器、汇编器、反汇编器、编译器、LLVM 对照）的唯一权威。
 > 落地章：第 5 章初版（最小 ISA）、第 16 章冻结（完整编码与汇编器）；编译器 17~19 只消费本 ABI，不共享内部数据结构。
 > 权威来源：从 `architecture-design.md` §4.1 拆出；决策约束见 ADR-018 / ADR-033 / ADR-034、`roadmap.md` §4.3（Shader ABI 冻结）与 §2.8（补强项落位）。
-> 项目范围与阶段以任务规划为主干；本文件维护 ISA 编码和 shader ABI 的模块技术契约，architecture-design 维护层间契约，roadmap 登记编号并展开章级实施，stage 文档细化落地。
+新增 opcode 按 `../roadmap.md` §7.3 登记。
 
 ---
 
@@ -97,7 +95,7 @@
 
 ## 5. 与编译器 / LLVM 对照的关系
 
-- 编译器（`../docs/design/compiler.md`）与 `hw_sim` 的唯一连接是 `common` 的 ISA 定义与 Shader ABI，不共享内部数据结构。
+- 编译器（`compiler.md`）与 `hw_sim` 的唯一连接是 `common` 的 ISA 定义与 Shader ABI，不共享内部数据结构。
 - SSA ↔ LLVM IR 对照（第 19 章）验证本文件编码/ABI 与规范程序语义；后端生成不同合法指令序列是允许的。
 
 ## 6. 契约变更

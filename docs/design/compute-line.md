@@ -1,7 +1,5 @@
 # 计算线（含计算驱动）— 独立模块设计
 
-> 项目目标、范围、阶段与交付以[任务规划](../README.md)为主干；roadmap展开章级任务，architecture-design定义模块树与层间契约。本文负责本模块的内部技术设计。
-
 > 定位：定义高级阶段引入的第二条纵向功能线：计算最小通路、workgroup/wave 映射语义、内存作用域与 barrier、MUSA 对象模型的计算驱动、以及图形线内的预留点与启动条件。计算线通路与共用单元以独立第 37 章收口（ADR-013 修订，2026-11-19）；**计算驱动对象模型与 ABI 的驱动专属细节迁出到 `docs/design/compute-driver.md`**，计算驱动开发任务的 **stage3 新章 38~42**（`docs/roadmap.md` §0.2/§2.1 登记、`docs/stage3/`）作为 MUSA 风格计算驱动开发线承载。
 > 落地章：共用单元在第 20（kernel 参数与绑定）、29（波内协作）、30（组内协作）、31（三维 workgroup 映射）、32（队列与同步）、33（间接派发）、34（查询）、37（计算管线收口）章；计算驱动开发线在 stage3 新章 38~42（`docs/stage3/`）。
 > 权威来源：从 `architecture-design.md` §4.9 拆出，吸收 `roadmap.md` §2.1（两条纵向线与共用单元）、计算最小通路 / MUSA 借鉴 / 场景判据 / 门禁（原 §4.7，已并入本文件）、`roadmap.md` §6.1 预留点与 ADR-009 / ADR-013 / ADR-032；驱动对象模型与 ABI 详见 `docs/design/compute-driver.md`。
@@ -21,7 +19,7 @@ kernel（编译器产物或手写 ISA） → module / function 对象 → kernel
 
 1. 没有 IA / 光栅 / OM，输入是 grid 与参数缓冲，输出是内存而不是像素；
 2. **workgroup 是调度单位、wave 是执行单位**，二者映射必须显式建模（block 维度、越界 work-item、grid 边界的部分 workgroup）；**barrier 是组内跨 wave 同步**（组内全部 wave 到达才放行）；
-3. 内存作用域（workgroup / device）与 barrier 是正确性核心，不是可选优化（详见 `../docs/design/sync-primitives.md` §3）。
+3. 内存作用域（workgroup / device）与 barrier 是正确性核心，不是可选优化（详见 `sync-primitives.md` §3）。
 
 ## 2. MUSA 计算驱动分层（stage3 38~42 借鉴，非 API/二进制兼容）
 

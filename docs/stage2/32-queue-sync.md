@@ -1,7 +1,5 @@
 # 第 32 章 队列 + 同步
 
-> 项目范围、阶段位置和交付以[任务规划](../README.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
-
 > 本章多队列、多环落地：Graphics/Compute/Copy 三队列家族（每家族独立 ring 实例），`SIGNAL`/`WAIT` timeline semaphore、事件完成标记、跨队列家族所有权转移、以及异步计算队列。队列内命令按记录顺序、跨队列只由 fence/semaphore 定义顺序（ADR-024）。设计说明见 `../design/sync-primitives.md` §1~§2。
 > 与本章相关的设计说明：`../architecture-design.md` §3.3（IEngine）、§3.5（KMD Submit 扩展 queueId）；ADR-024（屏障/所有权转移）；`../design/command-mmio.md`（SIGNAL/WAIT/PREDICATE/BARRIER 包登记）；第 10 章单环扩展为多环。
 > 落地模块：`hw_sim/core/multiqueue`、`kmd/submission`、章内队列支架及 S12/S16。35.1 HLI 队列复用该提交路径。
@@ -77,7 +75,7 @@ Gfx Queue       Compute Queue   Copy Queue     (每队列各自 ring+tail+fence)
 目标队列：WAIT 成功 → ownership Acquire 完成 → 访问资源
 ```
 
-使用 [同步原语 §2.2](../design/sync-primitives.md) 的不可变提交描述和整资源配对校验。目标取得所有权后允许访问。
+使用 同步原语 §2.2 的不可变提交描述和整资源配对校验。目标取得所有权后允许访问。
 
 ---
 
@@ -195,7 +193,7 @@ Queue.WaitSemaphore(v): 达到目标则继续；生产者失败则结束依赖�
 
 ## 10. 待定项
 
-- 无进展和失败传播以 [同步原语 §2.1](../design/sync-primitives.md#21-提交完成与失败传播) 为准。局部验收用确定性故障替身，A36 再覆盖真实引擎失败。
+- 无进展和失败传播以 同步原语 §2.1 为准。局部验收用确定性故障替身，A36 再覆盖真实引擎失败。
 - timeline semaphore 的初始/销毁语义（值从 0 开始、不可逆）是否需 `Reset` 支持，留 stage3 38~42（计算驱动 event，原 35.5）收口。
 - 所有权转移的"自动"（无显式 release/acquire）是否默认存在：本期要求显式；若 S16 显示弱序用例难写，再评估默认所有权归当前提交者。
 
@@ -203,11 +201,11 @@ Queue.WaitSemaphore(v): 达到目标则继续；生产者失败则结束依赖�
 
 ## 2026-11-21 评审同步说明
 
-本章 BARRIER 的 3-dword 载荷见 [命令包登记 §2.3](../design/command-mmio.md)。
+本章 BARRIER 的 3-dword 载荷见 命令包登记 §2.3。
 
 ## 执行切分与 Git 提交模板
 
-先用章内最小输入验证本章新增模块和失败路径，再接入 §7 登记的场景子例，完成 A32 和适用的 R32 后提交。分配核对项为同步包、阶段/访问掩码与队列编号，新增或改动按 [编码与位段校验表](../design/allocation-audit.md)登记。
+先用章内最小输入验证本章新增模块和失败路径，再接入 §7 登记的场景子例，完成 A32 和适用的 R32 后提交。分配核对项包括同步包、阶段/访问掩码与队列编号。变更按已有分配流程登记。
 
 ```text
 feat(gpu-ch32): synchronize queues and transfer ownership

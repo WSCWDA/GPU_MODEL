@@ -1,7 +1,5 @@
 # 第 30 章 组内协作（workgroup + LDS）
 
-> 项目范围、阶段位置和交付以[任务规划](../README.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
-
 > 本章引入 workgroup 级协作：shared memory（LDS/STS）、原子操作、组内 barrier（workgroup 作用域同步）与内存序/作用域。workgroup 是调度单位、wave 是执行单位；barrier 要等组内全部 wave 到达后才放行。本章以独立 workgroup 单元用例验收，不提前承担 S19 场景主验收（归第 37 章）。设计说明见 `../design/sync-primitives.md` §3、`../design/compute-line.md` §1。
 > 与本章相关的设计说明：`../architecture-design.md` §3.8（kernel 参数）；ADR-034；`../design/isa-abi.md` §2（opcode 区段）与 §3（LDS/atomic 默认作用域）；第 15 章（Suspend/Resume）；`../design/execution-parallel.md` §4/§5（wave 是执行单位）。
 > 落地模块：`hw_sim/shader/shared`、`apps/scene_s10_reduce`（子 case）、`apps/scene_s19_compute_memory`（`case-0`/`case-1`）。
@@ -240,7 +238,7 @@ AcqRel/SeqCst：双向可见序。
 
 ## 执行切分与 Git 提交模板
 
-先用章内最小输入验证本章新增模块和失败路径，再接入 §7 登记的场景子例，完成 A30 和适用的 R30 后提交。分配核对项为LDS/STS、同步/原子 opcode 与作用域，新增或改动按 [编码与位段校验表](../design/allocation-audit.md)登记。
+先用章内最小输入验证本章新增模块和失败路径，再接入 §7 登记的场景子例，完成 A30 和适用的 R30 后提交。分配核对项包括LDS/STS、同步/原子 opcode 与作用域。变更按已有分配流程登记。
 
 ```text
 feat(gpu-ch30): synchronize waves within a workgroup

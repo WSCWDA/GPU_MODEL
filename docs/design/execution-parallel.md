@@ -1,7 +1,5 @@
 # 执行与并行模型 — 独立模块设计
 
-> 项目目标、范围、阶段与交付以[任务规划](../README.md)为主干；roadmap展开章级任务，architecture-design定义模块树与层间契约。本文负责本模块的内部技术设计。
-
 > 定位：定义 SIMT 执行与调度、波调度、双执行策略（策略 A 确定性串行 / 策略 B 硬件对齐并行）、SE/CU 阵列分区与 occupancy 资源上限，以及"时间无关 + 确定性"的全局规则。
 > 落地章：第 4 章 SIMT 单波（初级）、第 15 章分歧与波调度、第 31 章 SE + CU 阵列（策略 B 落地）；延迟隐藏（ADR-036）落在第 15、21 章。
 > 权威来源：从 `architecture-design.md` §4.8 拆出，吸收确定性模型与双执行策略（原 §6，已并入本文件）与 ADR-006 / ADR-007 / ADR-019 / ADR-035 / ADR-036 / ADR-038。
@@ -34,7 +32,7 @@
 
 - 任何并行度、线程数、调度顺序下，硬判据必须一致；任何硬判据不一致一律先视为缺陷，而不是"并行正常波动"。
 - **内存别名与重排序**：硬件单元不会自动消除内存别名、不会自动插入屏障，严格按照内存序执行读写；别名是上层应用/驱动责任；模拟器核心硬件路径不做全局别名检测（开销大），别名检测仅作为 tools 调试工具、可开关、不改变结果。
-- **分配可复现**：随机行为绑定可复现伪随机种子，禁止直接调用主机全局 `rand()`（`../docs/design/memory-system.md` §7）。
+- **分配可复现**：随机行为绑定可复现伪随机种子，禁止直接调用主机全局 `rand()`（`memory-system.md` §7）。
 - 位姿可复算：只由 `(scene_id, frame_index, camera_params, model_matrix)` 决定。
 - 遍历顺序固定、归约顺序固定、平局可判、内存序显式（完整清单见 `roadmap.md` §5.5）。
 
@@ -62,4 +60,4 @@ CU 驻留 wave 数、SGPR/VGPR/LDS 总容量、FIFO 深度、描述符堆容量�
 
 ## 2026-11-21 评审同步说明
 
-并行执行细节见 [第 31 章](../stage2/31-se-cu-array.md)。serial 提供基线，parallel 使用多个 CPU worker 推进 CU/workgroup slot，同一 CU 通过确定性的 wave 步进支持组内 barrier。每 wave 指令预算见 [启动与复位](boot-reset.md)。
+并行执行细节见 第 31 章。serial 提供基线，parallel 使用多个 CPU worker 推进 CU/workgroup slot，同一 CU 通过确定性的 wave 步进支持组内 barrier。每 wave 指令预算见 [启动与复位](boot-reset.md)。

@@ -25,16 +25,16 @@
 | 编码空间 | 已登记占用与边界 | 权威与使用章 |
 |---|---|---|
 | 包头 u32 | `[31:28]` 顶层类型、`[27:16]` 总 dword 数（含头）、`[15:0]` 按包种解释。16 个顶层包号已全部登记 | [命令 §1–2](command-mmio.md)，1/2/10 |
-| EXTENDED 的 SubOp | `0001` 绑定表、`0002` 参数记录、`0010` 间接派发、`0011` 间接绘制、`0012` DMA。间接族预留 `0010..001F`，未登记号无使用权 | [命令 §2.1](command-mmio.md)，20/33/37/39/41，B-032~035、B-044 |
-| DRAW payload 与 flags | v1 前缀 dword `0..5`，v2 实例尾 `6..8`、索引尾 `9..12`。flags 位于 dword 2，仅 bit0 已分配 | [命令 §2.5](command-mmio.md)，6/22，B-045 |
-| BARRIER payload | dword 0 的 kind、scope、memOrder、accessMask 依次各占 8 bit。dword 1/2 各为一个阶段掩码，具体值见待登记项 | [命令 §2.3](command-mmio.md)，20/32/41 |
-| PSO 与其他 flags | PSO 使用 bit0..3，其余保留，MMIO `0x93` 镜像相同定义。`STREAM_HEADER.flags`、`INDIRECT.flags` 当前写 0 | [命令 §2.6、§4](command-mmio.md)，1/6/10/33 |
-| MMIO 窗口 | 256 dword。直接 `stateId 0..7` 各占两字，从 `0x40` 到 `0x4F`。整段 `0x50..0x7F` 保留。PSO 已用 `0x80..0x93`，追加区 `0x94..0xDF` 保留。RT 宽、高各一字 `0xE0/0xE1` | [命令 §3–4](command-mmio.md)，2/3/6/10/11，B-042 |
+| EXTENDED 的 SubOp | `0001` 绑定表、`0002` 参数记录、`0010` 间接派发、`0011` 间接绘制、`0012` DMA。间接族预留 `0010..001F`，未登记号无使用权 | 命令 §2.1，20/33/37/39/41，B-032~035、B-044 |
+| DRAW payload 与 flags | v1 前缀 dword `0..5`，v2 实例尾 `6..8`、索引尾 `9..12`。flags 位于 dword 2，仅 bit0 已分配 | 命令 §2.5，6/22，B-045 |
+| BARRIER payload | dword 0 的 kind、scope、memOrder、accessMask 依次各占 8 bit。dword 1/2 各为一个阶段掩码，具体值见待登记项 | 命令 §2.3，20/32/41 |
+| PSO 与其他 flags | PSO 使用 bit0..3，其余保留，MMIO `0x93` 镜像相同定义。`STREAM_HEADER.flags`、`INDIRECT.flags` 当前写 0 | 命令 §2.6、§4，1/6/10/33 |
+| MMIO 窗口 | 256 dword。直接 `stateId 0..7` 各占两字，从 `0x40` 到 `0x4F`。整段 `0x50..0x7F` 保留。PSO 已用 `0x80..0x93`，追加区 `0x94..0xDF` 保留。RT 宽、高各一字 `0xE0/0xE1` | 命令 §3–4，2/3/6/10/11，B-042 |
 | ISA u64 | `[63]` SFLAG、`[62:56]` opcode、`[55:48]` dst、`[47:40]` src0、`[39:32]` src1、`[31:0]` imm32；opcode `0x7E` 非法、`0x7F` EXIT | [ISA §1–2](isa-abi.md)，5/16/21/28–30 |
-| ABI VGPR 槽 | 属性 `0..15`、VS `16..27`、HS `28..35`、PS `36..55`、uniform `56..67`、距离 `68..75`、临时 `76..127`。未启用区仍保留 | [ISA §3](isa-abi.md)，4/6/17–19/24/26/28 |
-| Compute DISPATCH 及参数区 | payload dword `0..17`，flags 在 dword 17 使用 bit0/1。参数描述符写 8 连续 VGPR，基址 `56..60`。参数本体是 GART 字节区间，独立受 B-041 限制 | [命令 §2.2](command-mmio.md)、[架构 §3.8/3.11](../architecture-design.md)，20/37/39，B-046 |
+| ABI VGPR 槽 | 属性 `0..15`、VS `16..27`、HS `28..35`、PS `36..55`、uniform `56..67`、距离 `68..75`、临时 `76..127`。未启用区仍保留 | ISA §3，4/6/17–19/24/26/28 |
+| Compute DISPATCH 及参数区 | payload dword `0..17`，flags 在 dword 17 使用 bit0/1。参数描述符写 8 连续 VGPR，基址 `56..60`。参数本体是 GART 字节区间，独立受 B-041 限制 | 命令 §2.2、[架构 §3.8/3.11](../architecture-design.md)，20/37/39，B-046 |
 | 模块 v1 | `ModuleHdr` 固定 32 B，`SymEntry` 每项 28 B，flags 在记录偏移 24 B 使用 bit0/1，映射到 DISPATCH。同一语义分属两个字段。代码偏移、入口、代码基址按 8 B 对齐，符号表按 4 B 对齐，名称按字节定位 | [计算驱动 §3–5](compute-driver.md)，38，B-047 |
-| 间接派发记录 | VA 16 B 对齐，读取 28 B，包括 6 个维度 u32 和一个保留零字。kernel 参数 VA 由 `SET_KERNEL_ARGS` 记录 | [命令 §2.1](command-mmio.md)，33/37/41，B-034 |
+| 间接派发记录 | VA 16 B 对齐，读取 28 B，包括 6 个维度 u32 和一个保留零字。kernel 参数 VA 由 `SET_KERNEL_ARGS` 记录 | 命令 §2.1，33/37/41，B-034 |
 | GPU VA | 36 有效位。页目录 `[35:24]`、页表 `[23:12]`、4 KiB 页内偏移 `[11:0]`。高 28 位必须为 0，ASID 单独携带，GART/VRAM 以登记基址与实际容量核对 | [内存系统](memory-system.md)，11/14，B-007 |
 
 ### 最小正反例

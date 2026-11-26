@@ -1,7 +1,5 @@
 # 第 39 章 LaunchKernel——kernel 参数打包与首次派发
 
-> 项目范围、阶段位置和交付以[任务规划](../README.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
-
 > 本章是 **stage3 计算驱动开发线（38~42）** 的第二章。在第 38 章 module/function 对象骨架之上，实现计算驱动的**参数打包与首次派发**：应用 `kernel(args...)` → 驱动收集 `ArgPack{ptr,bytes}[]` → 六条校验 → 写 GART `HOST_VISIBLE|HOST_COHERENT` 参数缓冲 → 生成 `KernelArgsLayout` → `IHliPipeline(kernel).SetKernel` → `IHliCommandList.Dispatch(grid,block)` → 队列提交；Compute 引擎派发主路径（CP 解析 `DISPATCH` → Compute 引擎 → 读 `SET_KERNEL_ARGS` → 装载 `paramBufVa/grid/block` 到 VGPR uniform 区 `v[56..67]` → workgroup 展开到 `se`）。以 Demo C2 `vector_add` 双入口（直连 HLI / 计算驱动）等价验证为核心验收。
 > 设计权威：参数打包 ABI 与六条校验见 `../design/compute-driver.md` §5；`KernelArgsLayout` 见 `../architecture-design.md` §3.8；`DispatchDesc` 与 D-01~D-13 见 §3.11；映射公式与 uniform 区见 §3.12、`../design/isa-abi.md` §3；错误码映射见 §3.9；WA-01 见 `../architecture-design.md` §7.9，计算通路见 `../design/compute-line.md` §1/§2。
 > 编号纪律：本章不新增编号；复用 `DISPATCH=0x04`、`SET_KERNEL_ARGS=0x0F/0x0002`（ADR-043/047）；不新增 HLI 接口（ADR-032）；开工前对照 `../design/bit-budget.md` 审计（ADR-045）。
@@ -218,7 +216,7 @@ block 容量上限见 [架构设计 §3.11](../architecture-design.md)。本章�
 
 ## 执行切分与 Git 提交模板
 
-先用章内最小输入验证本章新增模块和失败路径，再接入 §7 登记的场景子例，完成 A39 和适用的 R39 后提交。分配核对项为参数对齐、VA、描述符基址和生命周期，新增或改动按 [编码与位段校验表](../design/allocation-audit.md)登记。
+先用章内最小输入验证本章新增模块和失败路径，再接入 §7 登记的场景子例，完成 A39 和适用的 R39 后提交。分配核对项包括参数对齐、VA、描述符基址和生命周期。变更按已有分配流程登记。
 
 ```text
 feat(gpu-ch39): pack kernel arguments and launch a first dispatch

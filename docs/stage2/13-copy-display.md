@@ -1,7 +1,5 @@
 # 第 13 章 Copy Engine + Display
 
-> 项目范围、阶段位置和交付以[任务规划](../README.md)为主干；roadmap展开章级任务，architecture-design规定模块树与层间契约。本章只细化分配给本章的实现和验收，不单方面改变整体范围、正式顺序或跨层契约。
-
 > 本章把 `COPY_MEM` 从"CP 同步执行"迁到独立 Copy Engine 引擎实例，并把初级"立即读 RT 上屏"替换为真实显示控制器：逐行扫描、翻转（flip）、vsync。两条线共享同一 `IMemorySubsystem`，都走 `VA → TLB → L2`。
 > 与本章相关的设计说明：`../architecture-design.md` §3.3（`IEngine` 统一签名，Copy 引擎 `sa=nullptr`）；`../design/memory-system.md` §8（Copy/Display 统一走翻译）；`../design/sync-primitives.md` §1（fence）；ADR-015（BGRA 字节序）延续。
 > 落地模块：`hw_sim/periph/copy`、`hw_sim/periph/display`、`hw_sim/core/cp` 追加 `COPY_MEM` 引擎派发、`apps/scene_s2_clear`、`apps/scene_e1`（迁移到新 Display）。
@@ -208,7 +206,7 @@ ScanNextLine: y=ScanY()
 
 ## 执行切分与 Git 提交模板
 
-先用章内最小输入验证本章新增模块和失败路径，再接入 §7 登记的场景子例，完成 A13 和适用的 R13 后提交。分配核对项为拷贝偏移单位、RT 锁存，新增或改动按 [编码与位段校验表](../design/allocation-audit.md)登记。
+先用章内最小输入验证本章新增模块和失败路径，再接入 §7 登记的场景子例，完成 A13 和适用的 R13 后提交。分配核对项包括拷贝偏移单位、RT 锁存。变更按已有分配流程登记。
 
 ```text
 feat(gpu-ch13): copy resources and export latched frames
